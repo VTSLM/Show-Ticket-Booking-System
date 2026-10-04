@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = 20
     DB_ECHO: bool = False
 
-    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     DEFAULT_TIMEZONE: str = "Asia/Kolkata"
     DEFAULT_CURRENCY: str = "INR"
