@@ -1,7 +1,10 @@
 import {
   CreateEventPayload,
   CreateShowPayload,
+  CreateVenuePayload,
+  CreateScreenInput,
   EventItem,
+  ScreenItem,
   SeatCountInfo,
   ShowHandoffData,
   ShowItem,
@@ -68,6 +71,32 @@ export async function fetchVenues(): Promise<VenueItem[]> {
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: "Failed to fetch venues" }));
     throw new Error(error.detail || "Failed to fetch venues");
+  }
+  return res.json();
+}
+
+export async function createVenue(payload: CreateVenuePayload): Promise<VenueItem> {
+  const res = await fetch(`${BACKEND_URL}/api/manager/venues`, {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Failed to create cinema venue" }));
+    throw new Error(error.detail || "Failed to create cinema venue");
+  }
+  return res.json();
+}
+
+export async function createVenueScreen(venueId: string, payload: CreateScreenInput): Promise<ScreenItem> {
+  const res = await fetch(`${BACKEND_URL}/api/manager/venues/${venueId}/screens`, {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Failed to add screen" }));
+    throw new Error(error.detail || "Failed to add screen");
   }
   return res.json();
 }
