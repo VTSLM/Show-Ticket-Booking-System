@@ -149,3 +149,36 @@ export async function fetchShowHandoff(showId: string): Promise<ShowHandoffData>
   }
   return res.json();
 }
+
+export async function deleteEvent(eventId: string): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/api/manager/events/${eventId}`, {
+    method: "DELETE",
+    headers: getHeaders(),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Failed to delete movie" }));
+    throw new Error(error.detail || "Failed to delete movie");
+  }
+}
+
+export async function deleteShow(showId: string): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/api/manager/shows/${showId}`, {
+    method: "DELETE",
+    headers: getHeaders(),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Failed to delete show" }));
+    throw new Error(error.detail || "Failed to delete show");
+  }
+}
+
+export async function deleteVenue(venueId: string): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/api/manager/venues/${venueId}`, {
+    method: "DELETE",
+    headers: getHeaders(),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Failed to delete cinema venue" }));
+    throw new Error(error.detail || "Failed to delete cinema venue");
+  }
+}

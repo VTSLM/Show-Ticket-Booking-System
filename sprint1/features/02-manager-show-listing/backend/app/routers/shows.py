@@ -52,3 +52,13 @@ async def get_pricing_handoff(
     Provides show metadata, screen ID, and validated physical seat count.
     """
     return await show_service.get_show_handoff(show_id)
+
+@router.delete("/{show_id}")
+async def delete_show(
+    show_id: str,
+    manager: ManagerUser = Depends(get_current_manager)
+):
+    """
+    Delete a scheduled show.
+    """
+    return await show_service.delete_show(show_id)

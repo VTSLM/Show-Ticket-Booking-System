@@ -6,6 +6,7 @@ interface EventListProps {
   loading: boolean;
   onSelectEventForShow: (eventId: string) => void;
   onOpenCreateEvent: () => void;
+  onDeleteEvent?: (eventId: string) => void;
 }
 
 export default function EventList({
@@ -13,6 +14,7 @@ export default function EventList({
   loading,
   onSelectEventForShow,
   onOpenCreateEvent,
+  onDeleteEvent,
 }: EventListProps) {
   if (loading) {
     return (
@@ -136,12 +138,24 @@ export default function EventList({
                   REF: {event.id.substring(0, 8)}
                 </div>
 
-                <button
-                  onClick={() => onSelectEventForShow(event.id)}
-                  className="flex-1 rounded-2xl bg-blue-600 px-4 py-3 text-center text-xs font-bold text-white shadow-glow hover:bg-blue-500 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  + Schedule Show
-                </button>
+                <div className="flex items-center gap-2 flex-1">
+                  <button
+                    onClick={() => onSelectEventForShow(event.id)}
+                    className="flex-1 rounded-2xl bg-blue-600 px-4 py-3 text-center text-xs font-bold text-white shadow-glow hover:bg-blue-500 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    + Schedule Show
+                  </button>
+                  {onDeleteEvent && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteEvent(event.id)}
+                      className="rounded-2xl border border-rose-500/30 bg-rose-950/30 px-3.5 py-3 text-xs font-bold text-rose-400 hover:bg-rose-900/50 hover:text-rose-200 transition-colors"
+                      title="Delete movie"
+                    >
+                      🗑️
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
