@@ -44,12 +44,24 @@ class EventResponse(BaseModel):
     updated_at: datetime
 
 # Venue & Screen Schemas
+class ScreenCreateInput(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Screen name, e.g. Screen 1, IMAX")
+    capacity: int = Field(..., gt=0, description="Auditorium seating capacity (must be greater than 0)")
+
 class ScreenResponse(BaseModel):
     id: str
     venue_id: str
     name: str
     capacity: int
     created_at: Optional[datetime] = None
+
+class VenueCreateRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=200, description="Cinema venue name")
+    address: Optional[str] = Field(None, description="Address or Mall location")
+    city: str = Field(..., min_length=2, max_length=100, description="City")
+    state: Optional[str] = Field(None, max_length=100, description="State")
+    pincode: Optional[str] = Field(None, max_length=20, description="Postal / PIN code")
+    screens: Optional[List[ScreenCreateInput]] = Field(default_factory=list, description="Initial screens to create")
 
 class VenueResponse(BaseModel):
     id: str

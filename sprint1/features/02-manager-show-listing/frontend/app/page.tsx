@@ -7,6 +7,7 @@ import EventList from "../components/EventList";
 import ShowList from "../components/ShowList";
 import CreateEventModal from "../components/CreateEventModal";
 import CreateShowModal from "../components/CreateShowModal";
+import CreateVenueModal from "../components/CreateVenueModal";
 import { fetchEvents, fetchShows, fetchVenues } from "../lib/api";
 import { EventItem, ShowItem, VenueItem } from "../lib/types";
 
@@ -20,6 +21,7 @@ export default function ManagerDashboard() {
   const [activeTab, setActiveTab] = useState<"events" | "shows">("shows");
 
   // Modals state
+  const [isVenueModalOpen, setIsVenueModalOpen] = useState(false);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isShowModalOpen, setIsShowModalOpen] = useState(false);
   const [selectedEventForShow, setSelectedEventForShow] = useState<string | undefined>(undefined);
@@ -58,6 +60,11 @@ export default function ManagerDashboard() {
     loadData();
   }, []);
 
+  function handleVenueCreated(newVenue: VenueItem) {
+    setVenues((prev) => [...prev, newVenue]);
+    showToast(`Cinema venue "${newVenue.name}" successfully created!`);
+  }
+
   function handleEventCreated(newEvent: EventItem) {
     setEvents((prev) => [newEvent, ...prev]);
     showToast(`Event "${newEvent.title}" successfully saved to Supabase!`);
@@ -77,6 +84,7 @@ export default function ManagerDashboard() {
     <div className="min-h-screen bg-[#050711] text-slate-100 flex flex-col">
       {/* Navbar matching reference */}
       <Navbar
+        onOpenCreateVenue={() => setIsVenueModalOpen(true)}
         onOpenCreateEvent={() => setIsEventModalOpen(true)}
         onOpenCreateShow={() => {
           setSelectedEventForShow(undefined);
@@ -212,6 +220,12 @@ export default function ManagerDashboard() {
       </main>
 
       {/* Modals */}
+      <CreateVenueModal
+        isOpen={isVenueModalOpen}
+        onClose={() => setIsVenueModalOpen(false)}
+        onVenueCreated={handleVenueCreated}
+      />
+
       <CreateEventModal
         isOpen={isEventModalOpen}
         onClose={() => setIsEventModalOpen(false)}
