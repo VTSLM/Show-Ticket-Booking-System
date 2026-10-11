@@ -5,11 +5,16 @@ import { fetchHealth } from "../lib/api";
 import Link from "next/link";
 
 interface NavbarProps {
+  onOpenCreateVenue: () => void;
   onOpenCreateEvent: () => void;
   onOpenCreateShow: () => void;
 }
 
-export default function Navbar({ onOpenCreateEvent, onOpenCreateShow }: NavbarProps) {
+export default function Navbar({
+  onOpenCreateVenue,
+  onOpenCreateEvent,
+  onOpenCreateShow,
+}: NavbarProps) {
   const [dbStatus, setDbStatus] = useState<string>("checking");
   const [dbConnected, setDbConnected] = useState<boolean>(false);
 
@@ -74,10 +79,17 @@ export default function Navbar({ onOpenCreateEvent, onOpenCreateShow }: NavbarPr
 
           {/* Action Buttons matching the reference blue styling */}
           <button
+            onClick={onOpenCreateVenue}
+            className="rounded-2xl border border-blue-500/30 bg-blue-950/40 px-3.5 py-2.5 text-xs font-bold text-blue-400 hover:border-blue-500 hover:text-white transition-all shadow-sm flex items-center gap-1.5"
+          >
+            <span>🏛️</span>
+            <span>+ Add Cinema</span>
+          </button>
+          <button
             onClick={onOpenCreateEvent}
             className="rounded-2xl border border-slate-700/80 bg-slate-900/80 px-4 py-2.5 text-xs font-bold text-slate-200 hover:border-blue-500 hover:text-white transition-all shadow-sm"
           >
-            + New Event
+            + New Movie
           </button>
           <button
             onClick={onOpenCreateShow}

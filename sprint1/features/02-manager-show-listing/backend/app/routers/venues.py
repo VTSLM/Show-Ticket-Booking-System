@@ -2,9 +2,103 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.auth import ManagerUser, get_current_manager
 from app.database import fetch_all, fetch_one
-from app.models import ScreenResponse, VenueResponse
+from app.models import ScreenCreateInput, ScreenResponse, VenueCreateRequest, VenueResponse
 
 router = APIRouter(prefix="/venues", tags=["Manager Venues"])
+
+@router.post("", response_model=VenueResponse, status_code=status.HTTP_201_CREATED)
+async def create_venue(
+    request: VenueCreateRequest,
+    manager: ManagerUser = Depends(get_current_manager),
+):
+    """
+    Create a new cinema venue with optional initial auditorium screens.
+    """
+    insert_venue_query = """
+        INSERT INTO venues (name, address, city, state, pincode)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id::text, name, address, city, state, pincode;
+    """
+    venue_row = await fetch_one(
+        insert_venue_query,
+        request.name.strip(),
+        request.address.strip() if request.address else None,
+        request.city.strip(),
+        request.state.strip() if request.state else None,
+        request.pincode.strip() if request.pincode else None,
+    )
+    if not venue_row:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create cinema venue."
+        )
+
+    venue_id = venue_row["id"]
+    created_screens = []
+
+    # Insert initial screens if provided
+    if request.screens:
+        for s in request.screens:
+            insert_screen_query = """
+                INSERT INTO screens (venue_id, name, capacity)
+                VALUES ($1::uuid, $2, $3)
+                RETURNING id::text, venue_id::text, name, capacity, created_at;
+            """
+            screen_row = await fetch_one(
+                insert_screen_query,
+                venue_id,
+                s.name.strip(),
+                s.capacity,
+            )
+            if screen_row:
+                created_screens.append(ScreenResponse(**screen_row))
+
+    result = dict(venue_row)
+    result["screens"] = created_screens
+    return VenueResponse(**result)
+
+@router.post("/{venue_id}/screens", response_model=ScreenResponse, status_code=status.HTTP_201_CREATED)
+async def create_venue_screen(
+    venue_id: str,
+    request: ScreenCreateInput,
+    manager: ManagerUser = Depends(get_current_manager),
+):
+    """
+    Add a screen/auditorium to an existing cinema venue.
+    """
+    venue_check = await fetch_one("SELECT id FROM venues WHERE id = $1::uuid;", venue_id)
+    if not venue_check:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Venue with id '{venue_id}' not found."
+        )
+
+    insert_screen_query = """
+        INSERT INTO screens (venue_id, name, capacity)
+        VALUES ($1::uuid, $2, $3)
+        RETURNING id::text, venue_id::text, name, capacity, created_at;
+    """
+    try:
+        screen_row = await fetch_one(
+            insert_screen_query,
+            venue_id,
+            request.name.strip(),
+            request.capacity,
+        )
+    except Exception as e:
+        if "unique" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"A screen named '{request.name}' already exists in this venue."
+            )
+        raise e
+
+    if not screen_row:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create screen."
+        )
+    return ScreenResponse(**screen_row)
 
 @router.get("", response_model=List[VenueResponse])
 async def list_venues(

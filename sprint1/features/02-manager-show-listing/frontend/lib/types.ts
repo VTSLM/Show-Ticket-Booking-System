@@ -98,3 +98,18 @@ export interface CreateShowPayload {
   start_time: string;
   end_time?: string;
 }
+
+export interface CreateScreenInput {
+  name: string;
+  capacity: number;
+}
+
+export interface CreateVenuePayload {
+  name: string;
+  address?: string;
+  city: string;
+  state?: string;
+  pincode?: string;
+  screens?: CreateScreenInput[];
+}
+
