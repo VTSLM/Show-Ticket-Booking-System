@@ -8,8 +8,16 @@ import ShowList from "../components/ShowList";
 import CreateEventModal from "../components/CreateEventModal";
 import CreateShowModal from "../components/CreateShowModal";
 import CreateVenueModal from "../components/CreateVenueModal";
-import { fetchEvents, fetchShows, fetchVenues } from "../lib/api";
-import { EventItem, ShowItem, VenueItem } from "../lib/types";
+import VenueList from "../components/VenueList";
+import {
+  deleteEvent,
+  deleteShow,
+  deleteVenue,
+  fetchEvents,
+  fetchShows,
+  fetchVenues,
+} from "../lib/api";
+import { EventItem, ScreenItem, ShowItem, VenueItem } from "../lib/types";
 
 export default function ManagerDashboard() {
   const [events, setEvents] = useState<EventItem[]>([]);
@@ -18,7 +26,7 @@ export default function ManagerDashboard() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"events" | "shows">("shows");
+  const [activeTab, setActiveTab] = useState<"events" | "shows" | "venues">("shows");
 
   // Modals state
   const [isVenueModalOpen, setIsVenueModalOpen] = useState(false);
@@ -65,6 +73,16 @@ export default function ManagerDashboard() {
     showToast(`Cinema venue "${newVenue.name}" successfully created!`);
   }
 
+  function handleScreenAdded(venueId: string, newScreen: ScreenItem) {
+    setVenues((prev) =>
+      prev.map((v) => {
+        if (v.id !== venueId) return v;
+        return { ...v, screens: [...(v.screens || []), newScreen] };
+      })
+    );
+    showToast(`Auditorium "${newScreen.name}" added to cinema!`);
+  }
+
   function handleEventCreated(newEvent: EventItem) {
     setEvents((prev) => [newEvent, ...prev]);
     showToast(`Event "${newEvent.title}" successfully saved to Supabase!`);
@@ -73,6 +91,51 @@ export default function ManagerDashboard() {
   function handleShowCreated(newShow: ShowItem) {
     setShows((prev) => [newShow, ...prev]);
     showToast(`Show successfully scheduled!`);
+  }
+
+  async function handleDeleteShow(showId: string) {
+    if (!confirm("Are you sure you want to delete this show?")) return;
+    try {
+      await deleteShow(showId);
+      setShows((prev) => prev.filter((s) => s.id !== showId));
+      showToast("Show successfully deleted!");
+    } catch (err: any) {
+      showToast(err.message || "Failed to delete show");
+    }
+  }
+
+  async function handleDeleteEvent(eventId: string) {
+    if (
+      !confirm(
+        "Are you sure you want to delete this movie? Any scheduled shows for it will also be deleted."
+      )
+    )
+      return;
+    try {
+      await deleteEvent(eventId);
+      setEvents((prev) => prev.filter((e) => e.id !== eventId));
+      setShows((prev) => prev.filter((s) => s.event_id !== eventId));
+      showToast("Movie successfully deleted!");
+    } catch (err: any) {
+      showToast(err.message || "Failed to delete movie");
+    }
+  }
+
+  async function handleDeleteVenue(venueId: string) {
+    if (
+      !confirm(
+        "Are you sure you want to delete this cinema venue? All associated screens and shows will also be removed."
+      )
+    )
+      return;
+    try {
+      await deleteVenue(venueId);
+      setVenues((prev) => prev.filter((v) => v.id !== venueId));
+      setShows((prev) => prev.filter((s) => s.venue_id !== venueId));
+      showToast("Cinema venue successfully deleted!");
+    } catch (err: any) {
+      showToast(err.message || "Failed to delete cinema venue");
+    }
   }
 
   function openShowModalWithEvent(eventId: string) {
@@ -157,7 +220,7 @@ export default function ManagerDashboard() {
           <div className="flex items-center gap-2 rounded-2xl bg-[#090d1a] p-1.5 border border-slate-800">
             <button
               onClick={() => setActiveTab("shows")}
-              className={`rounded-xl px-5 py-2 text-xs font-bold transition-all ${
+              className={`rounded-xl px-4 sm:px-5 py-2 text-xs font-bold transition-all ${
                 activeTab === "shows"
                   ? "bg-blue-600 text-white shadow-glow"
                   : "text-slate-400 hover:text-white"
@@ -167,18 +230,28 @@ export default function ManagerDashboard() {
             </button>
             <button
               onClick={() => setActiveTab("events")}
-              className={`rounded-xl px-5 py-2 text-xs font-bold transition-all ${
+              className={`rounded-xl px-4 sm:px-5 py-2 text-xs font-bold transition-all ${
                 activeTab === "events"
                   ? "bg-blue-600 text-white shadow-glow"
                   : "text-slate-400 hover:text-white"
               }`}
             >
-              🎬 Movie Catalogue ({events.length})
+              🎬 Movies ({events.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("venues")}
+              className={`rounded-xl px-4 sm:px-5 py-2 text-xs font-bold transition-all ${
+                activeTab === "venues"
+                  ? "bg-blue-600 text-white shadow-glow"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              🏛️ Cinemas ({venues.length})
             </button>
           </div>
 
           <div className="hidden sm:block">
-            {activeTab === "shows" ? (
+            {activeTab === "shows" && (
               <button
                 onClick={() => {
                   setSelectedEventForShow(undefined);
@@ -188,7 +261,8 @@ export default function ManagerDashboard() {
               >
                 + Schedule New Show
               </button>
-            ) : (
+            )}
+            {activeTab === "events" && (
               <button
                 onClick={() => setIsEventModalOpen(true)}
                 className="text-xs font-bold text-blue-400 hover:text-blue-300"
@@ -196,11 +270,19 @@ export default function ManagerDashboard() {
                 + Add Movie to Catalogue
               </button>
             )}
+            {activeTab === "venues" && (
+              <button
+                onClick={() => setIsVenueModalOpen(true)}
+                className="text-xs font-bold text-blue-400 hover:text-blue-300"
+              >
+                + Add Cinema Venue
+              </button>
+            )}
           </div>
         </div>
 
         {/* Tab View */}
-        {activeTab === "shows" ? (
+        {activeTab === "shows" && (
           <ShowList
             shows={shows}
             loading={loading}
@@ -208,13 +290,25 @@ export default function ManagerDashboard() {
               setSelectedEventForShow(undefined);
               setIsShowModalOpen(true);
             }}
+            onDeleteShow={handleDeleteShow}
           />
-        ) : (
+        )}
+        {activeTab === "events" && (
           <EventList
             events={events}
             loading={loading}
             onSelectEventForShow={openShowModalWithEvent}
             onOpenCreateEvent={() => setIsEventModalOpen(true)}
+            onDeleteEvent={handleDeleteEvent}
+          />
+        )}
+        {activeTab === "venues" && (
+          <VenueList
+            venues={venues}
+            loading={loading}
+            onOpenCreateVenue={() => setIsVenueModalOpen(true)}
+            onDeleteVenue={handleDeleteVenue}
+            onScreenAdded={handleScreenAdded}
           />
         )}
       </main>

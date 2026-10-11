@@ -1,6 +1,6 @@
 from typing import List, Optional
 from fastapi import HTTPException, status
-from app.database import fetch_all, fetch_one
+from app.database import execute, fetch_all, fetch_one
 from app.models import EventCreateRequest
 
 async def list_events() -> List[dict]:
@@ -61,3 +61,41 @@ async def create_event(data: EventCreateRequest) -> dict:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Error inserting event into database: {err_msg}"
         )
+
+async def delete_event(event_id: str) -> dict:
+    event = await get_event_by_id(event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Movie/event with ID {event_id} not found."
+        )
+
+    # Check for active bookings in shows for this event
+    booking_check = await fetch_one(
+        """
+        SELECT COUNT(*) as count
+        FROM bookings b
+        JOIN shows sh ON sh.id = b.show_id
+        WHERE sh.event_id = $1::uuid;
+        """,
+        event_id
+    )
+    if booking_check and booking_check["count"] > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete movie because scheduled shows have active customer bookings."
+        )
+
+    # Delete show_seats for all shows of this event
+    await execute(
+        """
+        DELETE FROM show_seats
+        WHERE show_id IN (SELECT id FROM shows WHERE event_id = $1::uuid);
+        """,
+        event_id
+    )
+    # Delete shows
+    await execute("DELETE FROM shows WHERE event_id = $1::uuid;", event_id)
+    # Delete event
+    await execute("DELETE FROM events WHERE id = $1::uuid;", event_id)
+    return {"message": "Movie successfully deleted", "id": event_id}

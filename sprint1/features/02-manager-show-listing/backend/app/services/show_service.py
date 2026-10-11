@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import HTTPException, status
-from app.database import fetch_all, fetch_one
+from app.database import execute, fetch_all, fetch_one
 from app.models import ShowCreateRequest, ShowHandoffResponse
 from app.services.seat_service import get_screen_seat_info
 
@@ -162,3 +162,28 @@ async def get_show_handoff(show_id: str) -> ShowHandoffResponse:
         pricing_route=pricing_route,
         integration_notes="Handoff to Feature 04: Seat categories and pricing must be configured before show is publicly bookable."
     )
+
+async def delete_show(show_id: str) -> dict:
+    show = await get_show_by_id(show_id)
+    if not show:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Show with ID {show_id} not found."
+        )
+
+    # Check for active bookings
+    booking_check = await fetch_one(
+        "SELECT COUNT(*) as count FROM bookings WHERE show_id = $1::uuid;",
+        show_id
+    )
+    if booking_check and booking_check["count"] > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete show because active customer bookings exist for it."
+        )
+
+    # Delete show_seats for this show
+    await execute("DELETE FROM show_seats WHERE show_id = $1::uuid;", show_id)
+    # Delete show
+    await execute("DELETE FROM shows WHERE id = $1::uuid;", show_id)
+    return {"message": "Show successfully deleted", "id": show_id}

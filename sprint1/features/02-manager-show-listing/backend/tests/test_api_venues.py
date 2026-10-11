@@ -71,3 +71,25 @@ def test_create_venue_screen(client):
         data = res.json()
         assert data["name"] == "Audi 2 (4DX)"
         assert data["capacity"] == 120
+
+def test_delete_venue_success(client):
+    fake_venue_id = "v1111111-2222-3333-4444-555555555555"
+    venue_check = {"id": fake_venue_id, "name": "PVR Forum"}
+    booking_check = {"count": 0}
+
+    with patch("app.routers.venues.fetch_one", side_effect=[venue_check, booking_check]), \
+         patch("app.routers.venues.execute", new_callable=AsyncMock) as mock_exec:
+        res = client.delete(f"/api/manager/venues/{fake_venue_id}")
+        assert res.status_code == 200
+        assert res.json()["message"] == "Cinema venue deleted successfully"
+        assert mock_exec.call_count == 5
+
+def test_delete_venue_with_bookings_fails(client):
+    fake_venue_id = "v1111111-2222-3333-4444-555555555555"
+    venue_check = {"id": fake_venue_id, "name": "PVR Forum"}
+    booking_check = {"count": 3}
+
+    with patch("app.routers.venues.fetch_one", side_effect=[venue_check, booking_check]):
+        res = client.delete(f"/api/manager/venues/{fake_venue_id}")
+        assert res.status_code == 400
+        assert "active bookings" in res.json()["detail"].lower()
