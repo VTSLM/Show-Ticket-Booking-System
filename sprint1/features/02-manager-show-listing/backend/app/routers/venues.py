@@ -1,7 +1,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.auth import ManagerUser, get_current_manager
-from app.database import fetch_all, fetch_one
+from app.database import execute, fetch_all, fetch_one
 from app.models import ScreenCreateInput, ScreenResponse, VenueCreateRequest, VenueResponse
 
 router = APIRouter(prefix="/venues", tags=["Manager Venues"])
@@ -150,3 +150,59 @@ async def list_venue_screens(
     """
     screens = await fetch_all(query, venue_id)
     return screens
+
+@router.delete("/{venue_id}")
+async def delete_venue(
+    venue_id: str,
+    manager: ManagerUser = Depends(get_current_manager)
+):
+    """
+    Delete a cinema venue and all its associated screens and shows.
+    """
+    venue_check = await fetch_one("SELECT id, name FROM venues WHERE id = $1::uuid;", venue_id)
+    if not venue_check:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Venue with id '{venue_id}' not found."
+        )
+
+    # Check for active bookings in shows for this venue
+    booking_check = await fetch_one(
+        """
+        SELECT COUNT(*) as count
+        FROM bookings b
+        JOIN shows s ON s.id = b.show_id
+        JOIN screens sc ON sc.id = s.screen_id
+        WHERE sc.venue_id = $1::uuid;
+        """,
+        venue_id
+    )
+    if booking_check and booking_check["count"] > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete cinema venue because shows scheduled in this venue have active bookings."
+        )
+
+    # Clean up show_seats, shows, seats, screens, and venue
+    await execute(
+        """
+        DELETE FROM show_seats
+        WHERE show_id IN (
+            SELECT id FROM shows WHERE screen_id IN (
+                SELECT id FROM screens WHERE venue_id = $1::uuid
+            )
+        );
+        """,
+        venue_id
+    )
+    await execute(
+        "DELETE FROM shows WHERE screen_id IN (SELECT id FROM screens WHERE venue_id = $1::uuid);",
+        venue_id
+    )
+    await execute(
+        "DELETE FROM seats WHERE screen_id IN (SELECT id FROM screens WHERE venue_id = $1::uuid);",
+        venue_id
+    )
+    await execute("DELETE FROM screens WHERE venue_id = $1::uuid;", venue_id)
+    await execute("DELETE FROM venues WHERE id = $1::uuid;", venue_id)
+    return {"message": "Cinema venue deleted successfully", "id": venue_id}

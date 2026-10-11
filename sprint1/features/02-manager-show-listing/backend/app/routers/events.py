@@ -40,3 +40,13 @@ async def get_event(
             detail=f"Event with ID {event_id} not found."
         )
     return event
+
+@router.delete("/{event_id}")
+async def delete_event(
+    event_id: str,
+    manager: ManagerUser = Depends(get_current_manager)
+):
+    """
+    Delete a movie/event and its associated shows.
+    """
+    return await event_service.delete_event(event_id)

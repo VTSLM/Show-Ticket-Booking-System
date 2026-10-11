@@ -6,9 +6,15 @@ interface ShowListProps {
   shows: ShowItem[];
   loading: boolean;
   onOpenCreateShow: () => void;
+  onDeleteShow?: (showId: string) => void;
 }
 
-export default function ShowList({ shows, loading, onOpenCreateShow }: ShowListProps) {
+export default function ShowList({
+  shows,
+  loading,
+  onOpenCreateShow,
+  onDeleteShow,
+}: ShowListProps) {
   if (loading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -177,12 +183,24 @@ export default function ShowList({ shows, loading, onOpenCreateShow }: ShowListP
                   )}
                 </div>
 
-                <Link
-                  href={pricingUrl}
-                  className="block w-full rounded-2xl bg-blue-600 py-3.5 text-center text-xs font-bold text-white shadow-glow hover:bg-blue-500 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                >
-                  Continue to Seat Selection & Pricing →
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={pricingUrl}
+                    className="flex-1 rounded-2xl bg-blue-600 py-3 text-center text-xs font-bold text-white shadow-glow hover:bg-blue-500 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  >
+                    Pricing & Seats →
+                  </Link>
+                  {onDeleteShow && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteShow(show.id)}
+                      className="rounded-2xl border border-rose-500/30 bg-rose-950/30 px-3.5 py-3 text-xs font-bold text-rose-400 hover:bg-rose-900/50 hover:text-rose-200 transition-colors"
+                      title="Delete show"
+                    >
+                      🗑️
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>

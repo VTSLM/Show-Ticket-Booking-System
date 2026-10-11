@@ -81,3 +81,27 @@ def test_create_show_invalid_end_time(client):
         },
     )
     assert response.status_code == 422
+
+def test_delete_show_success(client):
+    fake_show_id = "sh111111-2222-3333-4444-555555555555"
+    fake_show = {"id": fake_show_id, "event_title": "Show To Delete"}
+    booking_check = {"count": 0}
+
+    with patch("app.services.show_service.get_show_by_id", new=AsyncMock(return_value=fake_show)), \
+         patch("app.services.show_service.fetch_one", new=AsyncMock(return_value=booking_check)), \
+         patch("app.services.show_service.execute", new_callable=AsyncMock) as mock_exec:
+        res = client.delete(f"/api/manager/shows/{fake_show_id}")
+        assert res.status_code == 200
+        assert res.json()["message"] == "Show successfully deleted"
+        assert mock_exec.call_count == 2
+
+def test_delete_show_with_bookings_fails(client):
+    fake_show_id = "sh111111-2222-3333-4444-555555555555"
+    fake_show = {"id": fake_show_id, "event_title": "Booked Show"}
+    booking_check = {"count": 4}
+
+    with patch("app.services.show_service.get_show_by_id", new=AsyncMock(return_value=fake_show)), \
+         patch("app.services.show_service.fetch_one", new=AsyncMock(return_value=booking_check)):
+        res = client.delete(f"/api/manager/shows/{fake_show_id}")
+        assert res.status_code == 400
+        assert "active customer bookings" in res.json()["detail"].lower()

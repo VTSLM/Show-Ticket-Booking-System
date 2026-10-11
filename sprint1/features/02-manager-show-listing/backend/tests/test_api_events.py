@@ -91,3 +91,27 @@ def test_event_database_error_handling(client):
         )
         assert response.status_code == 400
         assert "Database connection timeout" in response.json()["detail"]
+
+def test_delete_event_success(client):
+    fake_id = "e1111111-2222-3333-4444-555555555555"
+    fake_event = {"id": fake_id, "title": "Movie To Delete"}
+    booking_check = {"count": 0}
+
+    with patch("app.services.event_service.get_event_by_id", new=AsyncMock(return_value=fake_event)), \
+         patch("app.services.event_service.fetch_one", new=AsyncMock(return_value=booking_check)), \
+         patch("app.services.event_service.execute", new_callable=AsyncMock) as mock_exec:
+        res = client.delete(f"/api/manager/events/{fake_id}")
+        assert res.status_code == 200
+        assert res.json()["message"] == "Movie successfully deleted"
+        assert mock_exec.call_count == 3
+
+def test_delete_event_with_bookings_fails(client):
+    fake_id = "e1111111-2222-3333-4444-555555555555"
+    fake_event = {"id": fake_id, "title": "Booked Movie"}
+    booking_check = {"count": 2}
+
+    with patch("app.services.event_service.get_event_by_id", new=AsyncMock(return_value=fake_event)), \
+         patch("app.services.event_service.fetch_one", new=AsyncMock(return_value=booking_check)):
+        res = client.delete(f"/api/manager/events/{fake_id}")
+        assert res.status_code == 400
+        assert "active customer bookings" in res.json()["detail"].lower()
