@@ -1,0 +1,236 @@
+<mxfile host="app.diagrams.net" version="21.0.0" type="device">
+  <diagram name="Class Diagram" id="class-ticketflow">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ======================== DOMAIN CLASSES ======================== -->
+
+        <!-- User -->
+        <mxCell id="10" value="User" style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="240" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="10a" value="- id: UUID&#xa;- firebase_uid: str&#xa;- email: str&#xa;- name: str&#xa;- role: ENUM(USER, MANAGER)&#xa;- created_at: datetime" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="10">
+          <mxGeometry y="26" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="10b" value="+ register(): User&#xa;+ login(): str (token)&#xa;+ getBookings(): List[Booking]" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;borderColor=#6c8ebf;borderStyle=solid;" vertex="1" parent="10">
+          <mxGeometry y="126" width="240" height="54" as="geometry" />
+        </mxCell>
+
+        <!-- Event -->
+        <mxCell id="11" value="Event" style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="360" y="60" width="240" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="11a" value="- id: UUID&#xa;- manager_id: UUID (FK)&#xa;- name: str&#xa;- description: str&#xa;- venue: str&#xa;- genre: str&#xa;- poster_url: str" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="11">
+          <mxGeometry y="26" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="11b" value="+ create(): Event&#xa;+ update(): Event&#xa;+ publish(): bool" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="11">
+          <mxGeometry y="126" width="240" height="54" as="geometry" />
+        </mxCell>
+
+        <!-- Show -->
+        <mxCell id="12" value="Show" style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="680" y="60" width="240" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="12a" value="- id: UUID&#xa;- event_id: UUID (FK)&#xa;- start_time: datetime&#xa;- end_time: datetime&#xa;- total_seats: int&#xa;- available_seats: int" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="12">
+          <mxGeometry y="26" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="12b" value="+ getAvailableSeats(): List[Seat]&#xa;+ lockSeats(seat_ids): bool" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="12">
+          <mxGeometry y="126" width="240" height="54" as="geometry" />
+        </mxCell>
+
+        <!-- Seat -->
+        <mxCell id="13" value="Seat" style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="60" width="250" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="13a" value="- id: UUID&#xa;- show_id: UUID (FK)&#xa;- row: str&#xa;- seat_number: int&#xa;- tier: ENUM(STANDARD, PREMIUM, VIP)&#xa;- base_price: Decimal&#xa;- status: ENUM(AVAILABLE, LOCKED, BOOKED)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="13">
+          <mxGeometry y="26" width="250" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="13b" value="+ lock(ttl: int): bool&#xa;+ release(): bool&#xa;+ book(): bool" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="13">
+          <mxGeometry y="146" width="250" height="54" as="geometry" />
+        </mxCell>
+
+        <!-- Booking -->
+        <mxCell id="14" value="Booking" style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="360" width="240" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="14a" value="- id: UUID&#xa;- user_id: UUID (FK)&#xa;- show_id: UUID (FK)&#xa;- payment_id: str&#xa;- status: ENUM(PENDING, CONFIRMED, CANCELLED)&#xa;- created_at: datetime" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="14">
+          <mxGeometry y="26" width="240" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="14b" value="+ confirm(): Booking&#xa;+ cancel(): Booking&#xa;+ getSeats(): List[Seat]" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="14">
+          <mxGeometry y="136" width="240" height="54" as="geometry" />
+        </mxCell>
+
+        <!-- BookingSeat (join table) -->
+        <mxCell id="15" value="BookingSeat" style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="360" y="390" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="15a" value="- booking_id: UUID (FK)&#xa;- seat_id: UUID (FK)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="15">
+          <mxGeometry y="26" width="200" height="74" as="geometry" />
+        </mxCell>
+
+        <!-- Payment -->
+        <mxCell id="16" value="Payment" style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="640" y="360" width="260" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="16a" value="- id: UUID&#xa;- booking_id: UUID (FK)&#xa;- razorpay_order_id: str&#xa;- razorpay_payment_id: str&#xa;- amount: Decimal&#xa;- currency: str&#xa;- status: ENUM(PENDING, SUCCESS, FAILED)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="16">
+          <mxGeometry y="26" width="260" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="16b" value="+ initiate(): str (order_id)&#xa;+ verify(signature): bool" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="16">
+          <mxGeometry y="146" width="260" height="54" as="geometry" />
+        </mxCell>
+
+        <!-- Receipt -->
+        <mxCell id="17" value="Receipt" style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="980" y="360" width="260" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="17a" value="- id: UUID&#xa;- payment_id: str (FK)&#xa;- pdf_url: str&#xa;- qr_code_url: str&#xa;- email_sent: bool&#xa;- sent_at: datetime" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="17">
+          <mxGeometry y="26" width="260" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="17b" value="+ generate(): bytes&#xa;+ download(): Response" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="17">
+          <mxGeometry y="136" width="260" height="54" as="geometry" />
+        </mxCell>
+
+        <!-- ======================== SERVICE CLASSES ======================== -->
+
+        <!-- QRService -->
+        <mxCell id="20" value="&lt;&lt;service&gt;&gt;&#xa;QRService" style="swimlane;fontStyle=3;align=center;startSize=40;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="300" y="650" width="250" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="20a" value="+ generate_qr_base64(booking_id: str): str&#xa;+ generate_qr_bytes(booking_id: str): bytes" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="20">
+          <mxGeometry y="40" width="250" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- TicketService -->
+        <mxCell id="21" value="&lt;&lt;service&gt;&gt;&#xa;TicketService" style="swimlane;fontStyle=3;align=center;startSize=40;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="620" y="650" width="270" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="21a" value="+ build_ticket_pdf(payload: dict): bytes" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="21">
+          <mxGeometry y="40" width="270" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- EmailService -->
+        <mxCell id="22" value="&lt;&lt;service&gt;&gt;&#xa;EmailService" style="swimlane;fontStyle=3;align=center;startSize=40;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="960" y="650" width="290" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="22a" value="+ send_ticket_email(&#xa;    user_email, user_name,&#xa;    event_name, booking_id,&#xa;    pdf_bytes): bool" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;fontSize=11;" vertex="1" parent="22">
+          <mxGeometry y="40" width="290" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ======================== RELATIONSHIPS ======================== -->
+
+        <!-- User 1 --manages--> * Event -->
+        <mxCell id="30" value="manages" style="endArrow=open;endFill=0;html=1;startArrow=none;endSize=8;fontSize=11;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="10" target="11" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="30a" value="1" style="resizable=0;html=1;align=left;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="30">
+          <mxGeometry x="-1" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="30b" value="0..*" style="resizable=0;html=1;align=right;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="30">
+          <mxGeometry x="1" relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Event 1 --has--> 1..* Show -->
+        <mxCell id="31" value="has" style="endArrow=open;endFill=0;html=1;endSize=8;fontSize=11;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="11" target="12" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="31a" value="1" style="resizable=0;html=1;align=left;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="31">
+          <mxGeometry x="-1" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="31b" value="1..*" style="resizable=0;html=1;align=right;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="31">
+          <mxGeometry x="1" relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Show 1 --has--> 1..* Seat -->
+        <mxCell id="32" value="has" style="endArrow=open;endFill=0;html=1;endSize=8;fontSize=11;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="12" target="13" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="32a" value="1" style="resizable=0;html=1;align=left;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="32">
+          <mxGeometry x="-1" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="32b" value="1..*" style="resizable=0;html=1;align=right;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="32">
+          <mxGeometry x="1" relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- User 1 --places--> 0..* Booking -->
+        <mxCell id="33" value="places" style="endArrow=open;endFill=0;html=1;endSize=8;fontSize=11;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="10" target="14" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="33a" value="1" style="resizable=0;html=1;align=left;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="33">
+          <mxGeometry x="-1" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="33b" value="0..*" style="resizable=0;html=1;align=right;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="33">
+          <mxGeometry x="1" relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Booking --via--> BookingSeat -->
+        <mxCell id="34" value="" style="endArrow=open;endFill=0;html=1;endSize=8;fontSize=11;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="14" target="15" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Booking 1 --has--> 0..1 Payment -->
+        <mxCell id="35" value="triggers" style="endArrow=open;endFill=0;html=1;endSize=8;fontSize=11;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="14" target="16" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="360" y="455" />
+              <mxPoint x="580" y="455" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="35a" value="1" style="resizable=0;html=1;align=left;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="35">
+          <mxGeometry x="-1" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="35b" value="0..1" style="resizable=0;html=1;align=right;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="35">
+          <mxGeometry x="1" relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Payment 1 --generates--> 0..1 Receipt -->
+        <mxCell id="36" value="generates" style="endArrow=open;endFill=0;html=1;endSize=8;fontSize=11;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="16" target="17" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="36a" value="1" style="resizable=0;html=1;align=left;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="36">
+          <mxGeometry x="-1" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="36b" value="0..1" style="resizable=0;html=1;align=right;verticalAlign=bottom;fontSize=11;" connectable="0" vertex="1" parent="36">
+          <mxGeometry x="1" relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Receipt ..uses..> QRService -->
+        <mxCell id="37" value="&lt;&lt;uses&gt;&gt;" style="dashed=1;endArrow=open;endFill=0;html=1;fontSize=11;" edge="1" source="17" target="20" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1110" y="620" />
+              <mxPoint x="1110" y="800" />
+              <mxPoint x="425" y="800" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Receipt ..uses..> TicketService -->
+        <mxCell id="38" value="&lt;&lt;uses&gt;&gt;" style="dashed=1;endArrow=open;endFill=0;html=1;fontSize=11;" edge="1" source="17" target="21" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1110" y="620" />
+              <mxPoint x="1110" y="810" />
+              <mxPoint x="755" y="810" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Receipt ..uses..> EmailService -->
+        <mxCell id="39" value="&lt;&lt;uses&gt;&gt;" style="dashed=1;endArrow=open;endFill=0;html=1;fontSize=11;" edge="1" source="17" target="22" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1200" y="600" />
+              <mxPoint x="1200" y="650" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
