@@ -1,0 +1,101 @@
+from typing import List, Optional
+from fastapi import HTTPException, status
+from app.database import execute, fetch_all, fetch_one
+from app.models import EventCreateRequest
+
+async def list_events() -> List[dict]:
+    query = """
+        SELECT id::text, title, description, event_type::text, duration_minutes,
+               language, genre, poster_url, status::text, created_at, updated_at
+        FROM events
+        ORDER BY created_at DESC;
+    """
+    return await fetch_all(query)
+
+async def get_event_by_id(event_id: str) -> Optional[dict]:
+    query = """
+        SELECT id::text, title, description, event_type::text, duration_minutes,
+               language, genre, poster_url, status::text, created_at, updated_at
+        FROM events
+        WHERE id = $1::uuid;
+    """
+    return await fetch_one(query, event_id)
+
+async def create_event(data: EventCreateRequest) -> dict:
+    query = """
+        INSERT INTO events (
+            title, description, event_type, duration_minutes, language, genre, poster_url, status
+        )
+        VALUES (
+            $1, $2, $3::event_type, $4, $5, $6, $7, $8::event_status
+        )
+        RETURNING id::text, title, description, event_type::text, duration_minutes,
+                  language, genre, poster_url, status::text, created_at, updated_at;
+    """
+    try:
+        record = await fetch_one(
+            query,
+            data.title,
+            data.description,
+            data.event_type.value,
+            data.duration_minutes,
+            data.language,
+            data.genre,
+            data.poster_url,
+            data.status.value,
+        )
+        if not record:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database failed to return created event."
+            )
+        return record
+    except Exception as e:
+        err_msg = str(e)
+        if "invalid input value for enum" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid event enum value: {err_msg}"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error inserting event into database: {err_msg}"
+        )
+
+async def delete_event(event_id: str) -> dict:
+    event = await get_event_by_id(event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Movie/event with ID {event_id} not found."
+        )
+
+    # Check for active bookings in shows for this event
+    booking_check = await fetch_one(
+        """
+        SELECT COUNT(*) as count
+        FROM bookings b
+        JOIN shows sh ON sh.id = b.show_id
+        WHERE sh.event_id = $1::uuid;
+        """,
+        event_id
+    )
+    if booking_check and booking_check["count"] > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete movie because scheduled shows have active customer bookings."
+        )
+
+    # Delete show_seats for all shows of this event
+    await execute(
+        """
+        DELETE FROM show_seats
+        WHERE show_id IN (SELECT id FROM shows WHERE event_id = $1::uuid);
+        """,
+        event_id
+    )
+    # Delete shows
+    await execute("DELETE FROM shows WHERE event_id = $1::uuid;", event_id)
+    # Delete event
+    await execute("DELETE FROM events WHERE id = $1::uuid;", event_id)
+    return {"message": "Movie successfully deleted", "id": event_id}

@@ -1,0 +1,30 @@
+# Environment & Secret Files (Never commit .env files)
+.env
+.env.*
+.env.local
+!.env.example
+
+# Local reference files
+supabase_schema_reference.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+ENV/
+
+# Node & Next.js
+.next/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS & Temporary
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
