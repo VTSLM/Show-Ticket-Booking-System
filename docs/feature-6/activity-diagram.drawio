@@ -1,0 +1,337 @@
+<mxfile host="app.diagrams.net" version="21.0.0" type="device">
+  <diagram name="Activity Diagram" id="activity-f6">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1654" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ==================== SWIM LANES ==================== -->
+        <mxCell id="2" value="" style="shape=pool;html=1;childLayout=stackLayout;horizontal=1;startSize=20;horizontalStack=1;resizeParent=1;resizeParentMax=0;resizeLast=1;collapsible=0;marginBottom=0;swimlaneHead=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="30" width="1100" height="1540" as="geometry" />
+        </mxCell>
+
+        <!-- Lane: User/Browser -->
+        <mxCell id="3" value="User / Browser" style="swimlane;startSize=30;horizontal=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;" vertex="1" parent="2">
+          <mxGeometry x="0" y="0" width="220" height="1540" as="geometry" />
+        </mxCell>
+
+        <!-- Lane: Frontend (Next.js) -->
+        <mxCell id="4" value="Frontend (Next.js)" style="swimlane;startSize=30;horizontal=0;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" vertex="1" parent="2">
+          <mxGeometry x="220" y="0" width="220" height="1540" as="geometry" />
+        </mxCell>
+
+        <!-- Lane: FastAPI Backend -->
+        <mxCell id="5" value="FastAPI Backend" style="swimlane;startSize=30;horizontal=0;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="2">
+          <mxGeometry x="440" y="0" width="220" height="1540" as="geometry" />
+        </mxCell>
+
+        <!-- Lane: External Services -->
+        <mxCell id="6" value="External Services" style="swimlane;startSize=30;horizontal=0;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" vertex="1" parent="2">
+          <mxGeometry x="660" y="0" width="220" height="1540" as="geometry" />
+        </mxCell>
+
+        <!-- Lane: Store / DB -->
+        <mxCell id="7" value="Store / DB" style="swimlane;startSize=30;horizontal=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;" vertex="1" parent="2">
+          <mxGeometry x="880" y="0" width="220" height="1540" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== ACTIVITY NODES ==================== -->
+
+        <!-- START -->
+        <mxCell id="100" value="" style="ellipse;aspect=fixed;fillColor=#000000;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="140" y="70" width="30" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Browse Shows -->
+        <mxCell id="101" value="Browse Nearby Shows" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="65" y="130" width="180" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Select Seats -->
+        <mxCell id="102" value="Select Seats on Map" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="65" y="220" width="180" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Check availability (Frontend calls API) -->
+        <mxCell id="103" value="Check Seat Availability" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="285" y="220" width="180" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Decision: Available? -->
+        <mxCell id="104" value="Seats Available?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="295" y="310" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- No → Show error -->
+        <mxCell id="105" value="Show &quot;Seats Unavailable&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="65" y="310" width="180" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Lock Seats via Redis -->
+        <mxCell id="106" value="Lock Seats&#xa;(Redis TTL 10 min)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="505" y="420" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Redirect to Checkout -->
+        <mxCell id="107" value="Navigate to Checkout" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="285" y="520" width="180" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Enter Payment Details -->
+        <mxCell id="108" value="Enter Payment Details" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="65" y="610" width="180" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Submit to Razorpay -->
+        <mxCell id="109" value="Razorpay Payment&#xa;Widget / Redirect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="725" y="610" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Decision: Payment OK? -->
+        <mxCell id="110" value="Payment Successful?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="295" y="720" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- No → Release locks, error -->
+        <mxCell id="111" value="Release Seat Locks&#xa;Show Payment Failed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="65" y="720" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- POST /bookings/confirm -->
+        <mxCell id="112" value="POST /bookings/confirm" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="505" y="840" width="180" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Decision: Already processed? -->
+        <mxCell id="113" value="Already Processed?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="515" y="930" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Yes → Return cached -->
+        <mxCell id="114" value="Return Cached&#xa;201 Response" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="725" y="930" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Generate QR Code -->
+        <mxCell id="115" value="generate_qr_base64()&#xa;(qr_service.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="505" y="1050" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Build PDF Ticket -->
+        <mxCell id="116" value="build_ticket_pdf()&#xa;(ticket_service.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="505" y="1155" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Send Email (async) -->
+        <mxCell id="117" value="send_ticket_email()&#xa;Gmail SMTP (async)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;strokeDashArray=6;" vertex="1" parent="1">
+          <mxGeometry x="725" y="1155" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Store in receipts -->
+        <mxCell id="118" value="Store ticket data&#xa;in receipts / memory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="945" y="1155" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Return 201 -->
+        <mxCell id="119" value="Return 201 JSON&#xa;{status: confirmed, qr_code_base64}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="505" y="1270" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Display Ticket Card -->
+        <mxCell id="120" value="Display Ticket Card&#xa;with QR Code" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="285" y="1370" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- User views ticket -->
+        <mxCell id="121" value="View Ticket / Download PDF" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="65" y="1370" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- END -->
+        <mxCell id="199" value="" style="ellipse;aspect=fixed;fillColor=#000000;strokeColor=#000000;double=1;" vertex="1" parent="1">
+          <mxGeometry x="140" y="1470" width="30" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- END (failure paths) -->
+        <mxCell id="198" value="" style="ellipse;aspect=fixed;fillColor=#000000;strokeColor=#000000;double=1;" vertex="1" parent="1">
+          <mxGeometry x="140" y="410" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="197" value="" style="ellipse;aspect=fixed;fillColor=#000000;strokeColor=#000000;double=1;" vertex="1" parent="1">
+          <mxGeometry x="140" y="825" width="30" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== EDGES ==================== -->
+
+        <!-- Start → Browse Shows -->
+        <mxCell id="200" style="endArrow=block;endFill=1;html=1;" edge="1" source="100" target="101" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Browse Shows → Select Seats -->
+        <mxCell id="201" style="endArrow=block;endFill=1;html=1;" edge="1" source="101" target="102" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Select Seats → Check Availability (Frontend) -->
+        <mxCell id="202" style="endArrow=block;endFill=1;html=1;" edge="1" source="102" target="103" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Check Availability → Decision -->
+        <mxCell id="203" style="endArrow=block;endFill=1;html=1;" edge="1" source="103" target="104" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Decision: No → Error -->
+        <mxCell id="204" value="No" style="endArrow=block;endFill=1;html=1;fontSize=11;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="104" target="105" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Error → End1 -->
+        <mxCell id="205" style="endArrow=block;endFill=1;html=1;" edge="1" source="105" target="198" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Decision: Yes → Lock Seats -->
+        <mxCell id="206" value="Yes" style="endArrow=block;endFill=1;html=1;fontSize=11;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="104" target="106" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="375" y="420" />
+              <mxPoint x="595" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Lock Seats → Navigate to Checkout -->
+        <mxCell id="207" style="endArrow=block;endFill=1;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="106" target="107" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="505" y="445" />
+              <mxPoint x="505" y="540" />
+              <mxPoint x="465" y="540" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Checkout → Enter Payment Details -->
+        <mxCell id="208" style="endArrow=block;endFill=1;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="107" target="108" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Enter Payment → Razorpay -->
+        <mxCell id="209" style="endArrow=block;endFill=1;html=1;" edge="1" source="108" target="109" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="155" y="630" />
+              <mxPoint x="815" y="630" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Razorpay → Payment Decision -->
+        <mxCell id="210" style="endArrow=block;endFill=1;html=1;exitX=0;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="109" target="110" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="815" y="700" />
+              <mxPoint x="815" y="750" />
+              <mxPoint x="455" y="750" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Payment Decision: No → release/error -->
+        <mxCell id="211" value="No" style="endArrow=block;endFill=1;html=1;fontSize=11;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="110" target="111" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- release/error → End2 -->
+        <mxCell id="212" style="endArrow=block;endFill=1;html=1;" edge="1" source="111" target="197" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Payment Decision: Yes → POST /bookings/confirm -->
+        <mxCell id="213" value="Yes" style="endArrow=block;endFill=1;html=1;fontSize=11;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="110" target="112" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="375" y="840" />
+              <mxPoint x="595" y="840" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- POST confirm → Idempotency check -->
+        <mxCell id="214" style="endArrow=block;endFill=1;html=1;" edge="1" source="112" target="113" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Idempotency: Yes → Return cached -->
+        <mxCell id="215" value="Yes" style="endArrow=block;endFill=1;html=1;fontSize=11;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="113" target="114" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Idempotency: No → Generate QR -->
+        <mxCell id="216" value="No" style="endArrow=block;endFill=1;html=1;fontSize=11;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="113" target="115" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="595" y="1050" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Generate QR → Build PDF -->
+        <mxCell id="217" style="endArrow=block;endFill=1;html=1;" edge="1" source="115" target="116" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Build PDF → Send Email (async, dashed) -->
+        <mxCell id="218" value="async" style="endArrow=block;endFill=1;html=1;dashed=1;fontSize=11;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="116" target="117" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Build PDF → Store -->
+        <mxCell id="219" style="endArrow=block;endFill=1;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="116" target="118" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="770" y="1180" />
+              <mxPoint x="945" y="1180" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Store → Return 201 -->
+        <mxCell id="220" style="endArrow=block;endFill=1;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="118" target="119" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="945" y="1295" />
+              <mxPoint x="685" y="1295" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Return 201 → Display Ticket -->
+        <mxCell id="221" style="endArrow=block;endFill=1;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="119" target="120" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Display Ticket → View Ticket (User) -->
+        <mxCell id="222" style="endArrow=block;endFill=1;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="120" target="121" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- View Ticket → End -->
+        <mxCell id="223" style="endArrow=block;endFill=1;html=1;" edge="1" source="121" target="199" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Note: async badge -->
+        <mxCell id="300" value="non-blocking: email failure&#xa;does not break 201 response" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=12;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="940" y="1090" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="301" style="endArrow=none;dashed=1;html=1;" edge="1" source="300" target="117" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

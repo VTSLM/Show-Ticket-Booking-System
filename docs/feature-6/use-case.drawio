@@ -1,0 +1,178 @@
+<mxfile host="app.diagrams.net" version="21.0.0" type="device">
+  <diagram name="Use Case Diagram" id="uc-sprint1">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- System Boundary -->
+        <mxCell id="2" value="TicketFlow Platform — Sprint 1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontSize=15;fontStyle=1;fillColor=none;strokeColor=#0050EF;strokeWidth=2;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="200" y="60" width="860" height="740" as="geometry" />
+        </mxCell>
+
+        <!-- ======================== ACTORS ======================== -->
+
+        <!-- Guest -->
+        <mxCell id="10" value="Guest" style="shape=mxgraph.uml.actor2;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalLabelPosition=bottom;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="70" y="200" width="50" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Registered User -->
+        <mxCell id="11" value="Registered User" style="shape=mxgraph.uml.actor2;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;verticalLabelPosition=bottom;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="60" y="450" width="50" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Event Manager -->
+        <mxCell id="12" value="Event Manager" style="shape=mxgraph.uml.actor2;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;verticalLabelPosition=bottom;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="200" width="50" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- External: Firebase Auth -->
+        <mxCell id="13" value="Firebase Auth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="70" y="690" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- External: Razorpay -->
+        <mxCell id="14" value="Razorpay" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="490" width="130" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- External: Gmail SMTP -->
+        <mxCell id="15" value="Gmail SMTP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="600" width="130" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ======================== USE CASES ======================== -->
+
+        <!-- UC1: Register / Login -->
+        <mxCell id="20" value="Register / Login" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="280" y="160" width="190" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- UC2: Browse Nearby Shows -->
+        <mxCell id="21" value="Browse Nearby Shows" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="560" y="160" width="190" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- UC3: List & Manage Events -->
+        <mxCell id="22" value="List &amp; Manage Events" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="840" y="160" width="190" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- UC4: Select Seats -->
+        <mxCell id="23" value="Select Seats" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="280" y="360" width="190" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- UC5: Process Payment -->
+        <mxCell id="24" value="Process Payment" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="560" y="480" width="190" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- UC6: Generate & Deliver Ticket -->
+        <mxCell id="25" value="Generate &amp; Deliver Ticket" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="840" y="600" width="190" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ======================== ASSOCIATIONS ======================== -->
+
+        <!-- Guest → UC1 Register/Login -->
+        <mxCell id="30" style="endArrow=none;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="10" target="20" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Guest → UC2 Browse Shows -->
+        <mxCell id="31" style="endArrow=none;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="10" target="21" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Registered User → UC1 -->
+        <mxCell id="32" style="endArrow=none;html=1;" edge="1" source="11" target="20" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Registered User → UC2 -->
+        <mxCell id="33" style="endArrow=none;html=1;" edge="1" source="11" target="21" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Registered User → UC4 Select Seats -->
+        <mxCell id="34" style="endArrow=none;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="11" target="23" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Registered User → UC5 Process Payment -->
+        <mxCell id="35" style="endArrow=none;html=1;" edge="1" source="11" target="24" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Event Manager → UC3 List & Manage Events -->
+        <mxCell id="36" style="endArrow=none;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="12" target="22" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- UC4 Select Seats --include--> UC5 Process Payment -->
+        <mxCell id="37" value="&lt;&lt;include&gt;&gt;" style="dashed=1;endArrow=open;endFill=0;html=1;fontSize=11;startArrow=none;" edge="1" source="23" target="24" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- UC5 Process Payment --include--> UC6 Generate Ticket -->
+        <mxCell id="38" value="&lt;&lt;include&gt;&gt;" style="dashed=1;endArrow=open;endFill=0;html=1;fontSize=11;startArrow=none;" edge="1" source="24" target="25" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- UC1 --uses--> Firebase Auth -->
+        <mxCell id="39" value="&lt;&lt;uses&gt;&gt;" style="dashed=1;endArrow=open;endFill=0;html=1;fontSize=11;exitX=0;exitY=1;exitDx=0;exitDy=0;" edge="1" source="20" target="13" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- UC5 --uses--> Razorpay -->
+        <mxCell id="40" value="&lt;&lt;uses&gt;&gt;" style="dashed=1;endArrow=open;endFill=0;html=1;fontSize=11;" edge="1" source="24" target="14" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- UC6 --uses--> Gmail SMTP -->
+        <mxCell id="41" value="&lt;&lt;uses&gt;&gt;" style="dashed=1;endArrow=open;endFill=0;html=1;fontSize=11;" edge="1" source="25" target="15" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Generalization: Registered User extends Guest -->
+        <mxCell id="42" value="" style="endArrow=block;endFill=0;endSize=10;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" source="11" target="10" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Note for Feature #6 -->
+        <mxCell id="50" value="Feature #6 (Hiri)" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="595" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="51" style="endArrow=none;dashed=1;html=1;" edge="1" source="50" target="25" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="60" value="Legend" style="text;html=1;fontStyle=1;fontSize=13;align=left;" vertex="1" parent="1">
+          <mxGeometry x="20" y="800" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="61" value="" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="20" y="830" width="30" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="62" value="External System" style="text;html=1;fontSize=11;align=left;" vertex="1" parent="1">
+          <mxGeometry x="58" y="830" width="130" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="63" value="" style="ellipse;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="20" y="860" width="30" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="64" value="Feature #6 (Ticket Gen)" style="text;html=1;fontSize=11;align=left;" vertex="1" parent="1">
+          <mxGeometry x="58" y="860" width="160" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="65" value="" style="ellipse;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="20" y="890" width="30" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="66" value="Manager-only Feature" style="text;html=1;fontSize=11;align=left;" vertex="1" parent="1">
+          <mxGeometry x="58" y="890" width="160" height="20" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
