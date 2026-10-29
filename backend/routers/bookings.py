@@ -128,3 +128,50 @@ async def download_ticket_pdf(booking_id: str):
             "Content-Disposition": f"attachment; filename=ticket_{booking_id}.pdf"
         }
     )
+
+
+@router.get("/{booking_id}/verify")
+async def verify_ticket(booking_id: str):
+    """
+    Ticket verification endpoint — used by venue staff when scanning the QR code.
+    - Returns booking details if valid and not yet used
+    - Marks ticket as used on first scan (one-time entry)
+    - Returns 409 if already scanned
+    - Returns 404 if booking not found
+    """
+    from datetime import datetime, timezone
+
+    if booking_id not in _confirmed_bookings:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    booking = _confirmed_bookings[booking_id]
+
+    # Already scanned — reject double entry
+    if booking.get("is_used"):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "already_used",
+                "booking_id": booking_id,
+                "used_at": booking.get("used_at"),
+                "event": booking["event"],
+                "user": booking["user"],
+            }
+        )
+
+    # First scan — mark as used
+    used_at = datetime.now(timezone.utc).isoformat()
+    _confirmed_bookings[booking_id]["is_used"] = True
+    _confirmed_bookings[booking_id]["used_at"] = used_at
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "valid",
+            "booking_id": booking_id,
+            "used_at": used_at,
+            "event": booking["event"],
+            "user": booking["user"],
+            "seats": booking["seats"],
+        }
+    )
