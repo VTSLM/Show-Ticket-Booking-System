@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#090d15" />
+  <meta name="description" content="Review your cinema booking and complete a secure checkout." />
+  <title>Secure checkout · Cinepass</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Cinepass"><span class="brand-icon">c</span><span>cinepass<span class="brand-period">.</span></span></a>
+    <div class="topbar-right"><span class="secure-pill"><span class="secure-dot"></span> Secure checkout</span></div>
+  </header>
+
+  <main class="page-shell">
+    <div class="breadcrumb"><span>Shows</span><span class="crumb-separator">/</span><span>Seat selection</span><span class="crumb-separator">/</span><strong>Payment</strong></div>
+
+    <section class="progress-strip" aria-label="Booking progress">
+      <div class="progress-step complete"><span class="step-number">✓</span><span>Choose seats</span></div>
+      <span class="progress-line complete-line"></span>
+      <div class="progress-step active"><span class="step-number">2</span><span>Payment</span></div>
+      <span class="progress-line"></span>
+      <div class="progress-step"><span class="step-number">3</span><span>Confirmation</span></div>
+      <span class="progress-spacer"></span>
+      <div class="booking-ref">BOOKING REF <strong id="booking-number">CIN-260011</strong></div>
+    </section>
+
+    <section id="checkout-view" class="checkout-view">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">ALMOST MOVIE TIME</p>
+          <h1>Confirm your booking</h1>
+          <p class="subheading">Review your show details and total, then continue to secure payment.</p>
+        </div>
+        <div class="secure-checkout"><span class="shield-icon">✓</span><span><strong>Secure payment</strong><small>Securely processed by Razorpay</small></span></div>
+      </div>
+
+      <div class="checkout-grid">
+        <section class="surface-card booking-card" id="booking-card" aria-labelledby="booking-heading">
+          <div class="section-heading"><div><span class="section-kicker">01 / SHOW DETAILS</span><h2 id="booking-heading">Your movie</h2></div><span class="booking-state"><span class="green-dot"></span> Seats selected</span></div>
+          <div class="movie-detail-layout">
+            <div class="movie-poster-wrap"><img class="movie-poster" src="/assets/sonic-poster.jpg" alt="Sonic The Hedgehog 2 movie poster"><span class="poster-caption">NOW SHOWING</span></div>
+            <div class="movie-detail-content">
+              <div class="title-row"><div><h3 id="movie-title">Sonic The Hedgehog 2</h3><div class="movie-tags"><span class="format-tag">2D</span><span class="format-tag">ENG</span><span class="movie-quality">4DX · Dolby Atmos</span></div></div><span class="movie-rating">U/A <small>13+</small></span></div>
+              <p class="venue-line"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg><span id="movie-venue">PVR Acropolis, Ahmedabad</span></p>
+              <div class="show-detail-grid">
+                <div class="show-detail"><span class="detail-icon">▦</span><div><small>DATE</small><strong id="movie-date">27 Oct 2026</strong></div></div>
+                <div class="show-detail"><span class="detail-icon">◷</span><div><small>SHOWTIME</small><strong id="movie-time">18:35</strong></div></div>
+                <div class="show-detail"><span class="detail-icon">▤</span><div><small>SELECTED SEATS</small><strong id="movie-seats">E5, E6</strong></div></div>
+                <div class="show-detail"><span class="detail-icon">♙</span><div><small>TICKETS</small><strong id="ticket-count">2 seats</strong></div></div>
+              </div>
+              <div class="booking-note"><span class="note-icon">i</span><span>Make sure your showtime and seats are correct before paying.</span></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="surface-card order-card" aria-label="Amount payable">
+          <div class="order-card-head"><div><span class="section-kicker">02 / PAYMENT</span><h2>Payment summary</h2></div><span class="secure-mini"><span class="green-dot"></span> Secure</span></div>
+          <div class="order-movie-row"><img src="/assets/sonic-banner.jpg" alt="Sonic movie artwork"><div class="order-movie-copy"><strong id="order-movie-title">Sonic The Hedgehog 2</strong><span id="order-show-line">PVR Acropolis · Ahmedabad</span><small id="order-format">2D · English · Dolby Atmos</small></div></div>
+          <div class="order-seat-row"><div><span>SELECTED SEATS</span><strong id="order-seat-label">E5, E6</strong></div><span class="ticket-count-chip" id="order-ticket-count">02 tickets</span></div>
+          <div class="amount-breakdown">
+            <div><span>Ticket price <small id="ticket-price-subtitle">2 tickets</small></span><strong id="subtotal">₹640.00</strong></div>
+            <div><span>Convenience fee</span><strong id="fee">₹30.00</strong></div>
+            <div><span>Taxes</span><strong id="tax">₹5.40</strong></div>
+          </div>
+          <div class="total-breakdown"><div><span>Total amount</span><small>Inclusive of all taxes</small></div><strong id="total">₹675.40</strong></div>
+          <button id="pay-button" class="pay-button" type="button"><span id="pay-label">Pay ₹675.40</span><span class="button-arrow" aria-hidden="true">→</span></button>
+          <p class="payment-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/></svg><span>Choose your payment method securely in Razorpay Checkout. Your card and account details stay with the payment provider.</span></p>
+        </aside>
+      </div>
+      <p class="checkout-bottom-note"><span class="lock-mini">⌑</span> Payment credentials are entered securely with Razorpay and are not stored by Cinepass.</p>
+    </section>
+
+    <section id="result-view" class="result-view hidden" aria-live="polite" aria-labelledby="result-title">
+      <div id="result-card" class="result-card">
+        <div id="result-animation" class="result-animation success" aria-hidden="true"><span class="animation-ring ring-one"></span><span class="animation-ring ring-two"></span><span id="result-symbol" class="result-symbol">✓</span></div>
+        <p id="result-eyebrow" class="eyebrow">03 / CONFIRMATION</p>
+        <h1 id="result-title">Payment successful</h1>
+        <p id="result-message" class="result-message">Your payment has been verified and your booking is confirmed.</p>
+        <div class="result-status-line"><span id="result-status-chip" class="status-chip successful">SUCCESSFUL</span><span id="result-status-copy">Payment verified by Razorpay</span></div>
+        <div class="result-details" aria-label="Payment details">
+          <div class="result-detail-row"><span>Payment ID</span><strong id="result-payment-id" class="mono">—</strong></div>
+          <div class="result-detail-row"><span>Order ID</span><strong id="result-order-id" class="mono">—</strong></div>
+          <div class="result-detail-row"><span>Amount</span><strong id="result-amount">—</strong></div>
+          <div class="result-detail-row"><span>Status</span><strong id="result-status">—</strong></div>
+          <div class="result-detail-row"><span>Payment method</span><strong id="result-method">—</strong></div>
+          <div class="result-detail-row"><span>Timestamp</span><strong id="result-timestamp">—</strong></div>
+        </div>
+        <div id="result-actions" class="result-actions hidden"><button id="retry-payment" class="pay-button" type="button">Try payment again <span class="button-arrow">→</span></button></div>
+      </div>
+    </section>
+
+    <footer class="page-footer"><span>© 2026 Cinepass</span><span>Made for the movies <b>✦</b></span><span>Secure checkout</span></footer>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>
