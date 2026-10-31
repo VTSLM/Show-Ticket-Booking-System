@@ -1,7 +1,7 @@
 // src/lib/api.ts
 // Thin wrapper around fetch for calls to the FastAPI backend.
 
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8001";
+const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
 export type StakeholderRole = "customer" | "manager" | "admin";
 
