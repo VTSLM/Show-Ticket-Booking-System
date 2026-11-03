@@ -1,52 +1,42 @@
-<<<<<<< HEAD
-# Environment & Secret Files (Never commit .env files)
+# Environment & Secret Files — NEVER commit these
 .env
 .env.*
 .env.local
 !.env.example
+
+# Firebase service account — contains private keys
+ticketflow-firebase.json
+*-firebase.json
+*serviceAccount*.json
 
 # Local reference files
 supabase_schema_reference.txt
 
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
+*.pyc
+*.pyo
 .pytest_cache/
 .venv/
 venv/
+backend/venv/
 ENV/
 
 # Node & Next.js
 .next/
+frontend/.next/
 node_modules/
+frontend/node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
 # OS & Temporary
 .DS_Store
+**/.DS_Store
 Thumbs.db
 *.swp
 *.swo
-=======
-# macOS
-.DS_Store
-**/.DS_Store
-
-# Python
-__pycache__/
-**/__pycache__/
-*.pyc
-*.pyo
-backend/venv/
-
-# Node
-frontend/node_modules/
-frontend/.next/
-frontend/_src_archive/
-
-# env
-.env
-**/.env
->>>>>>> origin/ticket-generation-hari
