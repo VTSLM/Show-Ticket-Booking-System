@@ -1,0 +1,12 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+asyncpg==0.30.0
+python-dotenv==1.0.1
+pydantic[email]==2.10.3
+firebase-admin==6.6.0
+razorpay==1.4.2
+reportlab==4.2.5
+qrcode[pil]==8.0
+Pillow==11.0.0
+python-multipart==0.0.18
+httpx==0.28.1
