@@ -117,7 +117,7 @@ export default function ConfirmationPage() {
           </form>
 
           <p className="text-slate-600 text-xs text-center mt-4">
-            Email will be sent from hs9998706@gmail.com
+            Email will be sent from the configured project Gmail account
           </p>
         </div>
       </main>
