@@ -24,4 +24,7 @@ def init_firebase():
 
 def verify_firebase_token(id_token: str) -> dict:
     init_firebase()
-    return firebase_auth.verify_id_token(id_token)
+    return firebase_auth.verify_id_token(
+        id_token,
+        clock_skew_seconds=5
+    )

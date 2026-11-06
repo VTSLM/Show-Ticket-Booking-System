@@ -33,7 +33,7 @@ function PaymentForm() {
     try {
       const order = await paymentsApi.createOrder(bookingId) as any;
       const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        key: order.key_id,
         amount: order.amount,
         currency: order.currency,
         name: "TicketFlow",
@@ -66,7 +66,55 @@ function PaymentForm() {
       setPaying(false);
     }
   };
+  const handleDownloadPdf = async () => {
+    try {
+      const token = await user?.getIdToken();
 
+      if (!token) {
+        toast.error("Please log in again");
+        return;
+      }
+
+      const API_URL =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+      const response = await fetch(
+        `${API_URL}/api/tickets/bookings/${bookingId}/pdf`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error("PDF download failed:", error);
+        toast.error("Could not download ticket PDF");
+        return;
+      }
+
+      const blob = await response.blob();
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+
+      a.href = url;
+      a.download = `ticket_${bookingId.slice(0, 8)}.pdf`;
+
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      window.URL.revokeObjectURL(url);
+
+      toast.success("Ticket PDF downloaded");
+    } catch (error) {
+      console.error("PDF download error:", error);
+      toast.error("Could not download ticket PDF");
+    }
+  };
   if (!user) return (
     <div className="text-center py-20">
       <p>Please <a href="/auth/login" className="text-red-500 underline">log in</a> to continue.</p>
@@ -106,8 +154,12 @@ function PaymentForm() {
         {booking.status === "confirmed" ? (
           <div className="text-center">
             <p className="text-green-600 font-semibold mb-3">Payment already completed!</p>
-            <a href={ticketsApi.pdfUrl(bookingId)} target="_blank"
-              className="btn-primary inline-block">Download Ticket PDF</a>
+            <button
+              onClick={handleDownloadPdf}
+              className="btn-primary inline-block"
+            >
+              Download Ticket PDF
+            </button>
           </div>
         ) : (
           <button onClick={handlePay} disabled={paying} className="btn-primary w-full text-lg py-3">

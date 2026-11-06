@@ -126,23 +126,16 @@ async def verify_payment(
             booking_id
         )
 
-        # Get payment_order id for FK
-        payment_order = await conn.fetchrow(
-            "SELECT id FROM payment_orders WHERE razorpay_order_id=$1",
-            req.razorpay_order_id
-        )
-        payment_order_id = payment_order["id"] if payment_order else None
-
-        # Insert payment record with correct column names
+        # Insert payment record
         payment_id = await conn.fetchval(
             """INSERT INTO payments
-                 (booking_id, payment_order_id, razorpay_payment_id, transaction_id,
-                  amount, currency, payment_method, status, paid_at, signature_verified_at)
-               VALUES ($1,$2,$3,$3,
-                       (SELECT total_amount FROM bookings WHERE id=$1),
-                       'INR','razorpay','successful',now(),now())
-               RETURNING id""",
-            booking_id, payment_order_id, req.razorpay_payment_id
+                (booking_id, transaction_id,
+                amount, currency, payment_method, status, paid_at)
+            VALUES ($1, $2,
+                    (SELECT total_amount FROM bookings WHERE id=$1),
+                    'INR', 'razorpay', 'successful', now())
+            RETURNING id""",
+            booking_id, req.razorpay_payment_id
         )
 
         # Insert receipt with payment_id FK (no booking_id column in receipts)

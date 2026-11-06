@@ -32,15 +32,18 @@ async def register(req: RegisterRequest, conn: asyncpg.Connection = Depends(get_
 
     uid = decoded["uid"]
     role = req.role.lower()
-    if role not in ("customer", "manager"):
-        raise HTTPException(status_code=400, detail="Role must be customer or manager")
+    if role not in ("customer", "manager", "admin"):
+        raise HTTPException(
+            status_code=400,
+            detail="Role must be customer, manager, or admin"
+        )
 
     existing = await conn.fetchrow("SELECT id, status FROM users WHERE firebase_uid=$1", uid)
     if existing:
         raise HTTPException(status_code=409, detail="User already registered")
 
     # Insert user
-    user_status = "active" if role == "customer" else "inactive"  # managers need approval
+    user_status = "active" if role in ("customer", "admin") else "inactive"
     user_id = await conn.fetchval(
         """INSERT INTO users (firebase_uid, name, email, phone, status)
            VALUES ($1, $2, $3, $4, $5) RETURNING id""",
@@ -72,7 +75,8 @@ async def verify_token(body: dict, conn: asyncpg.Connection = Depends(get_conn))
         raise HTTPException(status_code=400, detail="id_token required")
     try:
         decoded = verify_firebase_token(id_token)
-    except Exception:
+    except Exception as e:
+        print("🔥 Firebase token verification failed:", repr(e))
         raise HTTPException(status_code=401, detail="Invalid token")
 
     uid = decoded["uid"]

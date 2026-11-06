@@ -19,8 +19,14 @@ export default function ManagerPage() {
   // Create state
   const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "" });
   const [newVenue, setNewVenue] = useState({ name: "", city: "", address: "" });
-  const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", base_price: "" });
+  const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "" });
   const [screens, setScreens] = useState<any[]>([]);
+  const [selectedVenueId, setSelectedVenueId] = useState("");
+  const [newScreen, setNewScreen] = useState({
+    name: "",
+    rows: "",
+    cols: "",
+  });
 
   useEffect(() => {
     if (!authLoading && !isManager) { router.push("/"); return; }
@@ -34,13 +40,18 @@ export default function ManagerPage() {
   }, [isManager, authLoading]);
 
   const loadScreens = async (venueId: string) => {
-    // Fetch screens for a venue
+    if (!venueId) {
+      setScreens([]);
+      return;
+    }
+
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/manager/venues/${venueId}/screens`,
-        { headers: { Authorization: `Bearer ${await (window as any).__fbToken?.()}` } });
-      const data = await res.json();
+      const data = await managerApi.screens(venueId);
       setScreens(data);
-    } catch {}
+    } catch (err: any) {
+      toast.error(err.message || "Could not load screens");
+      setScreens([]);
+    }
   };
 
   const createEvent = async (e: React.FormEvent) => {
@@ -65,13 +76,53 @@ export default function ManagerPage() {
     } catch (err: any) { toast.error(err.message); }
   };
 
+  const createScreen = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedVenueId) {
+      toast.error("Please select a venue");
+      return;
+    }
+
+    const rows = parseInt(newScreen.rows);
+    const cols = parseInt(newScreen.cols);
+
+    if (!rows || !cols || rows <= 0 || cols <= 0) {
+      toast.error("Rows and columns must be greater than 0");
+      return;
+    }
+
+    const capacity = rows * cols;
+
+    try {
+      await managerApi.createScreen(selectedVenueId, {
+        name: newScreen.name,
+        capacity,
+        rows,
+        cols,
+      });
+
+      const updatedScreens = await managerApi.screens(selectedVenueId);
+      setScreens(updatedScreens);
+
+      setNewScreen({
+        name: "",
+        rows: "",
+        cols: "",
+      });
+
+      toast.success(`Screen created with ${capacity} seats!`);
+    } catch (err: any) {
+      toast.error(err.message || "Could not create screen");
+    }
+  };
   const createShow = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await managerApi.createShow({ ...newShow, base_price: parseFloat(newShow.base_price) });
       const ss = await managerApi.shows();
       setShows(ss);
-      setNewShow({ event_id: "", screen_id: "", start_time: "", base_price: "" });
+      setNewShow({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "" });
       toast.success("Show created!");
     } catch (err: any) { toast.error(err.message); }
   };
@@ -128,6 +179,7 @@ export default function ManagerPage() {
                 </select>
               </div>
               {inp("Start Time", newShow.start_time, (e: any) => setNewShow(s => ({ ...s, start_time: e.target.value })), "datetime-local")}
+              {inp("End Time", newShow.end_time, (e: any) => setNewShow(s => ({ ...s, end_time: e.target.value })), "datetime-local")}
               {inp("Base Price (₹)", newShow.base_price, (e: any) => setNewShow(s => ({ ...s, base_price: e.target.value })), "number")}
               <div className="col-span-2">
                 <label className="block text-xs text-gray-500 mb-1">Load screens for venue</label>
@@ -214,6 +266,131 @@ export default function ManagerPage() {
                 </div>
               ))}
             </div>
+          </div>
+          <div className="card">
+            <h2 className="font-semibold text-lg mb-4">Manage Screens</h2>
+
+            <div className="mb-4">
+              <label className="block text-xs text-gray-500 mb-1">
+                Select Venue
+              </label>
+
+              <select
+                className="input text-sm"
+                value={selectedVenueId}
+                onChange={async (e) => {
+                  const venueId = e.target.value;
+                  setSelectedVenueId(venueId);
+                  await loadScreens(venueId);
+                }}
+              >
+                <option value="">Select venue</option>
+
+                {venues.map(v => (
+                  <option key={v.id} value={v.id}>
+                    {v.name} — {v.city}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedVenueId && (
+              <>
+                <form
+                  onSubmit={createScreen}
+                  className="grid grid-cols-2 gap-3 mb-6"
+                >
+                  {inp(
+                    "Screen Name",
+                    newScreen.name,
+                    (e: any) =>
+                      setNewScreen(s => ({
+                        ...s,
+                        name: e.target.value
+                      }))
+                  )}
+
+                  {inp(
+                    "Rows",
+                    newScreen.rows,
+                    (e: any) =>
+                      setNewScreen(s => ({
+                        ...s,
+                        rows: e.target.value
+                      })),
+                    "number"
+                  )}
+
+                  {inp(
+                    "Columns",
+                    newScreen.cols,
+                    (e: any) =>
+                      setNewScreen(s => ({
+                        ...s,
+                        cols: e.target.value
+                      })),
+                    "number"
+                  )}
+
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Capacity
+                    </label>
+
+                    <div className="input text-sm bg-gray-100">
+                      {(parseInt(newScreen.rows) || 0) *
+                        (parseInt(newScreen.cols) || 0)} seats
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="col-span-2 btn-primary"
+                  >
+                    Create Screen
+                  </button>
+                </form>
+
+                <div>
+                  <h3 className="font-medium mb-3">
+                    Screens
+                  </h3>
+
+                  {screens.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      No screens created for this venue yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {screens.map(sc => (
+                        <div
+                          key={sc.id}
+                          className="flex justify-between items-center p-3 bg-gray-50 rounded-lg"
+                        >
+                          <div>
+                            <p className="font-medium">
+                              {sc.name}
+                            </p>
+
+                            <p className="text-sm text-gray-500">
+                              Capacity: {sc.capacity} seats
+                            </p>
+
+                            <p className="text-xs text-gray-400">
+                              Screen ID: {sc.id}
+                            </p>
+                          </div>
+
+                          <span className="text-sm text-green-600 font-medium">
+                            Active
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
