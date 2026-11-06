@@ -8,7 +8,9 @@
 -- ===================== STEP 2: Payment Gateway (002_payment_gateway.sql) =====================
 -- Copy the full content of sprint1/database/migrations/002_payment_gateway.sql here,
 -- then run it second.
-
+-- ===================== STEP 2.5: User Birthdate =====================
+ALTER TABLE public.users
+ADD COLUMN IF NOT EXISTS birthdate date;
 -- ===================== STEP 3: Unified Tickets Table =====================
 -- Simplified tickets table that integrates with the booking system
 CREATE TABLE IF NOT EXISTS tickets (
