@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
@@ -123,7 +125,8 @@ async def update_event(
 class ShowCreate(BaseModel):
     event_id: str
     screen_id: str
-    start_time: str
+    start_time: datetime
+    end_time: datetime
     base_price: float
     status: str = "scheduled"
 
@@ -146,9 +149,16 @@ async def create_show(
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     show = await conn.fetchrow(
-        """INSERT INTO shows (event_id, screen_id, start_time, base_price, status)
-           VALUES ($1,$2,$3::timestamptz,$4,$5) RETURNING *""",
-        body.event_id, body.screen_id, body.start_time, body.base_price, body.status
+        """INSERT INTO shows
+        (event_id, screen_id, start_time, end_time, base_price, status)
+        VALUES ($1, $2, $3::timestamptz, $4::timestamptz, $5, $6)
+        RETURNING *""",
+        body.event_id,
+        body.screen_id,
+        body.start_time,
+        body.end_time,
+        body.base_price,
+        body.status
     )
     show_id = show["id"]
     # Populate show_seats from screen seats

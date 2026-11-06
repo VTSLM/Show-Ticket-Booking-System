@@ -7,6 +7,7 @@ from dependencies import get_current_user
 from services.ticket_service import build_ticket_pdf
 from services.qr_service import generate_qr_bytes
 from services.email_service import send_ticket_email
+from config import GMAIL_USER
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
@@ -83,7 +84,16 @@ async def confirm_and_generate_ticket(
         "qr_b64": qr_b64,
     }
     try:
+        print("========== EMAIL DEBUG ==========")
+        print("SENDER:", GMAIL_USER)
+        print("RECIPIENT:", ticket_data.get("user_email"))
+        print("BOOKING:", ticket_data.get("booking_id"))
+        print("EVENT:", ticket_data.get("event_title"))
+        print("=================================")
+
         await send_ticket_email(ticket_data)
+
+        print("EMAIL SEND FUNCTION COMPLETED SUCCESSFULLY")
     except Exception as e:
         print(f"Email failed (non-fatal): {e}")
 
@@ -97,14 +107,19 @@ async def download_ticket_pdf(
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     user_id = str(current_user["id"])
+
     booking = await _get_full_booking(booking_id, user_id, conn)
+
     if not booking:
-        raise HTTPException(status_code=404, detail="Booking not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Booking not found"
+        )
+
+    qr_data = f"TICKETFLOW:{booking_id}"
+    qr_b64 = generate_qr_bytes(qr_data)
 
     seats = await _get_booking_seats(booking_id, conn)
-    ticket = await conn.fetchrow("SELECT qr_code_data FROM tickets WHERE booking_id=$1", booking_id)
-    qr_data = ticket["qr_code_data"] if ticket else f"TICKETFLOW:{booking_id}"
-    qr_b64 = generate_qr_bytes(qr_data)
 
     ticket_data = {
         "booking_id": booking_id,
@@ -117,11 +132,16 @@ async def download_ticket_pdf(
         "user_name": booking["user_name"],
         "qr_b64": qr_b64,
     }
+
     pdf_bytes = build_ticket_pdf(ticket_data)
+
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="ticket_{booking_id[:8]}.pdf"'}
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="ticket_{booking_id[:8]}.pdf"'
+        }
     )
 
 

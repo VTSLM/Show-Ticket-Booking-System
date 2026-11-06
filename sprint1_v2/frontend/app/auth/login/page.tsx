@@ -17,7 +17,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
-      const idToken = await cred.user.getIdToken();
+      const idToken = await cred.user.getIdToken(true);
       await authApi.verifyToken(idToken);
       toast.success("Welcome back!");
       router.push("/browse");

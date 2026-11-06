@@ -68,6 +68,7 @@ function RegisterForm() {
           <select className="input" value={form.role} onChange={handle("role")}>
             <option value="customer">Customer</option>
             <option value="manager">Manager (needs admin approval)</option>
+            <option value="admin">Admin</option>
           </select>
           <button type="submit" className="btn-primary w-full" disabled={loading}>
             {loading ? "Registering..." : "Create Account"}

@@ -82,8 +82,16 @@ export const ticketsApi = {
 export const managerApi = {
   venues: () => api.get<any[]>("/api/manager/venues"),
   createVenue: (data: object) => api.post("/api/manager/venues", data),
+
+  screens: (venueId: string) =>
+    api.get<any[]>(`/api/manager/venues/${venueId}/screens`),
+
+  createScreen: (venueId: string, data: object) =>
+    api.post<any>(`/api/manager/venues/${venueId}/screens`, data),
+
   events: () => api.get<any[]>("/api/manager/events"),
   createEvent: (data: object) => api.post("/api/manager/events", data),
+
   shows: () => api.get<any[]>("/api/manager/shows"),
   createShow: (data: object) => api.post("/api/manager/shows", data),
   deleteShow: (id: string) => api.delete(`/api/manager/shows/${id}`),

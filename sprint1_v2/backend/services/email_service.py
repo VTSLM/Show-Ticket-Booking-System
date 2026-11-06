@@ -17,6 +17,11 @@ def _send_email_sync(ticket_data: dict):
     user_name = ticket_data.get("user_name", "Guest")
     event_title = ticket_data.get("event_title", "Event")
 
+    print("EMAIL SERVICE:")
+    print("  Sender:", GMAIL_USER)
+    print("  Recipient:", user_email)
+    print("  Subject:", f"Your TicketFlow Ticket - {event_title}")
+
     msg = MIMEMultipart("mixed")
     msg["From"] = GMAIL_USER
     msg["To"] = user_email
@@ -72,5 +77,12 @@ def _send_email_sync(ticket_data: dict):
         print(f"PDF generation for email failed: {e}")
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-        smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-        smtp.sendmail(GMAIL_USER, user_email, msg.as_string())
+      smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+
+      result = smtp.sendmail(
+          GMAIL_USER,
+          user_email,
+          msg.as_string()
+      )
+
+      print("SMTP send result:", result)
