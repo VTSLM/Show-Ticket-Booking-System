@@ -6,7 +6,7 @@ export default function Home() {
       {/* Hero */}
       <section className="bg-[#1a1a2e] text-white py-20 px-6 text-center flex-1 flex flex-col items-center justify-center">
         <h1 className="text-5xl font-bold mb-4">
-          Book Your <span className="text-red-400">Perfect</span> Show
+          Book Your <span className="text-[#287cff]">Perfect</span> Show
         </h1>
         <p className="text-gray-300 text-lg mb-8 max-w-xl">
           Movies, concerts, theatre — all in one place. Choose your seats, pay instantly, get your e-ticket.
