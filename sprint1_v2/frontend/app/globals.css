@@ -3,22 +3,171 @@
 @tailwind utilities;
 
 :root {
-  --primary: #1a1a2e;
-  --secondary: #16213e;
-  --accent: #e94560;
+  color-scheme: dark;
+  --background: #090b12;
+  --surface: #11141e;
+  --surface-raised: #181c28;
+  --border: #292e3d;
+  --blue: #287cff;
+  --blue-hover: #4a91ff;
+  --foreground: #f4f6fb;
+  --muted: #9ba3b5;
 }
 
-body { @apply text-gray-900; }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(ellipse at 50% -20%, rgba(40, 124, 255, 0.12), transparent 55%),
+    var(--background);
+  color: var(--foreground);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  color: white;
+  background: var(--blue);
+}
 
 .btn-primary {
-  @apply bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.7rem 1.2rem;
+  border: 1px solid transparent;
+  border-radius: 0.8rem;
+  background: var(--blue);
+  color: white;
+  font-weight: 700;
+  transition: background 160ms ease, transform 160ms ease;
 }
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  background: var(--blue-hover);
+}
+
 .btn-secondary {
-  @apply bg-gray-800 hover:bg-gray-900 text-white font-semibold py-2 px-4 rounded-lg transition-colors;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.7rem 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--surface-raised);
+  color: var(--foreground);
+  font-weight: 600;
 }
+
 .card {
-  @apply bg-white rounded-xl shadow-md p-6;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
 }
+
 .input {
-  @apply w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-400;
+  width: 100%;
+  min-height: 46px;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  outline: none;
+  background: var(--surface-raised);
+  color: var(--foreground);
+}
+
+.input::placeholder {
+  color: #777f91;
+}
+
+.input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(40, 124, 255, 0.2);
+}
+
+:focus-visible {
+  outline: 2px solid var(--blue-hover);
+  outline-offset: 3px;
+}
+
+.cinema-screen-wrap {
+  position: relative;
+  width: min(88%, 700px);
+  height: 96px;
+  margin: 0 auto 2rem;
+  perspective: 700px;
+}
+
+.cinema-screen {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 70px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(126, 187, 255, 0.9);
+  border-radius: 50% 50% 12px 12px / 28% 28% 12px 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 38%),
+    linear-gradient(180deg, #263d5b 0%, #111a2a 78%, #0b1019 100%);
+  box-shadow:
+    0 0 12px rgba(63, 151, 255, 0.7),
+    0 0 36px rgba(42, 123, 255, 0.32),
+    inset 0 1px 10px rgba(210, 235, 255, 0.2);
+  transform: rotateX(-8deg);
+}
+
+.cinema-screen span {
+  color: #e8f3ff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-shadow: 0 0 12px rgba(120, 190, 255, 0.9);
+}
+
+.cinema-screen-glow {
+  position: absolute;
+  right: 8%;
+  bottom: 8px;
+  left: 8%;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(48, 132, 255, 0.28);
+  filter: blur(20px);
+}
+
+@media (max-width: 640px) {
+  .cinema-screen-wrap {
+    width: 94%;
+    height: 82px;
+    margin: 0 auto 1.5rem;
+  }
+
+  .cinema-screen {
+    height: 58px;
+  }
 }

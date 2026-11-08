@@ -1,26 +1,33 @@
 "use client";
-import { useState, useEffect } from "react";
-import { browseApi } from "@/lib/api";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
+import { browseApi } from "@/lib/api";
 
 export default function BrowsePage() {
   const [shows, setShows] = useState<any[]>([]);
   const [cities, setCities] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ city: "", event_type: "", search: "" });
+  const [filters, setFilters] = useState({
+    city: "",
+    event_type: "",
+    search: "",
+  });
 
   const load = async () => {
     setLoading(true);
+
     try {
       const params: Record<string, string> = {};
       if (filters.city) params.city = filters.city;
       if (filters.event_type) params.event_type = filters.event_type;
       if (filters.search) params.search = filters.search;
+
       const data = await browseApi.shows(params);
       setShows(data);
-    } catch (e: any) {
-      toast.error(e.message || "Failed to load shows");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load shows");
     } finally {
       setLoading(false);
     }
@@ -29,68 +36,163 @@ export default function BrowsePage() {
   useEffect(() => {
     browseApi.cities().then(setCities).catch(() => {});
     load();
+    // Load the initial show list and city options on page entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fh = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setFilters(f => ({ ...f, [k]: e.target.value }));
+  const updateFilter =
+    (key: string) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setFilters((current) => ({ ...current, [key]: event.target.value }));
+    };
 
-  const formatTime = (ts: string) => {
-    try { return new Date(ts).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }); }
-    catch { return ts; }
+  const formatTime = (timestamp: string) => {
+    try {
+      return new Date(timestamp).toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    } catch {
+      return timestamp;
+    }
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6 text-[#1a1a2e]">Browse Shows</h1>
+    <div className="mx-auto min-h-screen max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <header className="mb-8">
+        <p className="mb-2 text-sm font-semibold uppercase tracking-[0.2em] text-blue-400">
+          Find your next experience
+        </p>
+        <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          Movies &amp; Shows
+        </h1>
+        <p className="mt-2 text-sm text-slate-400 sm:text-base">
+          Discover what’s playing near you.
+        </p>
+      </header>
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl shadow p-4 mb-6 flex flex-wrap gap-3">
-        <input className="input flex-1 min-w-[180px]" placeholder="Search shows or venue..."
-          value={filters.search} onChange={fh("search")} />
-        <select className="input w-40" value={filters.city} onChange={fh("city")}>
-          <option value="">All Cities</option>
-          {cities.map(c => <option key={c}>{c}</option>)}
+      <section
+        aria-label="Filter shows"
+        className="mb-8 grid gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_190px_190px_auto]"
+      >
+        <input
+          className="input"
+          aria-label="Search shows or venues"
+          placeholder="Search movies or venues"
+          value={filters.search}
+          onChange={updateFilter("search")}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") load();
+          }}
+        />
+
+        <select
+          className="input"
+          aria-label="Filter by city"
+          value={filters.city}
+          onChange={updateFilter("city")}
+        >
+          <option value="">All cities</option>
+          {cities.map((city) => (
+            <option key={city} value={city}>
+              {city}
+            </option>
+          ))}
         </select>
-        <select className="input w-40" value={filters.event_type} onChange={fh("event_type")}>
-          <option value="">All Types</option>
-          {["movie","concert","theatre","other"].map(t => <option key={t} value={t}>{t}</option>)}
+
+        <select
+          className="input"
+          aria-label="Filter by show type"
+          value={filters.event_type}
+          onChange={updateFilter("event_type")}
+        >
+          <option value="">All types</option>
+          {["movie", "concert", "theatre", "other"].map((type) => (
+            <option key={type} value={type}>
+              {type.charAt(0).toUpperCase() + type.slice(1)}
+            </option>
+          ))}
         </select>
-        <button onClick={load} className="btn-primary">Search</button>
+
+        <button onClick={load} className="btn-primary">
+          Search
+        </button>
+      </section>
+
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-white">Now showing</h2>
+        {!loading && (
+          <span className="text-sm text-slate-400">
+            {shows.length} {shows.length === 1 ? "show" : "shows"}
+          </span>
+        )}
       </div>
 
-      {/* Results */}
       {loading ? (
-        <div className="text-center py-16 text-gray-400">Loading shows...</div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 py-16 text-center text-slate-400">
+          Loading shows…
+        </div>
       ) : shows.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
-          <p className="text-5xl mb-4">🎭</p>
-          <p>No shows found. Try different filters.</p>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-16 text-center">
+          <p className="mb-3 text-4xl" aria-hidden="true">
+            🎬
+          </p>
+          <p className="font-semibold text-white">No shows found</p>
+          <p className="mt-1 text-sm text-slate-400">
+            Try a different search or filter.
+          </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {shows.map(show => (
-            <Link key={show.show_id} href={`/shows/${show.show_id}/seats`}
-              className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow group">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {shows.map((show) => (
+            <Link
+              key={show.show_id}
+              href={`/shows/${show.show_id}/seats`}
+              className="group overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-950/30"
+            >
               {show.poster_url ? (
-                <img src={show.poster_url} alt={show.title} className="w-full h-48 object-cover" />
+                <img
+                  src={show.poster_url}
+                  alt={`${show.title} poster`}
+                  className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                />
               ) : (
-                <div className="w-full h-48 bg-gradient-to-br from-[#1a1a2e] to-[#e94560] flex items-center justify-center">
-                  <span className="text-5xl">🎬</span>
+                <div className="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950">
+                  <span className="text-6xl" aria-hidden="true">
+                    🎥
+                  </span>
                 </div>
               )}
-              <div className="p-4">
-                <h3 className="font-bold text-lg group-hover:text-red-500 transition-colors">{show.title}</h3>
-                <p className="text-sm text-gray-500">{show.event_type} • {show.language || "—"}</p>
-                <p className="text-sm text-gray-600 mt-1">📍 {show.venue_name}, {show.city}</p>
-                <p className="text-sm text-gray-600">🕐 {formatTime(show.start_time)}</p>
-                <div className="flex items-center justify-between mt-3">
-                  <span className="text-red-500 font-bold">₹{show.base_price}</span>
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    show.available_seats > 10 ? "bg-green-100 text-green-700" :
-                    show.available_seats > 0 ? "bg-yellow-100 text-yellow-700" :
-                    "bg-red-100 text-red-700"
-                  }`}>
-                    {show.available_seats ?? "?"} seats
+
+              <div className="p-5">
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <h3 className="text-lg font-bold text-white transition group-hover:text-blue-400">
+                    {show.title}
+                  </h3>
+                  <span className="shrink-0 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300">
+                    {show.event_type || "Show"}
+                  </span>
+                </div>
+
+                <p className="text-sm text-slate-400">
+                  {show.language || "Language not listed"}
+                </p>
+                <p className="mt-3 text-sm text-slate-300">
+                  <span aria-hidden="true">📍 </span>
+                  {show.venue_name}
+                  {show.city ? `, ${show.city}` : ""}
+                </p>
+                <p className="mt-1 text-sm text-slate-400">
+                  <span aria-hidden="true">◷ </span>
+                  {formatTime(show.start_time)}
+                </p>
+
+                <div className="mt-5 flex items-center justify-between border-t border-slate-800 pt-4">
+                  <span className="text-lg font-bold text-blue-400">
+                    ₹{show.base_price}
+                  </span>
+                  <span className="text-sm text-slate-400">
+                    {show.available_seats ?? "—"} seats
                   </span>
                 </div>
               </div>
