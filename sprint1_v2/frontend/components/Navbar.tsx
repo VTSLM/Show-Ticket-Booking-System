@@ -19,9 +19,11 @@ export default function Navbar() {
       </Link>
       <div className="flex items-center gap-4 text-sm">
         <Link href="/browse" className="hover:text-red-300 transition-colors">Browse Shows</Link>
+        <Link href="/help" className="hover:text-red-300 transition-colors">Help</Link>
         {!loading && profile ? (
           <>
             <Link href="/bookings" className="hover:text-red-300">My Bookings</Link>
+            <Link href="/support" className="hover:text-red-300">Support</Link>
             {isManager && (
               <Link href="/manager" className="hover:text-red-300">Manager</Link>
             )}

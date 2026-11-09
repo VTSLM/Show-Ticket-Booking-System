@@ -203,6 +203,13 @@ export default function BookingDetailPage() {
           >
             All Bookings
           </Link>
+
+          <Link
+            href={`/support/new?booking_id=${bookingId}&category=booking`}
+            className="block text-center text-sm text-gray-500 hover:text-red-500"
+          >
+            Need help with this booking?
+          </Link>
         </div>
       </div>
     </div>
