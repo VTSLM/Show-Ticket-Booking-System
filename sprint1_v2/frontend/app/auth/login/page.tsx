@@ -9,6 +9,7 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   googleProvider,
+  sendPasswordResetEmail,
 } from "@/lib/firebase";
 import { authApi } from "@/lib/api";
 
@@ -57,6 +58,30 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       toast.error(err.message || "Google login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const emailAddress = email.trim();
+
+    if (!emailAddress) {
+      toast.error("Enter your email address first.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      await sendPasswordResetEmail(auth, emailAddress);
+      toast.success(
+        "If an account exists for that email, a password reset link has been sent."
+      );
+    } catch (err: any) {
+      toast.error(
+        err?.message || "Could not send the reset email. Check the email address and try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -140,7 +165,9 @@ export default function LoginPage() {
           <div className="pt-0.5 text-right">
             <button
               type="button"
-              className="text-sm font-medium text-white/75 transition hover:text-white"
+              onClick={handleForgotPassword}
+              disabled={loading}
+              className="text-sm font-medium text-white/75 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               Forgot password?
             </button>
