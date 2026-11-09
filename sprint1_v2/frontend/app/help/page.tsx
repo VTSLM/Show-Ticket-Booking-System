@@ -20,8 +20,8 @@ export default function HelpPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-2">Help Centre</h1>
-      <p className="text-gray-500 mb-6">Find quick answers, or contact our support team.</p>
+      <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Help Centre</h1>
+      <p className="text-slate-400 mb-6">Find quick answers, or contact our support team.</p>
 
       <input
         type="search"
@@ -39,8 +39,8 @@ export default function HelpPage() {
             onClick={() => setFilter(f)}
             className={`text-sm px-3 py-1 rounded-full border transition-colors ${
               filter === f
-                ? "bg-red-500 text-white border-red-500"
-                : "bg-white text-gray-700 border-gray-300 hover:border-red-400"
+                ? "bg-blue-600 text-white border-blue-600"
+                : "bg-slate-900 text-slate-300 border-slate-700 hover:border-blue-500"
             }`}
           >
             {f === "all" ? "All" : CATEGORY_LABELS[f]}
@@ -49,7 +49,7 @@ export default function HelpPage() {
       </div>
 
       {results.length === 0 ? (
-        <div className="card text-center text-gray-500">
+        <div className="card p-6 text-center text-slate-400">
           No answers match your search. Try other words, or contact us below.
         </div>
       ) : (
@@ -57,17 +57,17 @@ export default function HelpPage() {
           {results.map(faq => {
             const isOpen = openId === faq.id;
             return (
-              <div key={faq.id} className="bg-white rounded-xl shadow-sm border border-gray-100">
+              <div key={faq.id} className="rounded-2xl border border-slate-800 bg-slate-900">
                 <button
                   onClick={() => setOpenId(isOpen ? null : faq.id)}
-                  className="w-full flex justify-between items-center gap-4 text-left px-5 py-4 font-medium"
+                  className="w-full flex justify-between items-center gap-4 text-left px-5 py-4 font-medium text-white"
                   aria-expanded={isOpen}
                 >
                   <span>{faq.question}</span>
-                  <span className="text-red-500 text-xl leading-none">{isOpen ? "−" : "+"}</span>
+                  <span className="text-blue-400 text-xl leading-none">{isOpen ? "−" : "+"}</span>
                 </button>
                 {isOpen && (
-                  <p className="px-5 pb-4 text-gray-600 text-sm leading-relaxed">{faq.answer}</p>
+                  <p className="px-5 pb-4 text-slate-300 text-sm leading-relaxed">{faq.answer}</p>
                 )}
               </div>
             );
@@ -75,10 +75,10 @@ export default function HelpPage() {
         </div>
       )}
 
-      <div className="card mt-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="card p-6 mt-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="font-semibold text-lg">Still need help?</h2>
-          <p className="text-gray-500 text-sm">Raise a support request and our team will reply.</p>
+          <p className="text-slate-400 text-sm">Raise a support request and our team will reply.</p>
         </div>
         <div className="flex gap-2">
           {profile && (

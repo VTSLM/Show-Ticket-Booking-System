@@ -34,14 +34,14 @@ export default function MySupportRequestsPage() {
     }
   }, [user, authLoading, router]);
 
-  if (loading || authLoading) return <div className="text-center py-20 text-gray-400">Loading...</div>;
+  if (loading || authLoading) return <div className="text-center py-20 text-slate-500">Loading...</div>;
 
   const shown = tab === "all" ? requests : requests.filter(r => r.status === tab);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6 gap-4">
-        <h1 className="text-3xl font-bold">My Support Requests</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-white">My Support Requests</h1>
         <Link href="/support/new" className="btn-primary text-sm whitespace-nowrap">+ New Request</Link>
       </div>
 
@@ -54,8 +54,8 @@ export default function MySupportRequestsPage() {
               onClick={() => setTab(t)}
               className={`text-sm px-3 py-1 rounded-full border transition-colors ${
                 tab === t
-                  ? "bg-red-500 text-white border-red-500"
-                  : "bg-white text-gray-700 border-gray-300 hover:border-red-400"
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-slate-900 text-slate-300 border-slate-700 hover:border-blue-500"
               }`}
             >
               {t === "all" ? "All" : STATUS_LABELS[t]} ({count})
@@ -65,10 +65,10 @@ export default function MySupportRequestsPage() {
       </div>
 
       {shown.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-slate-500">
           <p className="text-4xl mb-4">💬</p>
           <p>{requests.length === 0 ? "You haven't raised any support requests." : "Nothing here."}</p>
-          <Link href="/help" className="text-red-500 hover:underline text-sm mt-2 inline-block">
+          <Link href="/help" className="text-blue-400 hover:underline text-sm mt-2 inline-block">
             Check the Help Centre for quick answers
           </Link>
         </div>
@@ -77,22 +77,22 @@ export default function MySupportRequestsPage() {
           {shown.map(r => {
             const newReply = r.last_reply_by_admin && (r.status === "open" || r.status === "in_progress");
             return (
-              <Link key={r.id} href={`/support/${r.id}`} className="card flex gap-4 hover:shadow-lg transition-shadow">
+              <Link key={r.id} href={`/support/${r.id}`} className="card p-5 flex gap-4 transition hover:-translate-y-0.5 hover:border-blue-500/70">
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-400 font-mono">{r.request_number}</p>
-                  <h3 className="font-semibold text-lg truncate">{r.subject}</h3>
-                  <p className="text-gray-500 text-sm">
+                  <p className="text-xs text-slate-500 font-mono">{r.request_number}</p>
+                  <h3 className="font-semibold text-lg text-white truncate">{r.subject}</h3>
+                  <p className="text-slate-400 text-sm">
                     {CATEGORY_LABELS[r.category]}
                     {r.booking_number && <> • Booking {r.booking_number}</>}
                   </p>
-                  <p className="text-gray-400 text-xs mt-1">Last updated {formatDateTime(r.updated_at)}</p>
+                  <p className="text-slate-500 text-xs mt-1">Last updated {formatDateTime(r.updated_at)}</p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${STATUS_STYLES[r.status]}`}>
                     {STATUS_LABELS[r.status]}
                   </span>
                   {newReply && (
-                    <span className="text-xs text-red-500 font-semibold whitespace-nowrap">● Support replied</span>
+                    <span className="text-xs text-blue-400 font-semibold whitespace-nowrap">● Support replied</span>
                   )}
                 </div>
               </Link>

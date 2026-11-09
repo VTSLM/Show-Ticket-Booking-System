@@ -76,16 +76,16 @@ function NewSupportRequestForm() {
     }
   };
 
-  if (authLoading) return <div className="text-center py-20 text-gray-400">Loading...</div>;
+  if (authLoading) return <div className="text-center py-20 text-slate-500">Loading...</div>;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
-      <Link href="/support" className="text-sm text-gray-500 hover:text-red-500">← My Requests</Link>
-      <h1 className="text-3xl font-bold mt-2 mb-6">Contact Support</h1>
+      <Link href="/support" className="text-sm text-slate-400 hover:text-blue-400">← My Requests</Link>
+      <h1 className="text-3xl font-bold tracking-tight text-white mt-2 mb-6">Contact Support</h1>
 
-      <form onSubmit={handleSubmit} className="card space-y-5" noValidate>
+      <form onSubmit={handleSubmit} className="card p-6 space-y-5" noValidate>
         <div>
-          <label htmlFor="category" className="block text-sm font-medium mb-1">What do you need help with?</label>
+          <label htmlFor="category" className="block text-sm font-medium text-slate-200 mb-1">What do you need help with?</label>
           <select
             id="category"
             className="input"
@@ -99,8 +99,8 @@ function NewSupportRequestForm() {
         </div>
 
         <div>
-          <label htmlFor="booking" className="block text-sm font-medium mb-1">
-            Booking {bookingRequired ? <span className="text-red-500">*</span> : <span className="text-gray-400">(optional)</span>}
+          <label htmlFor="booking" className="block text-sm font-medium text-slate-200 mb-1">
+            Booking {bookingRequired ? <span className="text-red-400">*</span> : <span className="text-slate-500">(optional)</span>}
           </label>
           <select
             id="booking"
@@ -116,13 +116,13 @@ function NewSupportRequestForm() {
             ))}
           </select>
           {bookings.length === 0 && bookingRequired && (
-            <p className="text-xs text-gray-500 mt-1">You don&apos;t have any bookings yet.</p>
+            <p className="text-xs text-slate-400 mt-1">You don&apos;t have any bookings yet.</p>
           )}
-          {errors.booking && <p className="text-xs text-red-500 mt-1">{errors.booking}</p>}
+          {errors.booking && <p className="text-xs text-red-400 mt-1">{errors.booking}</p>}
         </div>
 
         <div>
-          <label htmlFor="subject" className="block text-sm font-medium mb-1">Subject</label>
+          <label htmlFor="subject" className="block text-sm font-medium text-slate-200 mb-1">Subject</label>
           <input
             id="subject"
             className="input"
@@ -131,23 +131,23 @@ function NewSupportRequestForm() {
             maxLength={SUBJECT_MAX}
             onChange={e => setSubject(e.target.value)}
           />
-          {errors.subject && <p className="text-xs text-red-500 mt-1">{errors.subject}</p>}
+          {errors.subject && <p className="text-xs text-red-400 mt-1">{errors.subject}</p>}
         </div>
 
         {suggestions.length > 0 && (
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
-            <p className="text-sm font-medium text-blue-800 mb-2">💡 These answers might help:</p>
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+            <p className="text-sm font-medium text-blue-300 mb-2">💡 These answers might help:</p>
             <ul className="space-y-2">
               {suggestions.map(f => (
                 <li key={f.id} className="text-sm">
                   <button
                     type="button"
                     onClick={() => setOpenFaq(openFaq === f.id ? null : f.id)}
-                    className="text-blue-700 hover:underline text-left"
+                    className="text-blue-400 hover:underline text-left"
                   >
                     {f.question}
                   </button>
-                  {openFaq === f.id && <p className="text-gray-600 mt-1">{f.answer}</p>}
+                  {openFaq === f.id && <p className="text-slate-300 mt-1">{f.answer}</p>}
                 </li>
               ))}
             </ul>
@@ -155,7 +155,7 @@ function NewSupportRequestForm() {
         )}
 
         <div>
-          <label htmlFor="message" className="block text-sm font-medium mb-1">Describe the problem</label>
+          <label htmlFor="message" className="block text-sm font-medium text-slate-200 mb-1">Describe the problem</label>
           <textarea
             id="message"
             className="input min-h-[140px]"
@@ -165,8 +165,8 @@ function NewSupportRequestForm() {
             onChange={e => setMessage(e.target.value)}
           />
           <div className="flex justify-between text-xs mt-1">
-            <span className="text-red-500">{errors.message}</span>
-            <span className="text-gray-400">{message.length}/{MESSAGE_MAX}</span>
+            <span className="text-red-400">{errors.message}</span>
+            <span className="text-slate-500">{message.length}/{MESSAGE_MAX}</span>
           </div>
         </div>
 
@@ -181,7 +181,7 @@ function NewSupportRequestForm() {
 export default function NewSupportRequestPage() {
   // useSearchParams() needs a Suspense boundary in Next.js 14.
   return (
-    <Suspense fallback={<div className="text-center py-20 text-gray-400">Loading...</div>}>
+    <Suspense fallback={<div className="text-center py-20 text-slate-500">Loading...</div>}>
       <NewSupportRequestForm />
     </Suspense>
   );

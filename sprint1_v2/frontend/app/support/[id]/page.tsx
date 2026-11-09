@@ -41,7 +41,7 @@ export default function SupportRequestPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [request?.messages.length]);
 
-  if (loading || authLoading) return <div className="text-center py-20 text-gray-400">Loading...</div>;
+  if (loading || authLoading) return <div className="text-center py-20 text-slate-500">Loading...</div>;
   if (!request) {
     return (
       <div className="text-center py-20">
@@ -78,32 +78,32 @@ export default function SupportRequestPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      <Link href="/support" className="text-sm text-gray-500 hover:text-red-500">← My Requests</Link>
+      <Link href="/support" className="text-sm text-slate-400 hover:text-blue-400">← My Requests</Link>
 
-      <div className="card mt-2 mb-6">
+      <div className="card p-6 mt-2 mb-6">
         <div className="flex justify-between items-start gap-4">
           <div className="min-w-0">
-            <p className="text-xs text-gray-400 font-mono">{request.request_number}</p>
-            <h1 className="text-2xl font-bold break-words">{request.subject}</h1>
+            <p className="text-xs text-slate-500 font-mono">{request.request_number}</p>
+            <h1 className="text-2xl font-bold text-white break-words">{request.subject}</h1>
           </div>
           <span className={`text-xs px-3 py-1 rounded-full font-semibold whitespace-nowrap ${STATUS_STYLES[request.status]}`}>
             {STATUS_LABELS[request.status]}
           </span>
         </div>
         <dl className="grid grid-cols-2 gap-2 text-sm mt-4">
-          <dt className="text-gray-500">Category</dt>
+          <dt className="text-slate-400">Category</dt>
           <dd>{CATEGORY_LABELS[request.category]}</dd>
           {request.booking_id && (
             <>
-              <dt className="text-gray-500">Booking</dt>
+              <dt className="text-slate-400">Booking</dt>
               <dd>
-                <Link href={`/bookings/${request.booking_id}`} className="text-red-500 hover:underline">
+                <Link href={`/bookings/${request.booking_id}`} className="text-blue-400 hover:underline">
                   {request.booking_number || "View booking"}
                 </Link>
               </dd>
             </>
           )}
-          <dt className="text-gray-500">Opened</dt>
+          <dt className="text-slate-400">Opened</dt>
           <dd>{formatDateTime(request.created_at)}</dd>
         </dl>
       </div>
@@ -113,14 +113,14 @@ export default function SupportRequestPage() {
           <div key={m.id} className={`flex ${m.is_admin ? "justify-start" : "justify-end"}`}>
             <div
               className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-sm ${
-                m.is_admin ? "bg-white border border-gray-200" : "bg-red-500 text-white"
+                m.is_admin ? "bg-slate-800 border border-slate-700 text-slate-100" : "bg-blue-600 text-white"
               }`}
             >
-              <p className={`text-xs font-semibold mb-1 ${m.is_admin ? "text-red-500" : "text-red-100"}`}>
+              <p className={`text-xs font-semibold mb-1 ${m.is_admin ? "text-blue-300" : "text-blue-100"}`}>
                 {m.is_admin ? "🎧 " : ""}{m.sender_name}
               </p>
               <p className="whitespace-pre-wrap break-words text-sm">{m.message}</p>
-              <p className={`text-[11px] mt-1 ${m.is_admin ? "text-gray-400" : "text-red-100"}`}>
+              <p className={`text-[11px] mt-1 ${m.is_admin ? "text-slate-400" : "text-blue-100"}`}>
                 {formatDateTime(m.created_at)}
               </p>
             </div>
@@ -130,14 +130,14 @@ export default function SupportRequestPage() {
       </div>
 
       {isClosed ? (
-        <div className="card text-center text-gray-500 text-sm">
+        <div className="card p-6 text-center text-slate-400 text-sm">
           This request is closed. If you still need help,{" "}
-          <Link href="/support/new" className="text-red-500 hover:underline">raise a new request</Link>.
+          <Link href="/support/new" className="text-blue-400 hover:underline">raise a new request</Link>.
         </div>
       ) : (
-        <form onSubmit={handleSend} className="card space-y-3">
+        <form onSubmit={handleSend} className="card p-6 space-y-3">
           {isResolved && (
-            <p className="text-sm text-green-700 bg-green-50 rounded-lg p-3">
+            <p className="text-sm text-green-300 bg-green-500/10 border border-green-500/30 rounded-lg p-3">
               ✅ Our team marked this as resolved. Not fixed? Tell us why below to reopen it.
             </p>
           )}
