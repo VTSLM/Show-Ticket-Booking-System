@@ -69,10 +69,10 @@ export const STATUS_LABELS: Record<SupportStatus, string> = {
 };
 
 export const STATUS_STYLES: Record<SupportStatus, string> = {
-  open: "bg-yellow-100 text-yellow-700",
-  in_progress: "bg-blue-100 text-blue-700",
-  resolved: "bg-green-100 text-green-700",
-  closed: "bg-gray-200 text-gray-600",
+  open: "bg-yellow-500/15 text-yellow-300",
+  in_progress: "bg-blue-500/15 text-blue-300",
+  resolved: "bg-green-500/15 text-green-300",
+  closed: "bg-slate-700 text-slate-300",
 };
 
 /** Categories where the customer must pick a booking (matches the backend rule). */
