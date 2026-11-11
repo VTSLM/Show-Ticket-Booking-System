@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS organizer_profiles (
     pan_masked          varchar(20),
     gstin_masked        varchar(20),
     verification_status varchar(30) NOT NULL DEFAULT 'PENDING'
-                            CHECK (verification_status IN ('DRAFT', 'PENDING', 'CHANGES_REQUESTED', 'APPROVED', 'REJECTED', 'SUSPENDED')),
+                            CHECK (verification_status IN ('DRAFT', 'SUBMITTED', 'IN_REVIEW', 'PENDING', 'CHANGES_REQUESTED', 'APPROVED', 'REJECTED', 'SUSPENDED', 'EXPIRED')),
     trust_tier          varchar(50) NOT NULL DEFAULT 'TIER_1' REFERENCES trust_tier_rules(tier) ON DELETE RESTRICT,
     created_at          timestamptz NOT NULL DEFAULT now(),
     updated_at          timestamptz NOT NULL DEFAULT now(),
