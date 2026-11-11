@@ -38,6 +38,7 @@ VALID_GST_STATE_CODES = {
 # Regex patterns
 PAN_REGEX = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 GSTIN_REGEX = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+IFSC_REGEX = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
 
 # Mapping of BusinessType to allowed 4th character holder codes in Indian PAN:
 # - 'P' = Individual / Person (used by INDIVIDUAL and SOLE_PROPRIETOR)
@@ -276,6 +277,55 @@ def validate_gstin(
             error_message=f"Invalid GSTIN checksum digit '{actual_check}'. Expected checksum digit '{calculated_check}'",
             field="gstin",
             error_code="INVALID_CHECKSUM",
+        )
+
+    return ValidationResult(is_valid=True)
+
+
+def validate_ifsc(ifsc: Optional[str]) -> ValidationResult:
+    """
+    Validate an Indian Financial System Code (IFSC).
+    
+    Checks:
+    1. Mandatory value present.
+    2. Format: Exactly 11 characters.
+    3. Structure: 4 alphabetic bank code letters, strictly '0' at index 4 (5th char),
+       followed by 6 alphanumeric branch code characters.
+       
+    Security note: Raw IFSC input is never echoed into error responses.
+    """
+    if ifsc is None or not str(ifsc).strip():
+        return ValidationResult(
+            is_valid=False,
+            error_message="IFSC code is required",
+            field="ifsc",
+            error_code="REQUIRED_FIELD",
+        )
+
+    cleaned = str(ifsc).strip().upper()
+
+    if len(cleaned) != 11:
+        return ValidationResult(
+            is_valid=False,
+            error_message="IFSC code must be exactly 11 characters long",
+            field="ifsc",
+            error_code="INVALID_LENGTH",
+        )
+
+    if cleaned[4] != "0":
+        return ValidationResult(
+            is_valid=False,
+            error_message="Invalid IFSC: 5th character must strictly be the digit zero ('0')",
+            field="ifsc",
+            error_code="INVALID_FIFTH_CHARACTER",
+        )
+
+    if not IFSC_REGEX.match(cleaned):
+        return ValidationResult(
+            is_valid=False,
+            error_message="Invalid IFSC format. Must be 4 letters, digit '0', and 6 alphanumeric characters (e.g. HDFC0001234)",
+            field="ifsc",
+            error_code="INVALID_FORMAT",
         )
 
     return ValidationResult(is_valid=True)
