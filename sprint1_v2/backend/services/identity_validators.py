@@ -26,6 +26,15 @@ FORMAT_VALIDATION_DISCLAIMER = (
     "It does not certify government registration, active tax standing, or document authenticity."
 )
 
+# Base-36 alphabet mapping used by GSTN for Luhn Mod-36 checksum calculation
+GSTIN_CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+GSTIN_CHAR_MAP = {c: i for i, c in enumerate(GSTIN_CHARSET)}
+
+# Valid 2-digit Indian State/UT Codes under GSTN
+VALID_GST_STATE_CODES = {
+    f"{i:02d}" for i in range(1, 39)
+}.union({"97", "99"})  # 97=Other Territory, 99=Centre Jurisdiction / Non-resident
+
 # Regex patterns
 PAN_REGEX = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 
@@ -67,6 +76,35 @@ def _resolve_business_type(b_type: Union[BusinessType, str]) -> Optional[Busines
         except ValueError:
             return None
     return None
+
+
+def calculate_gstin_checksum(gstin_14: str) -> str:
+    """
+    Calculate the 15th checksum character of a 14-character GSTIN prefix
+    using the official GSTN Luhn Mod-36 algorithm.
+    """
+    if not isinstance(gstin_14, str) or len(gstin_14) != 14:
+        raise ValueError("Input to calculate_gstin_checksum must be exactly 14 characters")
+
+    cleaned = gstin_14.strip().upper()
+    factor = 1
+    total_sum = 0
+    mod = 36
+
+    for char in cleaned:
+        code_point = GSTIN_CHAR_MAP.get(char)
+        if code_point is None:
+            raise ValueError(f"Invalid character in GSTIN prefix: '{char}'")
+        
+        product = code_point * factor
+        digit_sum = (product // mod) + (product % mod)
+        total_sum += digit_sum
+        
+        factor = 1 if factor == 2 else 2
+
+    remainder = total_sum % mod
+    check_index = (mod - remainder) % mod
+    return GSTIN_CHARSET[check_index]
 
 
 def validate_pan(
