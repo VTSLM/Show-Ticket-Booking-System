@@ -8,7 +8,9 @@ Covers:
 3. GSTIN structure, state code, embedded PAN, and Mod-36 checksum verification.
 4. GSTIN vs supplied PAN cross-matching consistency.
 5. Tampered and invalid GSTIN checksum detection.
-6. Boundary, malformed, whitespace, and None input handling.
+6. IFSC code validation (4-letter bank code, 5th-char zero, 6-char branch code).
+7. Boundary, malformed, whitespace, and None input handling.
+8. Multi-field coordinator validate_organizer_identity().
 """
 
 import pytest
@@ -16,7 +18,9 @@ from models.verification import BusinessType
 from services.identity_validators import (
     validate_pan,
     validate_gstin,
+    validate_ifsc,
     calculate_gstin_checksum,
+    validate_organizer_identity,
     FORMAT_VALIDATION_DISCLAIMER,
 )
 
@@ -177,3 +181,93 @@ def test_invalid_gstin_structures(invalid_gstin, expected_code):
     res = validate_gstin(invalid_gstin)
     assert res.is_valid is False
     assert res.error_code == expected_code
+
+
+# ==============================================================================
+# 3. IFSC VALIDATION TESTS
+# ==============================================================================
+
+@pytest.mark.parametrize(
+    "valid_ifsc",
+    [
+        "HDFC0001234",
+        "SBIN0004321",
+        "ICIC0000987",
+        "KKBK0004567",
+        "PUNB0123456",
+        "BARB0BLRVAL",  # Alphanumeric branch code
+    ],
+)
+def test_valid_ifsc_codes(valid_ifsc):
+    """Verify valid 11-character Indian Financial System Codes."""
+    res = validate_ifsc(valid_ifsc)
+    assert res.is_valid is True
+    assert res.error_message is None
+
+
+def test_ifsc_case_and_whitespace():
+    """Verify case normalization and trimming on IFSC codes."""
+    res = validate_ifsc("  hdfc0001234  ")
+    assert res.is_valid is True
+
+
+@pytest.mark.parametrize(
+    "invalid_ifsc,expected_code",
+    [
+        (None, "REQUIRED_FIELD"),
+        ("", "REQUIRED_FIELD"),
+        ("   ", "REQUIRED_FIELD"),
+        ("HDFC001234", "INVALID_LENGTH"),         # 10 chars
+        ("HDFC00001234", "INVALID_LENGTH"),       # 12 chars
+        ("HDFC1001234", "INVALID_FIFTH_CHARACTER"),# 5th char is '1' instead of '0'
+        ("HDFCA001234", "INVALID_FIFTH_CHARACTER"),# 5th char is 'A' instead of '0'
+        ("12340001234", "INVALID_FORMAT"),        # First 4 must be letters
+        ("HDFC000123!", "INVALID_FORMAT"),        # Special character
+    ],
+)
+def test_invalid_ifsc_codes(invalid_ifsc, expected_code):
+    """Verify rejection of invalid IFSC codes."""
+    res = validate_ifsc(invalid_ifsc)
+    assert res.is_valid is False
+    assert res.error_code == expected_code
+
+
+# ==============================================================================
+# 4. MULTI-FIELD COORDINATED IDENTITY VALIDATION TESTS
+# ==============================================================================
+
+def test_validate_organizer_identity_all_valid():
+    """Verify coordinated multi-field validation when all fields match."""
+    results = validate_organizer_identity(
+        pan="AAACT2727Q",
+        business_type=BusinessType.COMPANY,
+        gstin="27AAACT2727Q1ZW",
+        ifsc="HDFC0001234",
+    )
+    assert results["pan"].is_valid is True
+    assert results["gstin"].is_valid is True
+    assert results["ifsc"].is_valid is True
+
+
+def test_validate_organizer_identity_with_mismatch():
+    """Verify coordinated validation detects mixed errors accurately."""
+    results = validate_organizer_identity(
+        pan="ABCPE1234F",                     # Individual PAN
+        business_type=BusinessType.COMPANY,    # Mismatch with PAN!
+        gstin="27AAACT2727Q1ZW",              # Mismatch with supplied PAN!
+        ifsc="HDFC1001234",                   # 5th char not zero!
+    )
+    assert results["pan"].is_valid is False
+    assert results["pan"].error_code == "BUSINESS_TYPE_MISMATCH"
+
+    assert results["gstin"].is_valid is False
+    # Since PAN was invalid, GSTIN does not cross-match against an invalid PAN
+    # but GSTIN itself has valid checksum
+    assert results["ifsc"].is_valid is False
+    assert results["ifsc"].error_code == "INVALID_FIFTH_CHARACTER"
+
+
+def test_disclaimer_included_on_all_results():
+    """Verify compliance disclaimer is attached to validation result metadata."""
+    res = validate_pan("ABCPE1234F")
+    assert FORMAT_VALIDATION_DISCLAIMER in res.disclaimer
