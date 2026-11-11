@@ -31,11 +31,14 @@ export type DocumentType =
 
 export type VerificationStatus =
   | "DRAFT"
+  | "SUBMITTED"
+  | "IN_REVIEW"
   | "PENDING"
   | "CHANGES_REQUESTED"
   | "APPROVED"
   | "REJECTED"
-  | "SUSPENDED";
+  | "SUSPENDED"
+  | "EXPIRED";
 
 export type ReviewStatus =
   | "PENDING"
