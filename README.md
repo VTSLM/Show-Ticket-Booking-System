@@ -71,7 +71,7 @@ The complete project documentation, including setup instructions, environment va
 | **F03 — Browse & Search Shows** | Kavya Halani · Arpit |
 | **F04 — Seat Allocation** | Khushi · Vatsal Mori |
 | **F05 — Payment Gateway** | Darshan · Tirth |
-| **F06 — Ticket Generation** | Hari Sharma *(Integration Lead)* |
+| **F06 — Ticket Generation** | Hari Sharma |
 
 ### Quality Assurance & Support
 
