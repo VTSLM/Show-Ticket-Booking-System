@@ -329,3 +329,32 @@ def validate_ifsc(ifsc: Optional[str]) -> ValidationResult:
         )
 
     return ValidationResult(is_valid=True)
+
+
+def validate_organizer_identity(
+    pan: Optional[str],
+    business_type: Union[BusinessType, str],
+    gstin: Optional[str] = None,
+    ifsc: Optional[str] = None,
+) -> Dict[str, ValidationResult]:
+    """
+    Execute comprehensive multi-field validation across an organizer's business credentials.
+    Returns a dictionary of ValidationResults keyed by field name ('pan', 'gstin', 'ifsc').
+    """
+    results: Dict[str, ValidationResult] = {}
+
+    # Validate PAN and business type correlation
+    pan_res = validate_pan(pan, business_type=business_type)
+    results["pan"] = pan_res
+
+    # Validate GSTIN and consistency with PAN
+    if gstin is not None and str(gstin).strip():
+        # Even if the PAN failed holder/business_type checks, if it has 10 chars, check cross-consistency
+        expected_pan = pan.strip().upper() if (pan and len(pan.strip()) == 10) else None
+        results["gstin"] = validate_gstin(gstin, expected_pan=expected_pan)
+
+    # Validate IFSC
+    if ifsc is not None and str(ifsc).strip():
+        results["ifsc"] = validate_ifsc(ifsc)
+
+    return results
