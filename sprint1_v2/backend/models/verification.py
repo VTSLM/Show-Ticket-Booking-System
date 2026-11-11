@@ -63,13 +63,16 @@ class DocumentType(str, Enum):
 
 
 class VerificationStatus(str, Enum):
-    """Lifecycle status of an organizer or verification entity."""
+    """Lifecycle status of an organizer or verification entity (Shared Contract Section 2.3)."""
     DRAFT = "DRAFT"
-    PENDING = "PENDING"
+    SUBMITTED = "SUBMITTED"
+    IN_REVIEW = "IN_REVIEW"
+    PENDING = "PENDING"  # Supported for backward compatibility / transition mapping
     CHANGES_REQUESTED = "CHANGES_REQUESTED"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     SUSPENDED = "SUSPENDED"
+    EXPIRED = "EXPIRED"
 
 
 class ReviewStatus(str, Enum):
