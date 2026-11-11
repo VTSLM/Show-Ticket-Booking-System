@@ -37,6 +37,7 @@ VALID_GST_STATE_CODES = {
 
 # Regex patterns
 PAN_REGEX = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+GSTIN_REGEX = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 
 # Mapping of BusinessType to allowed 4th character holder codes in Indian PAN:
 # - 'P' = Individual / Person (used by INDIVIDUAL and SOLE_PROPRIETOR)
@@ -179,5 +180,102 @@ def validate_pan(
                 field="pan",
                 error_code="BUSINESS_TYPE_MISMATCH",
             )
+
+    return ValidationResult(is_valid=True)
+
+
+def validate_gstin(
+    gstin: Optional[str],
+    expected_pan: Optional[str] = None,
+) -> ValidationResult:
+    """
+    Validate an Indian Goods and Services Tax Identification Number (GSTIN).
+    
+    Checks:
+    1. Format: Exactly 15 characters, conforming to ^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$.
+    2. Valid Indian State / UT 2-digit code.
+    3. Characters 3-12 form a syntactically valid embedded PAN.
+    4. Characters 3-12 match supplied expected_pan (if provided).
+    5. Official GSTN Luhn Mod-36 checksum verification on the 15th character.
+    
+    Security note: Raw GSTIN is never echoed in error messages.
+    """
+    if gstin is None or not str(gstin).strip():
+        return ValidationResult(
+            is_valid=False,
+            error_message="GSTIN is required",
+            field="gstin",
+            error_code="REQUIRED_FIELD",
+        )
+
+    cleaned = str(gstin).strip().upper()
+
+    if len(cleaned) != 15:
+        return ValidationResult(
+            is_valid=False,
+            error_message="GSTIN must be exactly 15 characters long",
+            field="gstin",
+            error_code="INVALID_LENGTH",
+        )
+
+    if not GSTIN_REGEX.match(cleaned):
+        return ValidationResult(
+            is_valid=False,
+            error_message="Invalid GSTIN structure. Expected 2 state digits, 10-character PAN, 1 entity code, 'Z', and 1 checksum digit",
+            field="gstin",
+            error_code="INVALID_FORMAT",
+        )
+
+    # State code validation
+    state_code = cleaned[:2]
+    if state_code not in VALID_GST_STATE_CODES:
+        return ValidationResult(
+            is_valid=False,
+            error_message=f"Invalid state code '{state_code}' in GSTIN. Must be a valid Indian State/UT code (01-38, 97, 99)",
+            field="gstin",
+            error_code="INVALID_STATE_CODE",
+        )
+
+    # Embedded PAN check
+    embedded_pan = cleaned[2:12]
+    embedded_pan_res = validate_pan(embedded_pan)
+    if not embedded_pan_res.is_valid:
+        return ValidationResult(
+            is_valid=False,
+            error_message="The PAN embedded within the GSTIN is structurally invalid",
+            field="gstin",
+            error_code="INVALID_EMBEDDED_PAN",
+        )
+
+    # Consistency with external PAN
+    if expected_pan is not None and str(expected_pan).strip():
+        clean_expected = str(expected_pan).strip().upper()
+        if embedded_pan != clean_expected:
+            return ValidationResult(
+                is_valid=False,
+                error_message="The PAN embedded in the GSTIN does not match the supplied PAN",
+                field="gstin",
+                error_code="PAN_GSTIN_MISMATCH",
+            )
+
+    # Checksum validation using official GSTN Mod-36
+    try:
+        calculated_check = calculate_gstin_checksum(cleaned[:14])
+    except Exception:
+        return ValidationResult(
+            is_valid=False,
+            error_message="Failed to compute GSTIN checksum",
+            field="gstin",
+            error_code="CHECKSUM_COMPUTATION_ERROR",
+        )
+
+    actual_check = cleaned[14]
+    if actual_check != calculated_check:
+        return ValidationResult(
+            is_valid=False,
+            error_message=f"Invalid GSTIN checksum digit '{actual_check}'. Expected checksum digit '{calculated_check}'",
+            field="gstin",
+            error_code="INVALID_CHECKSUM",
+        )
 
     return ValidationResult(is_valid=True)
