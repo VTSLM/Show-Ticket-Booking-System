@@ -115,6 +115,11 @@ async def download_ticket_pdf(
             status_code=404,
             detail="Booking not found"
         )
+    if booking["status"] != "confirmed":
+        raise HTTPException(
+            status_code=403,
+            detail="Ticket PDF is only available after payment is complete"
+        )
 
     qr_data = f"TICKETFLOW:{booking_id}"
     qr_b64 = generate_qr_bytes(qr_data)

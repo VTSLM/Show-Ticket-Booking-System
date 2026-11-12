@@ -53,7 +53,7 @@ async def create_order(
     if booking["status"] not in ("pending",):
         raise HTTPException(status_code=400, detail=f"Booking is {booking['status']}, cannot pay")
 
-    amount_paise = int(float(booking["total_amount"]) * 100)
+    amount_paise = round(float(booking["total_amount"]) * 100)
     client = get_razorpay()
     rz_order = client.order.create({
         "amount": amount_paise,
