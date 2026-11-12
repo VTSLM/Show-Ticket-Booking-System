@@ -59,16 +59,29 @@ async def get_booking(
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     row = await conn.fetchrow(
-        """SELECT b.*, array_agg(row_to_json(bs.*)) as seats_info
+        """SELECT b.*,
+                  e.title        AS event_title,
+                  e.poster_url,
+                  sh.start_time,
+                  v.name         AS venue_name,
+                  v.city,
+                  sc.name        AS screen_name,
+                  array_agg(row_to_json(bs.*)) AS seats_info
            FROM bookings b
+           JOIN shows     sh ON sh.id = b.show_id
+           JOIN events    e  ON e.id  = sh.event_id
+           JOIN screens   sc ON sc.id = sh.screen_id
+           JOIN venues    v  ON v.id  = sc.venue_id
            LEFT JOIN (
-             SELECT bs2.booking_id, ss.id as show_seat_id, s.row_label, s.seat_number, s.seat_type, ss.price
+             SELECT bs2.booking_id, ss.id AS show_seat_id,
+                    s.row_label, s.seat_number, s.seat_type, ss.price
              FROM booking_seats bs2
-             JOIN show_seats ss ON ss.id=bs2.show_seat_id
-             JOIN seats s ON s.id=ss.seat_id
-           ) bs ON bs.booking_id=b.id
-           WHERE b.id=$1 AND b.user_id=$2
-           GROUP BY b.id""",
+             JOIN show_seats ss ON ss.id = bs2.show_seat_id
+             JOIN seats      s  ON s.id  = ss.seat_id
+           ) bs ON bs.booking_id = b.id
+           WHERE b.id = $1 AND b.user_id = $2
+           GROUP BY b.id, e.title, e.poster_url, sh.start_time,
+                    v.name, v.city, sc.name""",
         booking_id, str(current_user["id"])
     )
     if not row:
