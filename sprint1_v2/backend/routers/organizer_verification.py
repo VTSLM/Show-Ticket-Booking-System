@@ -321,3 +321,120 @@ async def save_application_draft(
     response_dict["bank_account"] = bank_data
 
     return response_dict
+
+
+@router.post("/applications/{application_id}/submit", summary="Submit an organizer application for admin review")
+async def submit_application(
+    application_id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """
+    Validate all required fields and documents, then submit the application.
+    Transitions status from DRAFT or CHANGES_REQUESTED to SUBMITTED.
+    """
+    user_id = current_user["id"]
+
+    profile_row = await conn.fetchrow(
+        """
+        SELECT id, user_id, legal_name, business_type, state, pan_masked,
+               gstin_masked, verification_status, trust_tier
+        FROM organizer_profiles
+        WHERE id = $1
+        """,
+        application_id,
+    )
+    if not profile_row:
+        raise HTTPException(status_code=404, detail="Organizer application not found")
+
+    if str(profile_row["user_id"]) != str(user_id) and "admin" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="You do not have permission to submit this application")
+
+    curr_status = profile_row["verification_status"]
+    if curr_status not in ("DRAFT", "CHANGES_REQUESTED", "PENDING"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Application cannot be submitted because it is currently '{curr_status}'.",
+        )
+
+    # Pre-submission checks
+    errors = []
+    if not profile_row["legal_name"]:
+        errors.append("Legal name is required.")
+    if not profile_row["business_type"]:
+        errors.append("Business type is required.")
+    if not profile_row["state"]:
+        errors.append("State is required.")
+    if not profile_row["pan_masked"]:
+        errors.append("A valid PAN is required.")
+
+    b_type = BusinessType(profile_row["business_type"])
+    if b_type in (BusinessType.COMPANY, BusinessType.LLP) and not profile_row["gstin_masked"]:
+        errors.append("GSTIN is required for Company and LLP entities.")
+
+    # Check bank account exists
+    bank_row = await conn.fetchrow(
+        "SELECT id, holder_name, ifsc, account_masked FROM bank_accounts WHERE organizer_id = $1",
+        application_id,
+    )
+    if not bank_row:
+        errors.append("Bank account details must be completed.")
+
+    # Check required documents
+    required_docs = REQUIRED_DOCUMENTS_BY_TYPE.get(b_type, [DocumentType.PAN, DocumentType.BANK_PROOF])
+    uploaded_docs = await conn.fetch(
+        "SELECT DISTINCT doc_type FROM verification_documents WHERE case_id = $1",
+        application_id,
+    )
+    uploaded_doc_types = {d["doc_type"] for d in uploaded_docs}
+
+    missing_docs = [r.value for r in required_docs if r.value not in uploaded_doc_types]
+    if missing_docs:
+        errors.append(f"Missing required documents: {', '.join(missing_docs)}")
+
+    if errors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "Pre-submission validation failed", "errors": errors},
+        )
+
+    # Transition to SUBMITTED and log notification
+    async with conn.transaction():
+        updated_row = await conn.fetchrow(
+            """
+            UPDATE organizer_profiles
+            SET verification_status = 'SUBMITTED',
+                updated_at = now()
+            WHERE id = $1
+            RETURNING id, user_id, legal_name, business_type, state, pan_masked,
+                      gstin_masked, verification_status, trust_tier, created_at, updated_at
+            """,
+            application_id,
+        )
+
+        # Emit notification event
+        notification_payload = json.dumps({
+            "case_id": str(application_id),
+            "status": "SUBMITTED",
+            "legal_name": profile_row["legal_name"],
+        })
+        await conn.execute(
+            """
+            INSERT INTO notifications (user_id, event_name, payload)
+            VALUES ($1, 'case_submitted', $2::jsonb)
+            """,
+            user_id,
+            notification_payload,
+        )
+
+    resp = dict(updated_row)
+    resp["id"] = str(resp["id"])
+    resp["user_id"] = str(resp["user_id"])
+    resp["created_at"] = resp["created_at"].isoformat()
+    resp["updated_at"] = resp["updated_at"].isoformat()
+
+    return {
+        "status": "success",
+        "message": "Application submitted successfully for verification review.",
+        "application": resp,
+    }
