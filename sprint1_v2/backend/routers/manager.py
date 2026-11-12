@@ -151,7 +151,7 @@ async def create_show(
     show = await conn.fetchrow(
         """INSERT INTO shows
         (event_id, screen_id, start_time, end_time, base_price, status)
-        VALUES ($1, $2, $3::timestamptz, $4::timestamptz, $5, $6)
+        VALUES ($1::uuid, $2::uuid, $3::timestamptz, $4::timestamptz, $5, $6)
         RETURNING *""",
         body.event_id,
         body.screen_id,
@@ -195,3 +195,33 @@ async def delete_show(
 ):
     await conn.execute("DELETE FROM shows WHERE id=$1", show_id)
     return {"message": "Show deleted"}
+
+@router.patch("/shows/{show_id}")
+async def update_show(
+    show_id: str,
+    body: dict,
+    _: dict = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    allowed = {"start_time", "end_time", "base_price", "status"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    set_clause = ", ".join(f"{k}=${i+2}" for i, k in enumerate(updates))
+    vals = list(updates.values())
+    row = await conn.fetchrow(
+        f"UPDATE shows SET {set_clause}, updated_at=now() WHERE id=$1::uuid RETURNING *",
+        show_id, *vals
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Show not found")
+    return dict(row)
+
+@router.delete("/events/{event_id}")
+async def delete_event(
+    event_id: str,
+    _: dict = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    await conn.execute("DELETE FROM events WHERE id=$1::uuid", event_id)
+    return {"message": "Event deleted"}
