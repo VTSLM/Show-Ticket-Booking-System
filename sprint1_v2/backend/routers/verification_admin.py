@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Optional, Literal
 from uuid import UUID
 
 import asyncpg
@@ -21,13 +21,13 @@ PlatformAdmin = Depends(require_role("platform_admin"))
 class DecisionBody(BaseModel):
     action: Literal["request_changes", "approve", "reject"]
     reason: str = Field(default="", max_length=2000)
-    expected_version: int | None = Field(default=None, ge=1)
+    expected_version: Optional[int] = Field(default=None, ge=1)
 
 
 @router.get("/queue")
 async def list_queue(
-    status: Literal["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED"] | None = None,
-    case_type: Literal["ORGANIZER", "VENUE", "LISTING"] | None = None,
+    status: Optional[Literal["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED"]] = None,
+    case_type: Optional[Literal["ORGANIZER", "VENUE", "LISTING"]] = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     _: dict = Reviewer,
@@ -170,8 +170,8 @@ async def decide(
 
 @router.get("/audit-log")
 async def list_audit_log(
-    entity_type: str | None = None,
-    entity_id: UUID | None = None,
+    entity_type: Optional[str] = None,
+    entity_id: Optional[UUID] = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
     _: dict = PlatformAdmin,

@@ -104,6 +104,7 @@ export const managerApi = {
 
   events: () => api.get<any[]>("/api/manager/events"),
   createEvent: (data: object) => api.post("/api/manager/events", data),
+  updateEvent: (id: string, data: object) => api.patch<any>("/api/manager/events/" + id, data),
 
   shows: () => api.get<any[]>("/api/manager/shows"),
   createShow: (data: object) => api.post("/api/manager/shows", data),

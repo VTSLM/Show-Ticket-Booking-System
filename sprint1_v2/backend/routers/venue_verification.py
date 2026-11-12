@@ -1,3 +1,4 @@
+from typing import Optional
 from pathlib import Path
 from uuid import UUID, uuid4
 from datetime import date
@@ -28,22 +29,22 @@ ALLOWED_UPLOAD_TYPES = {
 
 class VenueDraft(BaseModel):
     name: str = Field(min_length=2, max_length=200)
-    address: str | None = None
+    address: Optional[str] = None
     city: str = Field(min_length=2, max_length=100)
-    state: str | None = None
-    pincode: str | None = None
-    licensed_capacity: int | None = Field(default=None, gt=0)
-    license_expiry: date | None = None
-    noc_expiry: date | None = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    licensed_capacity: Optional[int] = Field(default=None, gt=0)
+    license_expiry: Optional[date] = None
+    noc_expiry: Optional[date] = None
 
 
 class DecisionRequest(BaseModel):
     expected_version: int = Field(ge=1)
     decision: str
-    reason: str | None = None
+    reason: Optional[str] = None
 
 
-def validate_decision(decision: str, reason: str | None) -> None:
+def validate_decision(decision: str, reason: Optional[str]) -> None:
     if decision not in DECISIONS:
         raise HTTPException(status_code=422, detail="Invalid decision")
 
