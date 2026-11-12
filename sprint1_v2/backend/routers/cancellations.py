@@ -157,7 +157,7 @@ async def cancel_booking(
 
     if booking["payment_id"] and rz_payment_id:
         try:
-            amount_paise = int(float(booking["paid_amount"]) * 100)
+            amount_paise = round(float(booking["paid_amount"]) * 100)
             refund_id = await initiate_razorpay_refund(rz_payment_id, amount_paise)
             await conn.execute(
                 "UPDATE payments SET razorpay_refund_id = $1 WHERE id = $2",
