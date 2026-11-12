@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Optional, Any
 from uuid import UUID
 
 import asyncpg
@@ -23,13 +23,13 @@ ALLOWED_TRANSITIONS = {
 async def log_action(
     conn: asyncpg.Connection,
     *,
-    actor_id: UUID | None,
+    actor_id: Optional[UUID],
     actor_role: str,
     action: str,
     entity_type: str,
     entity_id: UUID,
-    before: dict[str, Any] | None = None,
-    after: dict[str, Any] | None = None,
+    before: Optional[dict[str, Any]] = None,
+    after: Optional[dict[str, Any]] = None,
     reason: str = "",
 ) -> None:
     """Append one audit event. Never include document numbers or file contents."""
@@ -59,7 +59,7 @@ async def transition_case(
     actor_id: UUID,
     actor_role: str,
     reason: str = "",
-    expected_version: int | None = None,
+    expected_version: Optional[int] = None,
 ) -> dict[str, Any]:
     """
     Run a state transition atomically.
