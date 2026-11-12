@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -132,7 +133,7 @@ export default function LoginPage() {
             <div className="flex items-center border-b border-white/25 focus-within:border-blue-400">
               <input
                 id="password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -140,25 +141,26 @@ export default function LoginPage() {
                 placeholder="Enter your password"
                 className="w-full border-0 bg-transparent px-0 py-2.5 text-base text-white placeholder:text-white/35 focus:outline-none"
               />
-              <svg
-                viewBox="0 0 24 24"
-                className="h-5 w-5 shrink-0 text-white/70"
-                fill="none"
-                aria-hidden="true"
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                className="shrink-0 p-1 text-white/50 hover:text-white/90 transition-colors"
               >
-                <path
-                  d="M2 12C3.72 8.82 7.02 6.5 12 6.5C16.98 6.5 20.28 8.82 22 12C20.28 15.18 16.98 17.5 12 17.5C7.02 17.5 3.72 15.18 2 12Z"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                />
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="3.3"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                />
-              </svg>
+                {showPassword ? (
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                    <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                    <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                    <path d="M14.12 14.12a3 3 0 11-4.24-4.24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                    <line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                    <path d="M2 12C3.72 8.82 7.02 6.5 12 6.5C16.98 6.5 20.28 8.82 22 12C20.28 15.18 16.98 17.5 12 17.5C7.02 17.5 3.72 15.18 2 12Z" stroke="currentColor" strokeWidth="1.8"/>
+                    <circle cx="12" cy="12" r="3.3" stroke="currentColor" strokeWidth="1.8"/>
+                  </svg>
+                )}
+              </button>
             </div>
           </div>
 
