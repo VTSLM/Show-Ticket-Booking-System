@@ -1,6 +1,10 @@
+"use client";
 import Link from "next/link";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Home() {
+  const { user } = useAuth();
+
   return (
     <div className="min-h-[calc(100vh-64px)] flex flex-col">
       {/* Hero */}
@@ -13,7 +17,12 @@ export default function Home() {
         </p>
         <div className="flex gap-4 flex-wrap justify-center">
           <Link href="/browse" className="btn-primary text-lg py-3 px-8">Browse Shows</Link>
-          <Link href="/auth/register" className="btn-secondary text-lg py-3 px-8">Get Started</Link>
+          <Link
+            href={user ? "/browse" : "/auth/register"}
+            className="btn-secondary text-lg py-3 px-8"
+          >
+            {user ? "My Bookings" : "Get Started"}
+          </Link>
         </div>
       </section>
 
