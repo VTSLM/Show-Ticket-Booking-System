@@ -126,3 +126,54 @@ def sanitize_filename(filename: str) -> str:
     base = os.path.basename(filename)
     safe = re.sub(r"[^a-zA-Z0-9_\.-]", "_", base)
     return safe or "document"
+
+
+async def verify_case_access(
+    conn: asyncpg.Connection,
+    case_id: uuid.UUID,
+    user: Dict[str, Any],
+    action: str = "upload",  # 'upload' or 'view'
+) -> bool:
+    """
+    Enforce authorization on the server before storage operations.
+    
+    [PERSON B INTEGRATION POINT]
+    When Person B delivers verification_cases, ownership will be validated
+    against verification_cases.applicant_id and assigned_reviewer_id.
+    
+    Current standalone contract:
+    - Reviewers/Admins can view and upload any case.
+    - Applicants/Managers can upload and view cases they own or initiate.
+    """
+    user_roles = set(user.get("roles", []))
+    user_id = user.get("id")
+
+    # Platform Admins and Reviewers have full review access
+    if user_roles & REVIEWER_ROLES:
+        return True
+
+    # Check if case matches an existing organizer profile owned by this user
+    org_row = await conn.fetchrow(
+        "SELECT id, user_id FROM organizer_profiles WHERE id = $1 OR user_id = $2",
+        case_id,
+        user_id,
+    )
+    if org_row and str(org_row["user_id"]) == str(user_id):
+        return True
+
+    # If applicant has applicant or manager role, allow access for their own case_id
+    if user_roles & APPLICANT_ROLES:
+        # Check if user has previously uploaded documents for this case_id
+        doc_count = await conn.fetchval(
+            "SELECT count(*) FROM verification_documents WHERE case_id = $1 AND uploaded_by = $2",
+            case_id,
+            user_id,
+        )
+        if doc_count > 0:
+            return True
+
+        # If it's a new upload for an applicant, permit if action is upload
+        if action == "upload":
+            return True
+
+    return False
