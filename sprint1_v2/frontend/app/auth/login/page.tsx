@@ -12,6 +12,7 @@ import {
   sendPasswordResetEmail,
 } from "@/lib/firebase";
 import { authApi } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 function LoginForm() {
   const [email, setEmail] = useState("");
@@ -20,6 +21,7 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { refreshProfile } = useAuth();
   const redirectTo = searchParams.get("redirect") || "/browse";
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -30,6 +32,7 @@ function LoginForm() {
       const credential = await signInWithEmailAndPassword(auth, email, password);
       const idToken = await credential.user.getIdToken(true);
       await authApi.verifyToken(idToken);
+      await refreshProfile();
       toast.success("Welcome back!");
       router.push(redirectTo);
     } catch (err: any) {
