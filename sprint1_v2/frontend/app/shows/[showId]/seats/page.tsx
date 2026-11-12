@@ -221,6 +221,9 @@ export default function SeatsPage() {
         aria-label="Select seats in the theater"
         className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 sm:p-8"
       >
+        <h2 className="mb-6 text-center text-xl font-semibold tracking-tight text-white">
+          Select Your Seats
+        </h2>
         <div className="overflow-x-auto pb-2">
           <div className="mx-auto w-max min-w-full px-2">
             <div
