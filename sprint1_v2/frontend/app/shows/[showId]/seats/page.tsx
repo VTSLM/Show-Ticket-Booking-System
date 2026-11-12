@@ -22,7 +22,7 @@ interface Seat {
 export default function SeatsPage() {
   const { showId } = useParams<{ showId: string }>();
   const router = useRouter();
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
 
   const [show, setShow] = useState<any>(null);
   const [seats, setSeats] = useState<Seat[]>([]);
@@ -94,9 +94,10 @@ export default function SeatsPage() {
   }, [showId, apiUrl, loadSeats]);
 
   const toggle = async (seat: Seat) => {
+    if (authLoading) return; // wait for auth to resolve
     if (!user) {
-      toast.error("Please log in first");
-      router.push("/auth/login");
+      toast.error("Please log in to select seats");
+      router.push(`/auth/login?redirect=/shows/${showId}/seats`);
       return;
     }
 

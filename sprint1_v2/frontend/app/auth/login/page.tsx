@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import {
   auth,
@@ -19,6 +19,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/browse";
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +31,7 @@ export default function LoginPage() {
       const idToken = await credential.user.getIdToken(true);
       await authApi.verifyToken(idToken);
       toast.success("Welcome back!");
-      router.push("/browse");
+      router.push(redirectTo);
     } catch (err: any) {
       toast.error(err.message || "Login failed");
     } finally {
@@ -47,7 +49,7 @@ export default function LoginPage() {
       try {
         await authApi.verifyToken(idToken);
         toast.success("Logged in!");
-        router.push("/browse");
+        router.push(redirectTo);
       } catch {
         const name = encodeURIComponent(credential.user.displayName || "");
         const userEmail = encodeURIComponent(credential.user.email || "");
