@@ -22,7 +22,7 @@ interface Seat {
 export default function SeatsPage() {
   const { showId } = useParams<{ showId: string }>();
   const router = useRouter();
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
 
   const [show, setShow] = useState<any>(null);
   const [seats, setSeats] = useState<Seat[]>([]);
@@ -77,9 +77,10 @@ export default function SeatsPage() {
   }, [showId, apiUrl, loadSeats]);
 
   const toggle = async (seat: Seat) => {
+    if (authLoading) return; // wait for auth to resolve
     if (!user) {
-      toast.error("Please log in first");
-      router.push("/auth/login");
+      toast.error("Please log in to select seats");
+      router.push(`/auth/login?redirect=/shows/${showId}/seats`);
       return;
     }
     if (seat.status === "booked" || seat.status === "locked" || seat.status === "reserved") return;
@@ -247,6 +248,9 @@ export default function SeatsPage() {
             padding: "28px 20px",
           }}
         >
+          <h2 style={{ textAlign: "center", fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 24, letterSpacing: "-0.01em" }}>
+            Select Your Seats
+          </h2>
           {/* Screen arc */}
           <div style={{ textAlign: "center", marginBottom: 36 }}>
             <div
