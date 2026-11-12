@@ -24,6 +24,7 @@ export default function Navbar() {
           <>
             <Link href="/bookings" className="hover:text-red-300">My Bookings</Link>
             <Link href="/support" className="hover:text-red-300">Support</Link>
+            <Link href="/verification/organizer" className="hover:text-red-300">Organizer Verification</Link>
             {isManager && (
               <Link href="/manager" className="hover:text-red-300">Manager</Link>
             )}
