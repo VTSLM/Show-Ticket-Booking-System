@@ -101,3 +101,33 @@ export const adminApi = {
   pending: () => api.get<any[]>("/admin/pending"),
   approve: (user_id: string, action: string) => api.post(`/admin/pending/${user_id}`, { action }),
 };
+
+export const organizerVerificationApi = {
+  checklist: (businessType: string) =>
+    api.get<any>(`/api/verification/organizer/checklist?business_type=${businessType}`),
+  myApplications: () =>
+    api.get<any[]>("/api/verification/organizer/applications/me"),
+  saveDraft: (data: object) =>
+    api.post<any>("/api/verification/organizer/applications", data),
+  submit: (applicationId: string) =>
+    api.post<any>(`/api/verification/organizer/applications/${applicationId}/submit`),
+  uploadDocument: async (caseId: string, formData: FormData) => {
+    const token = await getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_URL}/api/verification/cases/${caseId}/documents`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "Document upload failed");
+    }
+    return res.json();
+  },
+  getViewUrl: (documentId: string) =>
+    api.get<any>(`/api/verification/documents/${documentId}/view`),
+  listDocuments: (caseId: string) =>
+    api.get<any[]>(`/api/verification/cases/${caseId}/documents`),
+};
