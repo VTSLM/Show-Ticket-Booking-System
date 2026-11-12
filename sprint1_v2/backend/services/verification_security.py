@@ -24,13 +24,13 @@ except ImportError:
 DEFAULT_PEPPER = "ticketflow-verification-secret-salt-2026"
 
 
-def get_fingerprint_pepper(custom_salt: Optional[str] = None) -> bytes:
+def get_fingerprint_pepper(custom_salt: Optional[Union[str, bytes]] = None) -> bytes:
     """
     Resolve the salt/pepper key dynamically from environment or custom override.
     Never hardcoded into static evaluation.
     """
     if custom_salt:
-        return custom_salt.encode("utf-8")
+        return custom_salt.encode("utf-8") if isinstance(custom_salt, str) else custom_salt
     env_salt = os.getenv("VERIFICATION_SALT_PEPPER", DEFAULT_PEPPER)
     return env_salt.encode("utf-8")
 
