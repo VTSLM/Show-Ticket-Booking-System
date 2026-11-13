@@ -42,8 +42,14 @@ LOCK_DURATION_MINUTES = 10
 # ---- REST endpoints ----
 @router.get("/{show_id}/map")
 async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
+    # Release expired locks in DB before returning the map
+    await conn.execute(
+        """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL
+           WHERE show_id=$1 AND status='locked' AND locked_until < NOW()""",
+        show_id
+    )
     rows = await conn.fetch(
-        """SELECT ss.id as show_seat_id, ss.status, ss.price, ss.locked_until, ss.locked_by,
+        """SELECT ss.id as show_seat_id, ss.status, ss.price,
                   s.row_label, s.seat_number, s.seat_type
            FROM show_seats ss
            JOIN seats s ON s.id = ss.seat_id
@@ -51,17 +57,7 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
            ORDER BY s.row_label, s.seat_number""",
         show_id
     )
-    # Clean expired locks
-    now = datetime.now(timezone.utc)
-    result = []
-    for r in rows:
-        d = dict(r)
-        if d["status"] == "locked" and d["locked_until"] and d["locked_until"].replace(tzinfo=timezone.utc) < now:
-            d["status"] = "available"
-            d["locked_by"] = None
-        d.pop("locked_until", None)
-        result.append(d)
-    return result
+    return [dict(r) for r in rows]
 
 
 class LockRequest(BaseModel):

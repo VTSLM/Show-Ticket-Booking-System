@@ -42,17 +42,17 @@ async def register(req: RegisterRequest, conn: asyncpg.Connection = Depends(get_
 
     uid = decoded["uid"]
     role = req.role.lower()
-    if role not in ("customer", "manager", "admin"):
+    if role not in ("customer", "manager"):
         raise HTTPException(
             status_code=400,
-            detail="Role must be customer, manager, or admin",
+            detail="Role must be customer or manager",
         )
 
     existing = await conn.fetchrow("SELECT id, status FROM users WHERE firebase_uid=$1", uid)
     if existing:
         raise HTTPException(status_code=409, detail="User already registered")
 
-    user_status = "active" if role in ("customer", "admin") else "inactive"
+    user_status = "active" if role == "customer" else "inactive"
     user_id = await conn.fetchval(
         """INSERT INTO users (firebase_uid, name, email, phone, birthdate, status)
            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",

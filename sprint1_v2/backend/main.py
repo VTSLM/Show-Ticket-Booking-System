@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from routers.venue_verification import router as venue_verification_router
 from fastapi import FastAPI
+import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import get_pool, close_pool
@@ -18,11 +19,31 @@ from routers.support_admin import router as support_admin_router
 from routers.venue_verification import router as venue_verification_router
 
 
+async def _cleanup_expired_locks():
+    """Background task: release seat locks whose timer has expired."""
+    while True:
+        await asyncio.sleep(120)  # runs every 2 minutes
+        try:
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                result = await conn.execute(
+                    """UPDATE show_seats
+                       SET status='available', locked_by=NULL, locked_until=NULL
+                       WHERE status='locked' AND locked_until < NOW()"""
+                )
+            if result != "UPDATE 0":
+                print(f"[seat-cleanup] {result}")
+        except Exception as e:
+            print(f"[seat-cleanup] error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_firebase()
     await get_pool()
+    task = asyncio.create_task(_cleanup_expired_locks())
     yield
+    task.cancel()
     await close_pool()
 
 
