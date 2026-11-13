@@ -42,6 +42,13 @@ LOCK_DURATION_MINUTES = 10
 # ---- REST endpoints ----
 @router.get("/{show_id}/map")
 async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
+    # Proactively release expired locks
+    await conn.execute(
+        """UPDATE show_seats
+           SET status='available', locked_by=NULL, locked_until=NULL
+           WHERE show_id=$1 AND status='locked' AND locked_until < now()""",
+        show_id
+    )
     rows = await conn.fetch(
         """SELECT ss.id as show_seat_id, ss.status, ss.price, ss.locked_until, ss.locked_by,
                   s.row_label, s.seat_number, s.seat_type
@@ -51,7 +58,6 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
            ORDER BY s.row_label, s.seat_number""",
         show_id
     )
-    # Clean expired locks
     now = datetime.now(timezone.utc)
     result = []
     for r in rows:

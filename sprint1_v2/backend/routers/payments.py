@@ -53,7 +53,7 @@ async def create_order(
     if booking["status"] not in ("pending",):
         raise HTTPException(status_code=400, detail=f"Booking is {booking['status']}, cannot pay")
 
-    amount_paise = int(float(booking["total_amount"]) * 100)
+    amount_paise = round(float(booking["total_amount"]) * 100)
     client = get_razorpay()
     rz_order = client.order.create({
         "amount": amount_paise,
@@ -102,6 +102,26 @@ async def verify_payment(
     ).hexdigest()
     if not hmac.compare_digest(expected, req.razorpay_signature):
         raise HTTPException(status_code=400, detail="Invalid payment signature")
+
+    # Validate booking ownership and pending state
+    booking = await conn.fetchrow(
+        "SELECT id, user_id, status FROM bookings WHERE id=$1",
+        booking_id
+    )
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if str(booking["user_id"]) != str(current_user["id"]):
+        raise HTTPException(status_code=403, detail="Not your booking")
+    if booking["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Booking is already {booking['status']}")
+
+    # Validate order-to-booking binding
+    order_row = await conn.fetchrow(
+        "SELECT booking_id FROM payment_orders WHERE razorpay_order_id=$1",
+        req.razorpay_order_id
+    )
+    if not order_row or str(order_row["booking_id"]) != booking_id:
+        raise HTTPException(status_code=400, detail="Order ID does not match this booking")
 
     async with conn.transaction():
         # Update payment_orders status
@@ -157,11 +177,12 @@ async def get_receipt(
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     row = await conn.fetchrow(
-        """SELECT r.*, b.total_amount, b.user_id,
-                  p.transaction_id as razorpay_payment_id
+        """SELECT r.id, r.receipt_number, r.issued_at,
+                  p.amount as total_amount, p.transaction_id as razorpay_payment_id,
+                  b.id as booking_id, b.user_id
            FROM receipts r
-           JOIN bookings b ON b.id=r.booking_id
-           LEFT JOIN payments p ON p.booking_id=r.booking_id
+           JOIN payments p ON p.id = r.payment_id
+           JOIN bookings b ON b.id = p.booking_id
            WHERE r.receipt_number=$1 AND b.user_id=$2""",
         receipt_number, str(current_user["id"])
     )

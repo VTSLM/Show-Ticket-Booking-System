@@ -32,10 +32,10 @@ async def register(req: RegisterRequest, conn: asyncpg.Connection = Depends(get_
 
     uid = decoded["uid"]
     role = req.role.lower()
-    if role not in ("customer", "manager", "admin"):
+    if role not in ("customer", "manager"):
         raise HTTPException(
             status_code=400,
-            detail="Role must be customer, manager, or admin"
+            detail="Role must be customer or manager. Admin accounts require an invite."
         )
 
     existing = await conn.fetchrow("SELECT id, status FROM users WHERE firebase_uid=$1", uid)

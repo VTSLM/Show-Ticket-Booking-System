@@ -116,6 +116,12 @@ async def download_ticket_pdf(
             detail="Booking not found"
         )
 
+    if booking["status"] != "confirmed":
+        raise HTTPException(
+            status_code=400,
+            detail="Ticket PDF is only available after payment is confirmed"
+        )
+
     qr_data = f"TICKETFLOW:{booking_id}"
     qr_b64 = generate_qr_bytes(qr_data)
 
@@ -125,6 +131,7 @@ async def download_ticket_pdf(
         "booking_id": booking_id,
         "event_title": booking["event_title"],
         "venue_name": booking["venue_name"],
+        "venue_city": booking.get("city", ""),
         "screen_name": booking["screen_name"],
         "start_time": str(booking["start_time"]),
         "seats": seats,
@@ -146,11 +153,43 @@ async def download_ticket_pdf(
 
 
 @router.get("/bookings/{booking_id}/verify")
-async def verify_ticket(booking_id: str, conn: asyncpg.Connection = Depends(get_conn)):
-    row = await conn.fetchrow("SELECT id, status, is_used FROM tickets WHERE booking_id=$1", booking_id)
-    if not row:
-        return {"valid": False, "message": "Ticket not found"}
-    return {"valid": row["status"] == "valid" and not row["is_used"],
-            "status": row["status"],
+async def verify_ticket(
+    booking_id: str,
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    # Validate UUID format before hitting DB
+    import re
+    uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+    if not uuid_pattern.match(booking_id):
+        return {"valid": False, "message": "Invalid ticket"}
+
+    try:
+        row = await conn.fetchrow(
+            """SELECT t.id, t.status, t.is_used, t.qr_code_data,
+                      b.id as booking_id, e.title as event_title,
+                      s.start_time, v.name as venue_name
+               FROM tickets t
+               JOIN bookings b ON b.id = t.booking_id
+               JOIN shows s ON s.id = b.show_id
+               JOIN events e ON e.id = s.event_id
+               JOIN screens sc ON sc.id = s.screen_id
+               JOIN venues v ON v.id = sc.venue_id
+               WHERE t.booking_id = $1""",
+            booking_id
+        )
+        if not row:
+            return {"valid": False, "message": "Ticket not found"}
+        if row["is_used"]:
+            return {"valid": False, "message": "Ticket already used", "status": "used"}
+        if row["status"] != "valid":
+            return {"valid": False, "message": f"Ticket status: {row['status']}", "status": row["status"]}
+        return {
+            "valid": True,
+            "message": "Ticket is valid",
             "ticket_id": str(row["id"]),
-            "used": row["is_used"]}
+            "event_title": row["event_title"],
+            "venue_name": row["venue_name"],
+            "start_time": str(row["start_time"]),
+        }
+    except Exception:
+        return {"valid": False, "message": "Invalid ticket"}

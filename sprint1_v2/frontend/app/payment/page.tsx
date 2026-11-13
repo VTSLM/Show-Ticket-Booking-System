@@ -10,22 +10,35 @@ declare global { interface Window { Razorpay: any; } }
 function PaymentForm() {
   const params = useSearchParams();
   const router = useRouter();
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const bookingId = params.get("booking_id") || "";
   const [booking, setBooking] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
 
   useEffect(() => {
-    if (!bookingId) return;
-    bookingsApi.get(bookingId).then(setBooking).catch(() => toast.error("Booking not found")).finally(() => setLoading(false));
     // Load Razorpay script
     const script = document.createElement("script");
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.async = true;
     document.body.appendChild(script);
     return () => { document.body.removeChild(script); };
-  }, [bookingId]);
+  }, []);
+
+  useEffect(() => {
+    if (!bookingId) return;
+    // Wait for auth to finish before fetching
+    if (authLoading) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    bookingsApi.get(bookingId)
+      .then(setBooking)
+      .catch(() => toast.error("Booking not found"))
+      .finally(() => setLoading(false));
+  }, [bookingId, user, authLoading]);
 
   const handlePay = async () => {
     if (!booking) return;
@@ -115,13 +128,12 @@ function PaymentForm() {
       toast.error("Could not download ticket PDF");
     }
   };
+  if (authLoading || loading) return <div className="text-center py-20 text-gray-400">Loading booking...</div>;
   if (!user) return (
     <div className="text-center py-20">
       <p>Please <a href="/auth/login" className="text-red-500 underline">log in</a> to continue.</p>
     </div>
   );
-
-  if (loading) return <div className="text-center py-20 text-gray-400">Loading booking...</div>;
   if (!booking) return <div className="text-center py-20 text-red-400">Booking not found.</div>;
 
   const seats = booking.seats_info || [];

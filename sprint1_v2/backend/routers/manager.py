@@ -148,6 +148,9 @@ async def create_show(
     _: dict = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    if body.end_time <= body.start_time:
+        raise HTTPException(status_code=400, detail="end_time must be after start_time")
+
     show = await conn.fetchrow(
         """INSERT INTO shows
         (event_id, screen_id, start_time, end_time, base_price, status)
@@ -195,3 +198,53 @@ async def delete_show(
 ):
     await conn.execute("DELETE FROM shows WHERE id=$1", show_id)
     return {"message": "Show deleted"}
+
+
+# ---- Venue CRUD (edit / delete) ----
+
+@router.patch("/venues/{venue_id}")
+async def update_venue(
+    venue_id: str,
+    body: dict,
+    _: dict = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    allowed = {"name", "address", "city", "state", "pincode"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    set_clause = ", ".join(f"{k}=${i+2}" for i, k in enumerate(updates))
+    vals = list(updates.values())
+    row = await conn.fetchrow(
+        f"UPDATE venues SET {set_clause} WHERE id=$1 RETURNING *",
+        venue_id, *vals
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Venue not found")
+    return dict(row)
+
+
+@router.delete("/venues/{venue_id}")
+async def delete_venue(
+    venue_id: str,
+    _: dict = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    result = await conn.execute("DELETE FROM venues WHERE id=$1", venue_id)
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Venue not found")
+    return {"message": "Venue deleted"}
+
+
+# ---- Event delete ----
+
+@router.delete("/events/{event_id}")
+async def delete_event(
+    event_id: str,
+    _: dict = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    result = await conn.execute("DELETE FROM events WHERE id=$1", event_id)
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Event not found")
+    return {"message": "Event deleted"}

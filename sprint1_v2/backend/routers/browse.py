@@ -77,7 +77,7 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
            JOIN screens sc ON sc.id=s.screen_id
            JOIN venues v ON v.id=sc.venue_id
            LEFT JOIN show_seats ss ON ss.show_id=s.id
-           WHERE s.id=$1
+           WHERE s.id=$1 AND e.status='published' AND s.status='scheduled'
            GROUP BY s.id, e.id, v.id, sc.id""",
         show_id
     )

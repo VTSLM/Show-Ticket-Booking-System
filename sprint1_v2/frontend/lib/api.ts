@@ -82,6 +82,8 @@ export const ticketsApi = {
 export const managerApi = {
   venues: () => api.get<any[]>("/api/manager/venues"),
   createVenue: (data: object) => api.post("/api/manager/venues", data),
+  deleteVenue: (id: string) => api.delete(`/api/manager/venues/${id}`),
+  updateVenue: (id: string, data: object) => api.patch(`/api/manager/venues/${id}`, data),
 
   screens: (venueId: string) =>
     api.get<any[]>(`/api/manager/venues/${venueId}/screens`),
@@ -91,6 +93,8 @@ export const managerApi = {
 
   events: () => api.get<any[]>("/api/manager/events"),
   createEvent: (data: object) => api.post("/api/manager/events", data),
+  deleteEvent: (id: string) => api.delete(`/api/manager/events/${id}`),
+  updateEvent: (id: string, data: object) => api.patch(`/api/manager/events/${id}`, data),
 
   shows: () => api.get<any[]>("/api/manager/shows"),
   createShow: (data: object) => api.post("/api/manager/shows", data),

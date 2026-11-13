@@ -1,6 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import asyncpg
 from database import get_pool, close_pool
 from firebase_admin_setup import init_firebase
 
@@ -30,7 +32,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://ticketflow.vercel.app"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "https://ticketflow.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,6 +46,22 @@ app.include_router(seats_router)
 app.include_router(payments_router)
 app.include_router(bookings_router)
 app.include_router(tickets_router)
+
+@app.exception_handler(asyncpg.PostgresError)
+async def postgres_error_handler(request: Request, exc: asyncpg.PostgresError):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Database error while processing request."},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
+
+@app.exception_handler(Exception)
+async def general_error_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error."},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 @app.get("/")
 def root():

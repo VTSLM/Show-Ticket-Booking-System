@@ -28,6 +28,10 @@ export default function ManagerPage() {
     cols: "",
   });
 
+  // Edit state
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [editEventData, setEditEventData] = useState({ title: "", language: "", duration_minutes: "" });
+
   useEffect(() => {
     if (!authLoading && !isManager) { router.push("/"); return; }
     if (!authLoading && isManager) {
@@ -136,6 +140,42 @@ export default function ManagerPage() {
     } catch (err: any) { toast.error(err.message); }
   };
 
+  const deleteEvent = async (id: string) => {
+    if (!window.confirm("Delete this event?")) return;
+    try {
+      await managerApi.deleteEvent(id);
+      setEvents(evts => evts.filter(ev => ev.id !== id));
+      toast.success("Event deleted");
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const startEditEvent = (ev: any) => {
+    setEditingEventId(ev.id);
+    setEditEventData({ title: ev.title, language: ev.language || "", duration_minutes: String(ev.duration_minutes || "") });
+  };
+
+  const saveEditEvent = async (id: string) => {
+    try {
+      await managerApi.updateEvent(id, {
+        ...editEventData,
+        duration_minutes: parseInt(editEventData.duration_minutes) || undefined,
+      });
+      const evts = await managerApi.events();
+      setEvents(evts);
+      setEditingEventId(null);
+      toast.success("Event updated");
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const deleteVenue = async (id: string) => {
+    if (!window.confirm("Delete this venue?")) return;
+    try {
+      await managerApi.deleteVenue(id);
+      setVenues(vs => vs.filter(v => v.id !== id));
+      toast.success("Venue deleted");
+    } catch (err: any) { toast.error(err.message); }
+  };
+
   if (authLoading || loading) return <div className="text-center py-20 text-gray-400">Loading...</div>;
 
   const inp = (label: string, val: string, onChange: any, type = "text", required = true) => (
@@ -235,9 +275,30 @@ export default function ManagerPage() {
             <div className="grid grid-cols-2 gap-3">
               {events.map(ev => (
                 <div key={ev.id} className="p-3 bg-gray-50 rounded-lg">
-                  <p className="font-medium">{ev.title}</p>
-                  <p className="text-sm text-gray-500">{ev.event_type} • {ev.language || "—"}</p>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${ev.status==="published"?"bg-green-100 text-green-700":"bg-gray-100 text-gray-600"}`}>{ev.status}</span>
+                  {editingEventId === ev.id ? (
+                    <div className="space-y-2">
+                      <input className="input text-sm" value={editEventData.title}
+                        onChange={e => setEditEventData(d => ({ ...d, title: e.target.value }))} placeholder="Title" />
+                      <input className="input text-sm" value={editEventData.language}
+                        onChange={e => setEditEventData(d => ({ ...d, language: e.target.value }))} placeholder="Language" />
+                      <input className="input text-sm" type="number" value={editEventData.duration_minutes}
+                        onChange={e => setEditEventData(d => ({ ...d, duration_minutes: e.target.value }))} placeholder="Duration (min)" />
+                      <div className="flex gap-2">
+                        <button onClick={() => saveEditEvent(ev.id)} className="btn-primary text-xs py-1 px-2">Save</button>
+                        <button onClick={() => setEditingEventId(null)} className="text-gray-500 text-xs hover:underline">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="font-medium">{ev.title}</p>
+                      <p className="text-sm text-gray-500">{ev.event_type} • {ev.language || "—"}</p>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${ev.status==="published"?"bg-green-100 text-green-700":"bg-gray-100 text-gray-600"}`}>{ev.status}</span>
+                      <div className="flex gap-2 mt-2">
+                        <button onClick={() => startEditEvent(ev)} className="text-blue-500 hover:text-blue-700 text-xs">Edit</button>
+                        <button onClick={() => deleteEvent(ev.id)} className="text-red-400 hover:text-red-600 text-xs">Delete</button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -260,9 +321,13 @@ export default function ManagerPage() {
             <h2 className="font-semibold text-lg mb-4">Venues ({venues.length})</h2>
             <div className="grid grid-cols-2 gap-3">
               {venues.map(v => (
-                <div key={v.id} className="p-3 bg-gray-50 rounded-lg">
-                  <p className="font-medium">{v.name}</p>
-                  <p className="text-sm text-gray-500">{v.city}</p>
+                <div key={v.id} className="p-3 bg-gray-50 rounded-lg flex justify-between items-start">
+                  <div>
+                    <p className="font-medium">{v.name}</p>
+                    <p className="text-sm text-gray-500">{v.city}</p>
+                    {v.address && <p className="text-xs text-gray-400">{v.address}</p>}
+                  </div>
+                  <button onClick={() => deleteVenue(v.id)} className="text-red-400 hover:text-red-600 text-xs">Delete</button>
                 </div>
               ))}
             </div>

@@ -5,10 +5,12 @@ import Link from "next/link";
 import toast from "react-hot-toast";
 import { auth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "@/lib/firebase";
 import { authApi } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 function RegisterForm() {
   const params = useSearchParams();
   const router = useRouter();
+  const { refreshProfile } = useAuth();
   const [form, setForm] = useState({
     name: params.get("name") || "",
     email: params.get("email") || "",
@@ -39,6 +41,9 @@ function RegisterForm() {
       const res = await authApi.register({ ...form, id_token: idToken }) as any;
       toast.success(res.message || "Registered!");
       if (form.role === "customer") {
+        // Prime the backend session and refresh profile so the navbar updates immediately
+        await authApi.verifyToken(idToken).catch(() => {});
+        await refreshProfile();
         router.push("/browse");
       } else {
         router.push("/auth/login");
@@ -68,7 +73,6 @@ function RegisterForm() {
           <select className="input" value={form.role} onChange={handle("role")}>
             <option value="customer">Customer</option>
             <option value="manager">Manager (needs admin approval)</option>
-            <option value="admin">Admin</option>
           </select>
           <button type="submit" className="btn-primary w-full" disabled={loading}>
             {loading ? "Registering..." : "Create Account"}
