@@ -29,7 +29,11 @@ export default function Navbar() {
               <Link href="/manager" className="hover:text-red-300">Manager</Link>
             )}
             {isAdmin && (
-              <Link href="/admin" className="hover:text-red-300">Admin</Link>
+              <>
+                <Link href="/admin" className="hover:text-red-300">Admin</Link>
+                <Link href="/admin/organizer-reviews" className="hover:text-red-300">Organizer Reviews</Link>
+                <Link href="/admin/organizers" className="hover:text-red-300">Organizers</Link>
+              </>
             )}
             <span className="text-gray-400">|</span>
             <span className="text-gray-300">{profile.name}</span>
