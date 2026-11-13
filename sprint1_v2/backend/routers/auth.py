@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from typing import Optional
@@ -17,7 +18,8 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     phone: Optional[str] = None
     birthdate: date
-    role: str = "customer"  # customer | manager
+    role: str = "customer"  # customer | manager | admin
+    invite_code: Optional[str] = None
 
 
 class RegisterResponse(BaseModel):
@@ -42,17 +44,18 @@ async def register(req: RegisterRequest, conn: asyncpg.Connection = Depends(get_
 
     uid = decoded["uid"]
     role = req.role.lower()
-    if role not in ("customer", "manager"):
-        raise HTTPException(
-            status_code=400,
-            detail="Role must be customer or manager",
-        )
+    if role == "admin":
+        expected = os.getenv("ADMIN_INVITE_CODE", "")
+        if not expected or req.invite_code != expected:
+            raise HTTPException(status_code=403, detail="Invalid or missing admin invite code")
+    elif role not in ("customer", "manager"):
+        raise HTTPException(status_code=400, detail="Role must be customer or manager")
 
     existing = await conn.fetchrow("SELECT id, status FROM users WHERE firebase_uid=$1", uid)
     if existing:
         raise HTTPException(status_code=409, detail="User already registered")
 
-    user_status = "active" if role == "customer" else "inactive"
+    user_status = "active" if role in ("customer", "admin") else "inactive"
     user_id = await conn.fetchval(
         """INSERT INTO users (firebase_uid, name, email, phone, birthdate, status)
            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
@@ -71,7 +74,7 @@ async def register(req: RegisterRequest, conn: asyncpg.Connection = Depends(get_
         user_id, role_id
     )
 
-    msg = "Registration successful" if role == "customer" else "Registration submitted. Awaiting admin approval."
+    msg = "Registration successful" if role in ("customer", "admin") else "Registration submitted. Awaiting admin approval."
     return RegisterResponse(message=msg, user_id=str(user_id), status=user_status)
 
 
