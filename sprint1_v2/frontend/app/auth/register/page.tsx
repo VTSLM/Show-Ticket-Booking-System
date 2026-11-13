@@ -10,6 +10,7 @@ import {
   signInWithEmailAndPassword,
 } from "@/lib/firebase";
 import { authApi } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 function PasswordVisibilityIcon({ visible }: { visible: boolean }) {
   return visible ? (
@@ -62,6 +63,7 @@ function RegisterForm() {
   const params = useSearchParams();
   const router = useRouter();
   const prefillToken = params.get("token");
+  const { refreshProfile } = useAuth();
 
   const [form, setForm] = useState({
     name: params.get("name") || "",
@@ -159,6 +161,7 @@ function RegisterForm() {
       })) as { message?: string };
 
       toast.success(response.message || "Registered!");
+      await refreshProfile();
       router.push(form.role === "customer" ? "/browse" : "/auth/login");
     } catch (error: any) {
       toast.error(error.message || "Registration failed");
@@ -345,7 +348,6 @@ function RegisterForm() {
               >
                 <option value="customer">Customer</option>
                 <option value="manager">Manager (needs admin approval)</option>
-                <option value="admin">Admin</option>
               </select>
             </div>
 
