@@ -321,6 +321,21 @@ export default function OrganizerVerificationPage() {
             )}
           </div>
 
+          {/* Changes Requested Banner */}
+          {currentApp?.verification_status === "CHANGES_REQUESTED" && (
+            <div className="mx-6 mt-4 p-4 rounded-xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs space-y-1">
+              <div className="font-bold text-amber-400 flex items-center gap-2">
+                <span>⚠️ Changes Requested by Reviewer</span>
+              </div>
+              <p className="text-gray-200">
+                {currentApp?.reviewer_comments || "Reviewer has requested corrections to your application details or attached documents."}
+              </p>
+              <p className="text-[11px] text-amber-400/80">
+                Please upload replacement document versions or modify required fields, then click 'Submit for review' to resubmit.
+              </p>
+            </div>
+          )}
+
           {/* Step progress bar */}
           <div className="px-6 pt-5 pb-2">
             <div className="flex items-center gap-0">
@@ -599,16 +614,28 @@ export default function OrganizerVerificationPage() {
                             )}
                           </div>
 
-                          <input
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png"
-                            disabled={uploadingDocType === dtype}
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleFileUpload(dtype, file);
-                            }}
-                            className="text-xs text-slate-400 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-300 hover:file:bg-blue-900/80 cursor-pointer w-full"
-                          />
+                          {latestDoc?.review_status === "CHANGES_REQUESTED" && (
+                            <div className="bg-amber-950/40 border border-amber-500/30 p-2 rounded text-[11px] text-amber-300">
+                              <span className="font-bold">Reviewer requested change:</span>{" "}
+                              {latestDoc.reviewer_comment || "Please upload a clear replacement copy."}
+                            </div>
+                          )}
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-slate-400">
+                              {latestDoc ? `Replace document (creates Version ${latestDoc.version + 1}):` : "Upload file:"}
+                            </label>
+                            <input
+                              type="file"
+                              accept=".pdf,.jpg,.jpeg,.png"
+                              disabled={uploadingDocType === dtype}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleFileUpload(dtype, file);
+                              }}
+                              className="text-xs text-slate-400 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-300 hover:file:bg-blue-900/80 cursor-pointer w-full"
+                            />
+                          </div>
 
                           {uploadingDocType === dtype && (
                             <p className="text-[11px] text-sky-400 animate-pulse">
@@ -698,7 +725,11 @@ export default function OrganizerVerificationPage() {
                       onClick={() => handleSubmitForReview()}
                       className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold px-5 py-2.5 rounded-lg text-sm shadow transition-colors"
                     >
-                      {isSubmitting ? "Submitting…" : "Submit for review"}
+                      {isSubmitting
+                        ? "Submitting…"
+                        : currentApp?.verification_status === "CHANGES_REQUESTED"
+                        ? "Resubmit Application for Review"
+                        : "Submit for review"}
                     </button>
                   )}
 
