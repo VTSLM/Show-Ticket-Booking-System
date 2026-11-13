@@ -47,6 +47,12 @@ CREATE TABLE IF NOT EXISTS organizer_profiles (
     verification_status varchar(30) NOT NULL DEFAULT 'PENDING'
                             CHECK (verification_status IN ('DRAFT', 'SUBMITTED', 'IN_REVIEW', 'PENDING', 'CHANGES_REQUESTED', 'APPROVED', 'REJECTED', 'SUSPENDED', 'EXPIRED')),
     trust_tier          varchar(50) NOT NULL DEFAULT 'TIER_1' REFERENCES trust_tier_rules(tier) ON DELETE RESTRICT,
+    reviewer_id         uuid REFERENCES users(id) ON DELETE SET NULL,
+    claimed_at          timestamptz,
+    claim_expires_at    timestamptz,
+    reviewer_comments   text,
+    rejection_reason    text,
+    suspension_reason   text,
     created_at          timestamptz NOT NULL DEFAULT now(),
     updated_at          timestamptz NOT NULL DEFAULT now(),
     UNIQUE (user_id)
