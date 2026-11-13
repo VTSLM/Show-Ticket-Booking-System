@@ -14,6 +14,7 @@ from routers.tickets import router as tickets_router
 from routers.support import router as support_router
 from routers.verification_documents import router as verification_documents_router
 from routers.organizer_verification import router as organizer_verification_router
+from routers.organizer_admin import router as organizer_admin_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,6 +51,7 @@ app.include_router(tickets_router)
 app.include_router(support_router)
 app.include_router(verification_documents_router)
 app.include_router(organizer_verification_router)
+app.include_router(organizer_admin_router)
 
 @app.get("/")
 def root():
