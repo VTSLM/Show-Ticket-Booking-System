@@ -145,58 +145,77 @@ export default function BrowsePage() {
       ) : (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {shows.map((show) => (
-            <Link
+            <div
               key={show.show_id}
-              href={`/shows/${show.show_id}/seats`}
-              className="group overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-950/30"
+              className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-950/30"
             >
-              {show.poster_url ? (
-                <img
-                  src={show.poster_url}
-                  alt={`${show.title} poster`}
-                  className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                />
-              ) : (
-                <div className="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950">
-                  <span className="text-6xl" aria-hidden="true">
-                    🎥
-                  </span>
-                </div>
-              )}
+              <Link
+                href={`/shows/${show.show_id}/seats`}
+                className="group block"
+              >
+                {show.poster_url ? (
+                  <img
+                    src={show.poster_url}
+                    alt={`${show.title} poster`}
+                    className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                  />
+                ) : (
+                  <div className="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950">
+                    <span className="text-6xl" aria-hidden="true">
+                      🎥
+                    </span>
+                  </div>
+                )}
 
-              <div className="p-5">
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <h3 className="text-lg font-bold text-white transition group-hover:text-blue-400">
-                    {show.title}
-                  </h3>
-                  <span className="shrink-0 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300">
-                    {show.event_type || "Show"}
-                  </span>
-                </div>
+                <div className="p-5 pb-3">
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <h3 className="text-lg font-bold text-white transition group-hover:text-blue-400">
+                      {show.title}
+                    </h3>
+                    <span className="shrink-0 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300">
+                      {show.event_type || "Show"}
+                    </span>
+                  </div>
 
-                <p className="text-sm text-slate-400">
-                  {show.language || "Language not listed"}
-                </p>
-                <p className="mt-3 text-sm text-slate-300">
-                  <span aria-hidden="true">📍 </span>
-                  {show.venue_name}
-                  {show.city ? `, ${show.city}` : ""}
-                </p>
-                <p className="mt-1 text-sm text-slate-400">
-                  <span aria-hidden="true">◷ </span>
-                  {formatTime(show.start_time)}
-                </p>
+                  <p className="text-sm text-slate-400">
+                    {show.language || "Language not listed"}
+                  </p>
+                  <p className="mt-3 text-sm text-slate-300">
+                    <span aria-hidden="true">📍 </span>
+                    {show.venue_name}
+                    {show.city ? `, ${show.city}` : ""}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    <span aria-hidden="true">◷ </span>
+                    {formatTime(show.start_time)}
+                  </p>
 
-                <div className="mt-5 flex items-center justify-between border-t border-slate-800 pt-4">
-                  <span className="text-lg font-bold text-blue-400">
-                    ₹{show.base_price}
-                  </span>
-                  <span className="text-sm text-slate-400">
-                    {show.available_seats ?? "—"} seats
-                  </span>
+                  <div className="mt-5 flex items-center justify-between border-t border-slate-800 pt-4">
+                    <span className="text-lg font-bold text-blue-400">
+                      ₹{show.base_price}
+                    </span>
+                    <span className="text-sm text-slate-400">
+                      {show.available_seats ?? "—"} seats
+                    </span>
+                  </div>
                 </div>
+              </Link>
+
+              <div className="px-5 pb-5">
+                {show.event_id ? (
+                  <Link
+                    href={`/events/${show.event_id}/reviews`}
+                    className="inline-flex items-center rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 transition hover:border-blue-400 hover:bg-blue-500/20"
+                  >
+                    ★ Reviews &amp; Ratings
+                  </Link>
+                ) : (
+                  <span className="text-xs text-slate-500">
+                    Reviews unavailable for this show
+                  </span>
+                )}
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
