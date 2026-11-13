@@ -143,6 +143,12 @@ class OrganizerProfileModel(BaseModel):
     gstin_masked: Optional[str] = None
     verification_status: VerificationStatus = VerificationStatus.PENDING
     trust_tier: str = "TIER_1"
+    reviewer_id: Optional[UUID] = None
+    claimed_at: Optional[datetime] = None
+    claim_expires_at: Optional[datetime] = None
+    reviewer_comments: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    suspension_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
