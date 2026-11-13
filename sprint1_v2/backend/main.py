@@ -11,6 +11,7 @@ from routers.seats import router as seats_router
 from routers.payments import router as payments_router
 from routers.bookings import router as bookings_router
 from routers.tickets import router as tickets_router
+from routers.reviews import router as reviews_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -44,6 +45,7 @@ app.include_router(seats_router)
 app.include_router(payments_router)
 app.include_router(bookings_router)
 app.include_router(tickets_router)
+app.include_router(reviews_router)
 
 @app.get("/")
 def root():
