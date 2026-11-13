@@ -130,4 +130,49 @@ export const organizerVerificationApi = {
     api.get<any>(`/api/verification/documents/${documentId}/view`),
   listDocuments: (caseId: string) =>
     api.get<any[]>(`/api/verification/cases/${caseId}/documents`),
+  getMyPayoutEligibility: () =>
+    api.get<any>("/api/verification/organizer/payout-eligibility"),
+};
+
+export const organizerAdminApi = {
+  getReviewQueue: (status?: string) =>
+    api.get<any>(`/api/admin/organizers/reviews${status ? `?status=${status}` : ""}`),
+  getWorkspace: (id: string) =>
+    api.get<any>(`/api/admin/organizers/${id}`),
+  claimCase: (id: string) =>
+    api.post<any>(`/api/admin/organizers/${id}/claim`),
+  releaseCase: (id: string) =>
+    api.post<any>(`/api/admin/organizers/${id}/release`),
+  reviewDocument: (documentId: string, review_status: string, reviewer_comment?: string) =>
+    api.post<any>(`/api/admin/organizers/documents/${documentId}/review`, {
+      review_status,
+      reviewer_comment,
+    }),
+  makeDecision: (
+    id: string,
+    decision: string,
+    comments?: string,
+    rejection_reason?: string
+  ) =>
+    api.post<any>(`/api/admin/organizers/${id}/decision`, {
+      decision,
+      comments,
+      rejection_reason,
+    }),
+  listOrganizers: (params?: { q?: string; status?: string; tier?: string; limit?: number; offset?: number }) => {
+    const sp = new URLSearchParams();
+    if (params?.q) sp.append("q", params.q);
+    if (params?.status) sp.append("status", params.status);
+    if (params?.tier) sp.append("tier", params.tier);
+    if (params?.limit) sp.append("limit", params.limit.toString());
+    if (params?.offset) sp.append("offset", params.offset.toString());
+    const qs = sp.toString();
+    return api.get<any>(`/api/admin/organizers${qs ? `?${qs}` : ""}`);
+  },
+  suspendOrganizer: (id: string, reason: string) =>
+    api.post<any>(`/api/admin/organizers/${id}/suspend`, { reason }),
+  reactivateOrganizer: (id: string, reason: string) =>
+    api.post<any>(`/api/admin/organizers/${id}/reactivate`, { reason }),
+  getPayoutEligibility: (id: string) =>
+    api.get<any>(`/api/admin/organizers/${id}/payout-eligibility`),
 };
