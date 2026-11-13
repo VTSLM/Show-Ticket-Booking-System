@@ -24,7 +24,10 @@ from pydantic import BaseModel, Field
 from database import get_conn
 from dependencies import get_current_user
 from models.verification import BusinessType, CaseType, DocumentType, VerificationStatus
+from services.bank_verification import verify_mock_bank_account
+from services.duplicate_detection import check_duplicate_collisions, register_case_fingerprints
 from services.identity_validators import validate_pan, validate_gstin, validate_ifsc
+from services.trust_tier_service import evaluate_payout_eligibility
 from services.verification_security import (
     mask_pan,
     mask_gstin,
@@ -398,12 +401,15 @@ async def submit_application(
             detail={"message": "Pre-submission validation failed", "errors": errors},
         )
 
-    # Transition to SUBMITTED and log notification
+    # Transition to SUBMITTED, execute verification adapters, and log notification
     async with conn.transaction():
         updated_row = await conn.fetchrow(
             """
             UPDATE organizer_profiles
             SET verification_status = 'SUBMITTED',
+                reviewer_id = NULL,
+                claimed_at = NULL,
+                claim_expires_at = NULL,
                 updated_at = now()
             WHERE id = $1
             RETURNING id, user_id, legal_name, business_type, state, pan_masked,
@@ -412,7 +418,30 @@ async def submit_application(
             application_id,
         )
 
-        # Emit notification event
+        # 1. Register fingerprints for collision prevention
+        await register_case_fingerprints(
+            conn=conn,
+            case_id=application_id,
+            case_type=CaseType.ORGANIZER,
+            pan=profile_row["pan_masked"],
+            gstin=profile_row["gstin_masked"],
+            bank_account=bank_row["account_masked"] if bank_row else None,
+        )
+
+        # 2. Execute mock bank verification adapter
+        if bank_row:
+            bank_val = verify_mock_bank_account(
+                holder_name=bank_row["holder_name"],
+                ifsc=bank_row["ifsc"],
+                account_number=bank_row["account_masked"],
+            )
+            if bank_val.get("verified"):
+                await conn.execute(
+                    "UPDATE bank_accounts SET verified = true, updated_at = now() WHERE id = $1",
+                    bank_row["id"],
+                )
+
+        # 3. Emit notification event
         notification_payload = json.dumps({
             "case_id": str(application_id),
             "status": "SUBMITTED",
@@ -438,3 +467,22 @@ async def submit_application(
         "message": "Application submitted successfully for verification review.",
         "application": resp,
     }
+
+
+@router.get("/payout-eligibility", summary="Get payout settlement eligibility for current organizer")
+async def get_my_payout_eligibility(
+    current_user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Evaluate authenticated organizer's payout eligibility."""
+    user_id = current_user["id"]
+    prof = await conn.fetchrow(
+        "SELECT id FROM organizer_profiles WHERE user_id = $1",
+        user_id,
+    )
+    if not prof:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No organizer profile found for current user. Please submit an application first.",
+        )
+    return await evaluate_payout_eligibility(conn=conn, organizer_id=prof["id"])
