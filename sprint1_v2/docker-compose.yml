@@ -9,6 +9,8 @@ services:
       - "8000:8000"
     env_file:
       - ./backend/.env
+    environment:
+      - FIREBASE_SERVICE_ACCOUNT_PATH=/app/ticketflow-firebase.json
     volumes:
       - ./ticketflow-firebase.json:/app/ticketflow-firebase.json:ro
     restart: unless-stopped
