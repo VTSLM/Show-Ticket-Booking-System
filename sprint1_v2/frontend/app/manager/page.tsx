@@ -20,6 +20,10 @@ export default function ManagerPage() {
   const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "" });
   const [newVenue, setNewVenue] = useState({ name: "", city: "", address: "" });
   const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "" });
+  const [showVenueId, setShowVenueId] = useState("");
+  const [showScreens, setShowScreens] = useState<any[]>([]);
+  const [endTimeTouched, setEndTimeTouched] = useState(false);
+  const [creatingShow, setCreatingShow] = useState(false);
   const [screens, setScreens] = useState<any[]>([]);
   const [selectedVenueId, setSelectedVenueId] = useState("");
   const [newScreen, setNewScreen] = useState({
@@ -52,6 +56,45 @@ export default function ManagerPage() {
       toast.error(err.message || "Could not load screens");
       setScreens([]);
     }
+  };
+
+  const loadShowScreens = async (venueId: string) => {
+    setShowVenueId(venueId);
+    setNewShow(s => ({ ...s, screen_id: "" }));
+    if (!venueId) {
+      setShowScreens([]);
+      return;
+    }
+    try {
+      const data = await managerApi.screens(venueId);
+      setShowScreens(data);
+    } catch (err: any) {
+      toast.error(err.message || "Could not load screens");
+      setShowScreens([]);
+    }
+  };
+
+  const parseLocalDateTime = (val: string): Date | null => {
+    if (!val) return null;
+    const [datePart, timePart] = val.split("T");
+    if (!datePart || !timePart) return null;
+    const [y, m, d] = datePart.split("-").map(Number);
+    const [hh, mm] = timePart.split(":").map(Number);
+    if ([y, m, d, hh, mm].some(Number.isNaN)) return null;
+    return new Date(y, m - 1, d, hh, mm, 0, 0);
+  };
+
+  const formatLocalDateTime = (date: Date): string => {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
+  const computeDefaultEndTime = (startVal: string, eventId: string): string => {
+    const startDate = parseLocalDateTime(startVal);
+    if (!startDate) return "";
+    const ev = events.find(item => item.id === eventId);
+    const durationMins = Number(ev?.duration_minutes) > 0 ? Number(ev.duration_minutes) : 120;
+    return formatLocalDateTime(new Date(startDate.getTime() + (durationMins + 15) * 60_000));
   };
 
   const createEvent = async (e: React.FormEvent) => {
@@ -104,6 +147,9 @@ export default function ManagerPage() {
 
       const updatedScreens = await managerApi.screens(selectedVenueId);
       setScreens(updatedScreens);
+      if (showVenueId === selectedVenueId) {
+        setShowScreens(updatedScreens);
+      }
 
       setNewScreen({
         name: "",
@@ -118,13 +164,51 @@ export default function ManagerPage() {
   };
   const createShow = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newShow.event_id) {
+      toast.error("Please select an event.");
+      return;
+    }
+    if (!showVenueId || !newShow.screen_id) {
+      toast.error("Please select a venue and screen.");
+      return;
+    }
+    const startDate = parseLocalDateTime(newShow.start_time);
+    const endDate = parseLocalDateTime(newShow.end_time);
+    if (!startDate || !endDate) {
+      toast.error("Please select valid start and end times.");
+      return;
+    }
+    if (endDate.getTime() <= startDate.getTime()) {
+      toast.error("Show end time must be strictly after start time.");
+      return;
+    }
+    const basePrice = parseFloat(newShow.base_price);
+    if (Number.isNaN(basePrice) || basePrice <= 0) {
+      toast.error("Base price must be greater than 0.");
+      return;
+    }
+
+    setCreatingShow(true);
     try {
-      await managerApi.createShow({ ...newShow, base_price: parseFloat(newShow.base_price) });
+      await managerApi.createShow({
+        event_id: newShow.event_id,
+        screen_id: newShow.screen_id,
+        start_time: startDate.toISOString(),
+        end_time: endDate.toISOString(),
+        base_price: basePrice,
+      });
       const ss = await managerApi.shows();
       setShows(ss);
       setNewShow({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "" });
+      setShowVenueId("");
+      setShowScreens([]);
+      setEndTimeTouched(false);
       toast.success("Show created!");
-    } catch (err: any) { toast.error(err.message); }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create show");
+    } finally {
+      setCreatingShow(false);
+    }
   };
 
   const deleteShow = async (id: string) => {
@@ -137,6 +221,10 @@ export default function ManagerPage() {
   };
 
   if (authLoading || loading) return <div className="text-center py-20 text-gray-400">Loading...</div>;
+
+  const startParsed = parseLocalDateTime(newShow.start_time);
+  const endParsed = parseLocalDateTime(newShow.end_time);
+  const invalidTimeRange = Boolean(startParsed && endParsed && endParsed.getTime() <= startParsed.getTime());
 
   const inp = (label: string, val: string, onChange: any, type = "text", required = true) => (
     <div>
@@ -164,31 +252,120 @@ export default function ManagerPage() {
             <form onSubmit={createShow} className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Event</label>
-                <select className="input text-sm" value={newShow.event_id}
-                  onChange={e => setNewShow(s => ({ ...s, event_id: e.target.value }))} required>
+                <select
+                  className="input text-sm"
+                  value={newShow.event_id}
+                  onChange={e => {
+                    const eventId = e.target.value;
+                    setNewShow(s => {
+                      const nextEnd = s.start_time && !endTimeTouched
+                        ? computeDefaultEndTime(s.start_time, eventId)
+                        : s.end_time;
+                      return { ...s, event_id: eventId, end_time: nextEnd };
+                    });
+                  }}
+                  required
+                >
                   <option value="">Select event</option>
-                  {events.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
+                  {events.map(ev => (
+                    <option key={ev.id} value={ev.id}>
+                      {ev.title}{ev.duration_minutes ? ` (${ev.duration_minutes} min)` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Venue</label>
+                <select
+                  className="input text-sm"
+                  value={showVenueId}
+                  onChange={e => loadShowScreens(e.target.value)}
+                  required
+                >
+                  <option value="">Select venue</option>
+                  {venues.map(v => <option key={v.id} value={v.id}>{v.name} — {v.city}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Screen</label>
-                <select className="input text-sm" value={newShow.screen_id}
-                  onChange={e => setNewShow(s => ({ ...s, screen_id: e.target.value }))} required>
-                  <option value="">Select screen</option>
-                  {screens.map(sc => <option key={sc.id} value={sc.id}>{sc.name}</option>)}
+                <select
+                  className="input text-sm"
+                  value={newShow.screen_id}
+                  disabled={!showVenueId}
+                  onChange={e => setNewShow(s => ({ ...s, screen_id: e.target.value }))}
+                  required
+                >
+                  <option value="">
+                    {!showVenueId
+                      ? "Select venue first"
+                      : showScreens.length === 0
+                        ? "No screens in this venue"
+                        : "Select screen"}
+                  </option>
+                  {showScreens.map(sc => (
+                    <option key={sc.id} value={sc.id}>
+                      {sc.name} ({sc.capacity} seats)
+                    </option>
+                  ))}
                 </select>
               </div>
-              {inp("Start Time", newShow.start_time, (e: any) => setNewShow(s => ({ ...s, start_time: e.target.value })), "datetime-local")}
-              {inp("End Time", newShow.end_time, (e: any) => setNewShow(s => ({ ...s, end_time: e.target.value })), "datetime-local")}
-              {inp("Base Price (₹)", newShow.base_price, (e: any) => setNewShow(s => ({ ...s, base_price: e.target.value })), "number")}
-              <div className="col-span-2">
-                <label className="block text-xs text-gray-500 mb-1">Load screens for venue</label>
-                <select className="input text-sm" onChange={e => loadScreens(e.target.value)}>
-                  <option value="">Select venue to load screens</option>
-                  {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Base Price (₹)</label>
+                <input
+                  className="input text-sm"
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  value={newShow.base_price}
+                  onChange={e => setNewShow(s => ({ ...s, base_price: e.target.value }))}
+                  required
+                />
               </div>
-              <button type="submit" className="col-span-2 btn-primary">Create Show</button>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Start Time</label>
+                <input
+                  className="input text-sm"
+                  type="datetime-local"
+                  value={newShow.start_time}
+                  onChange={e => {
+                    const startVal = e.target.value;
+                    setNewShow(s => {
+                      const sp = parseLocalDateTime(startVal);
+                      const ep = parseLocalDateTime(s.end_time);
+                      const shouldAutoFill =
+                        Boolean(startVal) && (!endTimeTouched || !ep || (sp !== null && ep.getTime() <= sp.getTime()));
+                      return {
+                        ...s,
+                        start_time: startVal,
+                        end_time: shouldAutoFill ? computeDefaultEndTime(startVal, s.event_id) : s.end_time,
+                      };
+                    });
+                  }}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">End Time</label>
+                <input
+                  className="input text-sm"
+                  type="datetime-local"
+                  min={newShow.start_time || undefined}
+                  value={newShow.end_time}
+                  onChange={e => {
+                    setEndTimeTouched(true);
+                    setNewShow(s => ({ ...s, end_time: e.target.value }));
+                  }}
+                  required
+                />
+              </div>
+              {invalidTimeRange && (
+                <p className="col-span-2 text-xs text-red-600">
+                  Show end time must be strictly after start time.
+                </p>
+              )}
+              <button type="submit" disabled={creatingShow} className="col-span-2 btn-primary disabled:opacity-60">
+                {creatingShow ? "Creating Show..." : "Create Show"}
+              </button>
             </form>
           </div>
           <div className="card">
@@ -199,7 +376,10 @@ export default function ManagerPage() {
                   <div>
                     <p className="font-medium">{s.event_title}</p>
                     <p className="text-sm text-gray-500">{s.venue_name} — {s.screen_name}</p>
-                    <p className="text-sm text-gray-500">{new Date(s.start_time).toLocaleString("en-IN")}</p>
+                    <p className="text-sm text-gray-500">
+                      {new Date(s.start_time).toLocaleString("en-IN")}
+                      {s.end_time ? ` – ${new Date(s.end_time).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : ""}
+                    </p>
                   </div>
                   <div className="flex gap-2 items-center">
                     <span className="text-red-500 font-bold">₹{s.base_price}</span>
