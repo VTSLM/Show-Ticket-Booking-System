@@ -11,11 +11,26 @@ import {
   EventReviews,
   MyReview,
   Review,
+  ReviewComment,
   SortBy,
 } from "@/lib/reviewsApi";
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString("en-IN", { dateStyle: "medium" });
+
+const fmtDateTime = (d: string) =>
+  new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+
+// <input type="datetime-local"> works with local "YYYY-MM-DDTHH:mm" strings
+const toLocalInput = (d: Date) => {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+const MIN_LEAD_MS = 2 * 60 * 1000; // pick a time at least 2 minutes ahead (server needs 1)
+const minScheduleInput = () => toLocalInput(new Date(Date.now() + MIN_LEAD_MS));
+const maxScheduleInput = () => toLocalInput(new Date(Date.now() + 364 * 24 * 60 * 60 * 1000));
+
+const EMPTY_FORM = { rating: 8, headline: "", content: "", is_spoiler: false };
 
 function ScoreCard({
   label,
@@ -68,6 +83,8 @@ function ReviewCard({
   const [showComments, setShowComments] = useState(false);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
+  const [replyTo, setReplyTo] = useState<string | null>(null); // id of the thread being replied to
+  const [replyText, setReplyText] = useState("");
 
   const isCritic = review.author.role === "critic" || review.author.is_verified;
 
@@ -81,28 +98,81 @@ function ReviewCard({
     }
   };
 
-  const postComment = async (ev: React.FormEvent) => {
-    ev.preventDefault();
-    if (!token) return toast.error("Log in to comment");
-    if (!comment.trim()) return;
+  const sendComment = async (text: string, parentId?: string): Promise<boolean> => {
+    if (!token) {
+      toast.error("Log in to comment");
+      return false;
+    }
+    if (!text.trim()) return false;
     setBusy(true);
     try {
-      const c = await reviewsApi.comment(token, review.id, comment.trim());
+      const c = await reviewsApi.comment(token, review.id, text.trim(), parentId);
       onChange({
         ...review,
         comments: [...review.comments, c],
         comments_count: review.comments_count + 1,
       });
-      setComment("");
+      return true;
     } catch (e: any) {
       toast.error(e.message);
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const comments = [...review.comments].sort(
-    (a, b) => Number(b.is_pinned) - Number(a.is_pinned)
+  const postComment = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (await sendComment(comment)) setComment("");
+  };
+
+  const postReply = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (!replyTo) return;
+    if (await sendComment(replyText, replyTo)) {
+      setReplyText("");
+      setReplyTo(null);
+    }
+  };
+
+  // Replying to a reply keeps the thread one level deep (the server does the same)
+  const startReply = (thread: ReviewComment, target: ReviewComment) => {
+    setReplyTo(thread.id);
+    setReplyText(target.id === thread.id ? "" : `@${target.author_name} `);
+  };
+
+  // Top-level comments (pinned first) and their replies (oldest first)
+  const topLevel = review.comments
+    .filter((c) => !c.parent_comment_id)
+    .sort((x, y) => Number(y.is_pinned) - Number(x.is_pinned));
+  const repliesOf = (id: string) => review.comments.filter((c) => c.parent_comment_id === id);
+
+  const renderComment = (c: ReviewComment, thread: ReviewComment, isReply: boolean) => (
+    <div
+      key={c.id}
+      className={`rounded-lg p-3 text-sm ${isReply ? "bg-slate-900/40" : "bg-slate-900/70"}`}
+    >
+      <p className="font-medium text-slate-200">
+        {c.author_name}
+        {c.is_review_author && (
+          <span className="ml-2 rounded bg-emerald-500/20 px-1.5 py-0.5 text-xs text-emerald-300">
+            Author
+          </span>
+        )}
+        {c.is_critic && <span className="ml-2 text-xs text-blue-300">Critic</span>}
+        {c.is_pinned && <span className="ml-2 text-xs text-amber-300">📌 Pinned</span>}
+        <span className="ml-2 text-xs font-normal text-slate-500">{fmtDate(c.created_at)}</span>
+      </p>
+      <p className="mt-1 whitespace-pre-line text-slate-300">{c.content}</p>
+      {token && (
+        <button
+          onClick={() => startReply(thread, c)}
+          className="mt-1 text-xs text-slate-400 hover:text-white"
+        >
+          ↩ Reply
+        </button>
+      )}
+    </div>
   );
 
   return (
@@ -178,16 +248,44 @@ function ReviewCard({
 
       {showComments && (
         <div className="mt-3 space-y-3">
-          {comments.map((c) => (
-            <div key={c.id} className="rounded-lg bg-slate-900/70 p-3 text-sm">
-              <p className="font-medium text-slate-200">
-                {c.author_name}
-                {c.is_critic && <span className="ml-2 text-xs text-blue-300">Critic</span>}
-                {c.is_pinned && <span className="ml-2 text-xs text-amber-300">📌 Pinned</span>}
-              </p>
-              <p className="mt-1 text-slate-300">{c.content}</p>
-            </div>
-          ))}
+          {topLevel.map((c) => {
+            const replies = repliesOf(c.id);
+            return (
+              <div key={c.id} className="space-y-2">
+                {renderComment(c, c, false)}
+                {replies.length > 0 && (
+                  <div className="ml-6 space-y-2 border-l border-slate-800 pl-3">
+                    {replies.map((r) => renderComment(r, c, true))}
+                  </div>
+                )}
+                {replyTo === c.id && (
+                  <form onSubmit={postReply} className="ml-6 flex flex-wrap gap-2">
+                    <input
+                      className="input min-w-0 flex-1"
+                      autoFocus
+                      placeholder="Write a reply…"
+                      value={replyText}
+                      maxLength={1000}
+                      onChange={(e) => setReplyText(e.target.value)}
+                    />
+                    <button className="btn-secondary" disabled={busy}>
+                      Reply
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-slate-400 hover:text-white"
+                      onClick={() => {
+                        setReplyTo(null);
+                        setReplyText("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                )}
+              </div>
+            );
+          })}
           <form onSubmit={postComment} className="flex gap-2">
             <input
               className="input flex-1"
@@ -222,7 +320,9 @@ export default function EventReviewsPage() {
   const [token, setToken] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ rating: 8, headline: "", content: "", is_spoiler: false });
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [publishMode, setPublishMode] = useState<"draft" | "now" | "later">("now");
+  const [scheduleAt, setScheduleAt] = useState(""); // local "YYYY-MM-DDTHH:mm"
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mine, setMine] = useState<MyReview | null>(null);
@@ -270,21 +370,82 @@ export default function EventReviewsPage() {
     loadMine();
   }, [loadMine]);
 
+  // While my review is scheduled, check back so it appears when its time arrives
+  useEffect(() => {
+    if (!mine?.is_scheduled || !mine.scheduled_for) return undefined;
+    const at = new Date(mine.scheduled_for).getTime();
+    const id = setInterval(() => {
+      if (Date.now() >= at) {
+        load();
+        loadMine();
+      }
+    }, 30000);
+    return () => clearInterval(id);
+  }, [mine, load, loadMine]);
+
+  // What am I editing?  a draft, a scheduled review, or a published one
+  const editingDraft = Boolean(mine?.is_draft && editingId === mine.id);
+  const editingScheduled = Boolean(mine?.is_scheduled && editingId === mine.id);
+  // Publish options (now / schedule / draft): new reviews, drafts and scheduled reviews
+  const showPublishOptions = !editingId || editingDraft || editingScheduled;
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setPublishMode("now");
+    setScheduleAt("");
+  };
+
   const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     if (!token) return toast.error("Log in to write a review");
+
+    // How should it go live?  now | later | draft
+    let scheduledIso: string | null = null;
+    if (showPublishOptions && publishMode === "later") {
+      const t = new Date(scheduleAt).getTime();
+      if (!scheduleAt || Number.isNaN(t)) return toast.error("Pick a date and time to publish");
+      if (t < Date.now() + MIN_LEAD_MS) return toast.error("Pick a time at least 2 minutes from now");
+      scheduledIso = new Date(t).toISOString();
+    }
+
     setSubmitting(true);
     try {
       if (editingId) {
-        await reviewsApi.update(token, editingId, form);
-        toast.success("Review updated");
+        if (showPublishOptions) {
+          // editing a draft or a scheduled review
+          if (publishMode === "now") {
+            await reviewsApi.update(token, editingId, { ...form, publish_now: true });
+            toast.success("Review published");
+          } else if (publishMode === "later" && scheduledIso) {
+            await reviewsApi.update(token, editingId, { ...form, scheduled_for: scheduledIso });
+            toast.success(`Review scheduled for ${fmtDateTime(scheduledIso)}`);
+          } else {
+            await reviewsApi.update(token, editingId, { ...form, is_draft: true });
+            toast.success("Draft saved");
+          }
+        } else {
+          await reviewsApi.update(token, editingId, form);
+          toast.success("Review updated");
+        }
       } else {
-        await reviewsApi.submit(token, { event_id: eventId, ...form });
-        toast.success("Review submitted");
+        const extra =
+          publishMode === "draft"
+            ? { is_draft: true }
+            : scheduledIso
+              ? { scheduled_for: scheduledIso }
+              : {};
+        await reviewsApi.submit(token, { event_id: eventId, ...form, ...extra });
+        toast.success(
+          publishMode === "draft"
+            ? "Draft saved"
+            : scheduledIso
+              ? `Review scheduled for ${fmtDateTime(scheduledIso)}`
+              : "Review submitted"
+        );
       }
-      setEditingId(null);
-      setShowForm(false);
-      setForm({ rating: 8, headline: "", content: "", is_spoiler: false });
+      closeForm();
       load();
       loadMine();
     } catch (e: any) {
@@ -294,25 +455,41 @@ export default function EventReviewsPage() {
     }
   };
 
-  const emptyForm = { rating: 8, headline: "", content: "", is_spoiler: false };
+  // Open the form on my own review (also used by the "Scheduled" banner)
+  const openEditMine = () => {
+    if (!mine) return;
+    setEditingId(mine.id);
+    setForm({
+      rating: mine.rating,
+      headline: mine.headline,
+      content: mine.content,
+      is_spoiler: mine.is_spoiler,
+    });
+    if (mine.is_draft) {
+      setPublishMode("draft");
+      setScheduleAt("");
+    } else if (mine.is_scheduled && mine.scheduled_for) {
+      setPublishMode("later");
+      setScheduleAt(toLocalInput(new Date(mine.scheduled_for)));
+    } else {
+      setPublishMode("now");
+      setScheduleAt("");
+    }
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const toggleForm = () => {
     if (showForm) {
-      setShowForm(false);
-      setEditingId(null);
+      closeForm();
     } else if (mine) {
       // already reviewed -> open the form in edit mode
-      setEditingId(mine.id);
-      setForm({
-        rating: mine.rating,
-        headline: mine.headline,
-        content: mine.content,
-        is_spoiler: mine.is_spoiler,
-      });
-      setShowForm(true);
+      openEditMine();
     } else {
       setEditingId(null);
-      setForm(emptyForm);
+      setForm(EMPTY_FORM);
+      setPublishMode("now");
+      setScheduleAt("");
       setShowForm(true);
     }
   };
@@ -325,11 +502,25 @@ export default function EventReviewsPage() {
       content: r.content,
       is_spoiler: r.is_spoiler,
     });
+    setPublishMode("now");
+    setScheduleAt("");
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const removeReview = async (r: Review) => {
+  const publishNow = async () => {
+    if (!token || !mine) return;
+    try {
+      await reviewsApi.update(token, mine.id, { publish_now: true });
+      toast.success("Review published");
+      load();
+      loadMine();
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
+  const removeReview = async (r: { id: string }) => {
     if (!token) return toast.error("Log in first");
     if (!window.confirm("Delete this review? This cannot be undone.")) return;
     try {
@@ -403,7 +594,7 @@ export default function EventReviewsPage() {
       <div className="mt-6">
         {user ? (
           <button className="btn-primary" onClick={toggleForm}>
-            {showForm ? "Cancel" : mine ? "Edit your review" : "Write a review"}
+            {showForm ? "Cancel" : mine?.is_draft ? "Continue your draft" : mine ? "Edit your review" : "Write a review"}
           </button>
         ) : (
           <Link href="/auth/login" className="btn-secondary">
@@ -412,10 +603,72 @@ export default function EventReviewsPage() {
         )}
       </div>
 
+      {mine?.is_draft && !showForm && (
+        <div className="card mt-4 border border-slate-600 bg-slate-800/40">
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-300">
+            📝 Draft — only you can see this
+          </p>
+          <p className="mt-3 font-semibold text-white">{mine.headline}</p>
+          <p className="mt-1 whitespace-pre-line text-sm text-slate-400">
+            {mine.content.length > 200 ? `${mine.content.slice(0, 200)}…` : mine.content}
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+            <button className="btn-primary" onClick={publishNow}>
+              Publish now
+            </button>
+            <button className="btn-secondary" onClick={openEditMine}>
+              Continue editing
+            </button>
+            <button
+              className="text-red-400 hover:text-red-300"
+              onClick={() => removeReview(mine)}
+            >
+              🗑 Delete
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mine?.is_scheduled && mine.scheduled_for && !showForm && (
+        <div className="card mt-4 border border-amber-500/40 bg-amber-500/5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-amber-300">
+            ⏰ Scheduled — only you can see this
+          </p>
+          <p className="mt-1 text-sm text-slate-300">
+            Goes live on{" "}
+            <span className="font-semibold text-white">{fmtDateTime(mine.scheduled_for)}</span>
+          </p>
+          <p className="mt-3 font-semibold text-white">{mine.headline}</p>
+          <p className="mt-1 whitespace-pre-line text-sm text-slate-400">
+            {mine.content.length > 200 ? `${mine.content.slice(0, 200)}…` : mine.content}
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+            <button className="btn-primary" onClick={publishNow}>
+              Publish now
+            </button>
+            <button className="btn-secondary" onClick={openEditMine}>
+              Edit / change time
+            </button>
+            <button
+              className="text-red-400 hover:text-red-300"
+              onClick={() => removeReview(mine)}
+            >
+              🗑 Delete
+            </button>
+          </div>
+        </div>
+      )}
+
       {showForm && (
         <form onSubmit={submit} className="card mt-4 space-y-3">
           <p className="font-semibold text-white">
-            {editingId ? "Edit your review" : "Write a review"}
+            {editingId
+              ? editingDraft
+                ? "Edit your draft"
+                : editingScheduled
+                  ? "Edit your scheduled review"
+                  : "Edit your review"
+              : "Write a review"}
           </p>
           <div>
             <label className="text-sm text-slate-300">Rating: {form.rating.toFixed(1)} / 10</label>
@@ -454,8 +707,82 @@ export default function EventReviewsPage() {
             />
             Contains spoilers
           </label>
+
+          {showPublishOptions && (
+            <fieldset className="space-y-2 rounded-lg border border-slate-800 p-3">
+              <legend className="px-1 text-sm text-slate-300">
+                {editingId ? "Status" : "When to publish"}
+              </legend>
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="radio"
+                  name="publishMode"
+                  checked={publishMode === "now"}
+                  onChange={() => setPublishMode("now")}
+                />
+                {editingId ? "Publish now" : "Publish immediately"}
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="radio"
+                  name="publishMode"
+                  checked={publishMode === "later"}
+                  onChange={() => {
+                    setPublishMode("later");
+                    if (!scheduleAt) {
+                      setScheduleAt(toLocalInput(new Date(Date.now() + 60 * 60 * 1000)));
+                    }
+                  }}
+                />
+                Schedule for later
+              </label>
+              {publishMode === "later" && (
+                <div>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={scheduleAt}
+                    min={minScheduleInput()}
+                    max={maxScheduleInput()}
+                    required
+                    onChange={(e) => setScheduleAt(e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Hidden from everyone, and from the scores, until this time (
+                    {Intl.DateTimeFormat().resolvedOptions().timeZone}).
+                  </p>
+                </div>
+              )}
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="radio"
+                  name="publishMode"
+                  checked={publishMode === "draft"}
+                  onChange={() => setPublishMode("draft")}
+                />
+                {editingScheduled
+                  ? "Move back to draft"
+                  : editingDraft
+                    ? "Keep as draft"
+                    : "Save as draft (only you can see it)"}
+              </label>
+            </fieldset>
+          )}
+
           <button className="btn-primary" disabled={submitting}>
-            {submitting ? "Saving…" : editingId ? "Save changes" : "Submit review"}
+            {submitting
+              ? "Saving…"
+              : showPublishOptions && publishMode === "draft"
+                ? "Save draft"
+                : showPublishOptions && publishMode === "later"
+                  ? editingId
+                    ? "Save schedule"
+                    : "Schedule review"
+                  : editingId
+                    ? showPublishOptions
+                      ? "Publish now"
+                      : "Save changes"
+                    : "Submit review"}
           </button>
         </form>
       )}
