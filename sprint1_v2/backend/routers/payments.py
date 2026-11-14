@@ -53,7 +53,7 @@ async def create_order(
     if booking["status"] not in ("pending",):
         raise HTTPException(status_code=400, detail=f"Booking is {booking['status']}, cannot pay")
 
-    amount_paise = int(float(booking["total_amount"]) * 100)
+    amount_paise = round(float(booking["total_amount"]) * 100)
     client = get_razorpay()
     rz_order = client.order.create({
         "amount": amount_paise,
@@ -94,6 +94,26 @@ async def verify_payment(
     current_user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    # --- Security checks (fix #38) ---
+    # 1. Booking must exist and belong to the caller
+    _booking = await conn.fetchrow(
+        "SELECT user_id, status FROM bookings WHERE id=$1::uuid",
+        booking_id
+    )
+    if not _booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if str(_booking["user_id"]) != str(current_user["id"]):
+        raise HTTPException(status_code=403, detail="Not your booking")
+    if _booking["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Booking is not in pending state")
+    # 2. The Razorpay order must have been created for this exact booking
+    _order = await conn.fetchrow(
+        "SELECT id FROM payment_orders WHERE razorpay_order_id=$1 AND booking_id=$2::uuid",
+        req.razorpay_order_id, booking_id
+    )
+    if not _order:
+        raise HTTPException(status_code=400, detail="Payment order does not match booking")
+
     # Verify signature
     expected = hmac.new(
         RAZORPAY_KEY_SECRET.encode(),
@@ -160,8 +180,8 @@ async def get_receipt(
         """SELECT r.*, b.total_amount, b.user_id,
                   p.transaction_id as razorpay_payment_id
            FROM receipts r
-           JOIN bookings b ON b.id=r.booking_id
-           LEFT JOIN payments p ON p.booking_id=r.booking_id
+           JOIN payments p ON p.id = r.payment_id
+           JOIN bookings b ON b.id = p.booking_id
            WHERE r.receipt_number=$1 AND b.user_id=$2""",
         receipt_number, str(current_user["id"])
     )

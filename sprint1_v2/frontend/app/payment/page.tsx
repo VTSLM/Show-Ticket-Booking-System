@@ -10,14 +10,14 @@ declare global { interface Window { Razorpay: any; } }
 function PaymentForm() {
   const params = useSearchParams();
   const router = useRouter();
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const bookingId = params.get("booking_id") || "";
   const [booking, setBooking] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
 
   useEffect(() => {
-    if (!bookingId) return;
+    if (!bookingId || authLoading) return;
     bookingsApi.get(bookingId).then(setBooking).catch(() => toast.error("Booking not found")).finally(() => setLoading(false));
     // Load Razorpay script
     const script = document.createElement("script");
@@ -25,7 +25,7 @@ function PaymentForm() {
     script.async = true;
     document.body.appendChild(script);
     return () => { document.body.removeChild(script); };
-  }, [bookingId]);
+  }, [bookingId, authLoading]);
 
   const handlePay = async () => {
     if (!booking) return;

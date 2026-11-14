@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 import asyncpg
+import uuid as _uuid
 import io
 from database import get_conn
 from dependencies import get_current_user
@@ -115,6 +116,11 @@ async def download_ticket_pdf(
             status_code=404,
             detail="Booking not found"
         )
+    if booking["status"] != "confirmed":
+        raise HTTPException(
+            status_code=403,
+            detail="Ticket PDF is only available after payment is complete"
+        )
 
     qr_data = f"TICKETFLOW:{booking_id}"
     qr_b64 = generate_qr_bytes(qr_data)
@@ -147,7 +153,12 @@ async def download_ticket_pdf(
 
 @router.get("/bookings/{booking_id}/verify")
 async def verify_ticket(booking_id: str, conn: asyncpg.Connection = Depends(get_conn)):
-    row = await conn.fetchrow("SELECT id, status, is_used FROM tickets WHERE booking_id=$1", booking_id)
+    # Validate UUID format to avoid a database-level error on garbage input
+    try:
+        _uuid.UUID(booking_id)
+    except ValueError:
+        return {"valid": False, "message": "Invalid ticket ID"}
+    row = await conn.fetchrow("SELECT id, status, is_used FROM tickets WHERE booking_id=$1::uuid", booking_id)
     if not row:
         return {"valid": False, "message": "Ticket not found"}
     return {"valid": row["status"] == "valid" and not row["is_used"],

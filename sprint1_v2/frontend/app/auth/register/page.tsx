@@ -10,6 +10,7 @@ import {
   signInWithEmailAndPassword,
 } from "@/lib/firebase";
 import { authApi } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 function PasswordVisibilityIcon({ visible }: { visible: boolean }) {
   return visible ? (
@@ -62,6 +63,8 @@ function RegisterForm() {
   const params = useSearchParams();
   const router = useRouter();
   const prefillToken = params.get("token");
+  const inviteCode = params.get("invite");
+  const { refreshProfile } = useAuth();
 
   const [form, setForm] = useState({
     name: params.get("name") || "",
@@ -70,7 +73,7 @@ function RegisterForm() {
     birthdate: "",
     password: "",
     confirmPassword: "",
-    role: "customer",
+    role: inviteCode ? "admin" : "customer",
   });
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -130,25 +133,23 @@ function RegisterForm() {
     setLoading(true);
 
     try {
-      let idToken = prefillToken || "";
+      let idToken = "";
 
-      if (!idToken) {
-        try {
-          const credential = await createUserWithEmailAndPassword(
-            auth,
-            form.email,
-            form.password
-          );
-          idToken = await credential.user.getIdToken();
-        } catch {
-          // Keep the existing behavior for an already-created Firebase account.
-          const credential = await signInWithEmailAndPassword(
-            auth,
-            form.email,
-            form.password
-          );
-          idToken = await credential.user.getIdToken();
-        }
+      try {
+        const credential = await createUserWithEmailAndPassword(
+          auth,
+          form.email,
+          form.password
+        );
+        idToken = await credential.user.getIdToken();
+      } catch {
+        // Account may already exist in Firebase — sign in to get a fresh token.
+        const credential = await signInWithEmailAndPassword(
+          auth,
+          form.email,
+          form.password
+        );
+        idToken = await credential.user.getIdToken();
       }
 
       // Never send either password field to the application backend.
@@ -156,10 +157,12 @@ function RegisterForm() {
       const response = (await authApi.register({
         ...registrationData,
         id_token: idToken,
+        ...(inviteCode ? { invite_code: inviteCode } : {}),
       })) as { message?: string };
 
       toast.success(response.message || "Registered!");
-      router.push(form.role === "customer" ? "/browse" : "/auth/login");
+      await refreshProfile();
+      router.push(form.role === "customer" || form.role === "admin" ? "/browse" : "/auth/login");
     } catch (error: any) {
       toast.error(error.message || "Registration failed");
     } finally {
@@ -184,10 +187,10 @@ function RegisterForm() {
               TicketFlow
             </h1>
             <h2 className="mt-6 text-3xl font-black tracking-tight">
-              Create account
+              {inviteCode ? "Admin setup" : "Create account"}
             </h2>
             <p className="mt-2 text-sm text-white/60">
-              Enter your details to get started.
+              {inviteCode ? "Complete your admin account details." : "Enter your details to get started."}
             </p>
           </header>
 
@@ -196,6 +199,20 @@ function RegisterForm() {
               Your name and email were filled in from Google. Complete the
               remaining details to finish registration.
             </p>
+          )}
+
+          {inviteCode && (
+            <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3">
+              <svg viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-5 w-5 shrink-0 text-amber-400">
+                <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
+              </svg>
+              <div>
+                <p className="text-sm font-semibold text-amber-300">Admin invite</p>
+                <p className="mt-0.5 text-sm text-amber-100/80">
+                  You have been invited to create an admin account. This link is single-use — do not share it.
+                </p>
+              </div>
+            </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -339,13 +356,14 @@ function RegisterForm() {
               </label>
               <select
                 id="role"
+                disabled={!!inviteCode}
                 className={`${inputClass} [color-scheme:dark]`}
                 value={form.role}
                 onChange={handle("role")}
               >
                 <option value="customer">Customer</option>
                 <option value="manager">Manager (needs admin approval)</option>
-                <option value="admin">Admin</option>
+                {inviteCode && <option value="admin">Admin</option>}
               </select>
             </div>
 
@@ -354,7 +372,7 @@ function RegisterForm() {
               disabled={loading}
               className="flex w-full items-center justify-center rounded-xl bg-[#3b82f6] px-4 py-4 text-lg font-semibold text-white shadow-[0_16px_34px_rgba(59,130,246,0.3)] transition hover:bg-[#2f73ff] disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {loading ? "Creating your account..." : "Create account"}
+              {loading ? "Creating your account..." : inviteCode ? "Create admin account" : "Create account"}
             </button>
           </form>
 
