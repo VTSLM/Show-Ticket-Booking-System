@@ -115,10 +115,11 @@ export default function ManagerPage() {
 
   const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "" });
   const [newVenue, setNewVenue] = useState({ name: "", city: "", address: "" });
-  const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "" });
+  const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5" });
+  const [showZones, setShowZones] = useState<{ name: string; total_capacity: number; price: number; zone_type: string; color_hex: string }[]>([]);
   const [screens, setScreens] = useState<any[]>([]);
   const [selectedVenueId, setSelectedVenueId] = useState("");
-  const [newScreen, setNewScreen] = useState({ name: "", rows: "", cols: "" });
+  const [newScreen, setNewScreen] = useState({ name: "", rows: "", cols: "", layout_type: "cinema", stage_position: "front", premium_rows: "" });
 
   useEffect(() => {
     if (!authLoading && !isManager) { router.push("/"); return; }
@@ -176,21 +177,39 @@ export default function ManagerPage() {
     const rows = parseInt(newScreen.rows);
     const cols = parseInt(newScreen.cols);
     if (!rows || !cols || rows <= 0 || cols <= 0) { toast.error("Rows and columns must be > 0"); return; }
+    const premRows = newScreen.premium_rows
+      .split(",")
+      .map(s => s.trim().toUpperCase())
+      .filter(Boolean);
     try {
-      await managerApi.createScreen(selectedVenueId, { name: newScreen.name, capacity: rows * cols, rows, cols });
+      await managerApi.createScreen(selectedVenueId, {
+        name: newScreen.name,
+        capacity: rows * cols,
+        rows,
+        cols,
+        layout_type: newScreen.layout_type,
+        stage_position: newScreen.stage_position,
+        premium_rows: premRows,
+      });
       setScreens(await managerApi.screens(selectedVenueId));
-      setNewScreen({ name: "", rows: "", cols: "" });
-      toast.success(`Screen created with ${rows * cols} seats!`);
+      setNewScreen({ name: "", rows: "", cols: "", layout_type: "cinema", stage_position: "front", premium_rows: "" });
+      toast.success(`Screen created with ${rows * cols} seats (${newScreen.layout_type.toUpperCase()} layout)!`);
     } catch (err: any) { toast.error(err.message || "Could not create screen"); }
   };
 
   const createShow = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await managerApi.createShow({ ...newShow, base_price: parseFloat(newShow.base_price) });
+      await managerApi.createShow({
+        ...newShow,
+        base_price: parseFloat(newShow.base_price),
+        premium_multiplier: parseFloat(newShow.premium_multiplier) || 1.5,
+        zones: showZones.length > 0 ? showZones : undefined,
+      });
       setShows(await managerApi.shows());
-      setNewShow({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "" });
-      toast.success("Show created!");
+      setNewShow({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5" });
+      setShowZones([]);
+      toast.success("Show created with custom layout and pricing!");
     } catch (err: any) { toast.error(err.message); }
   };
 
@@ -308,16 +327,92 @@ export default function ManagerPage() {
                   <input style={inputStyle} type="datetime-local" value={newShow.end_time}
                     onChange={e => setNewShow(s => ({ ...s, end_time: e.target.value }))} required />
                 </Field>
-                <Field label="Base Price (₹)">
+                <Field label="Base Price for Standard Seats (₹)">
                   <input style={inputStyle} type="number" value={newShow.base_price}
                     onChange={e => setNewShow(s => ({ ...s, base_price: e.target.value }))} required />
                 </Field>
-                <Field label="Load screens for venue">
-                  <select style={inputStyle} onChange={e => loadScreens(e.target.value)}>
-                    <option value="">Select venue to load screens</option>
-                    {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select>
+                <Field label="Premium Seat Multiplier">
+                  <input style={inputStyle} type="number" step="0.1" value={newShow.premium_multiplier}
+                    onChange={e => setNewShow(s => ({ ...s, premium_multiplier: e.target.value }))} placeholder="1.5" />
                 </Field>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <Field label="Filter Screens by Venue">
+                    <select style={inputStyle} onChange={e => loadScreens(e.target.value)}>
+                      <option value="">Select venue to load screens</option>
+                      {venues.map(v => <option key={v.id} value={v.id}>{v.name} — {v.city}</option>)}
+                    </select>
+                  </Field>
+                </div>
+
+                {/* ── Standing Zones Section ── */}
+                <div style={{ gridColumn: "1 / -1", padding: "16px", background: C.raised, borderRadius: 12, border: `1px solid ${C.border}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+                    <div>
+                      <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: C.fg }}>🎸 Concert & Festival Zones (Standing / Fan Pit)</h4>
+                      <p style={{ fontSize: 11, color: C.muted, margin: "2px 0 0" }}>Define unreserved standing sections with capacity limits for this show</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowZones(z => [...z, { name: "VIP Fan Pit", total_capacity: 250, price: (parseFloat(newShow.base_price) || 500) * 2, zone_type: "standing", color_hex: "#ff0055" }])}
+                      style={{ background: `${C.blue}20`, border: `1px solid ${C.blue}66`, color: C.blue, padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      + Add Standing Zone
+                    </button>
+                  </div>
+
+                  {showZones.length === 0 ? (
+                    <p style={{ fontSize: 12, color: C.muted, margin: 0, fontStyle: "italic" }}>No standing zones added yet. Numbered seats from the screen will be used.</p>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {showZones.map((zone, idx) => (
+                        <div key={idx} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 10, alignItems: "center", background: C.surface, padding: "10px", borderRadius: 8, border: `1px solid ${C.border}` }}>
+                          <div>
+                            <input
+                              style={{ ...inputStyle, padding: "6px 10px", fontSize: 12 }}
+                              value={zone.name}
+                              placeholder="Zone name (e.g. Fan Pit)"
+                              onChange={e => {
+                                const val = e.target.value;
+                                setShowZones(zs => zs.map((item, i) => i === idx ? { ...item, name: val } : item));
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <input
+                              style={{ ...inputStyle, padding: "6px 10px", fontSize: 12 }}
+                              type="number"
+                              value={zone.total_capacity}
+                              placeholder="Capacity"
+                              onChange={e => {
+                                const val = parseInt(e.target.value) || 0;
+                                setShowZones(zs => zs.map((item, i) => i === idx ? { ...item, total_capacity: val } : item));
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <input
+                              style={{ ...inputStyle, padding: "6px 10px", fontSize: 12 }}
+                              type="number"
+                              value={zone.price}
+                              placeholder="Price (₹)"
+                              onChange={e => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setShowZones(zs => zs.map((item, i) => i === idx ? { ...item, price: val } : item));
+                              }}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowZones(zs => zs.filter((_, i) => i !== idx))}
+                            style={{ background: `${C.red}20`, border: `1px solid ${C.red}66`, color: C.red, borderRadius: 6, padding: "6px 10px", cursor: "pointer", fontSize: 12 }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div style={{ gridColumn: "1 / -1" }}>
                   <button type="submit" style={{ width: "100%", background: C.blue, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                     Create Show
@@ -527,9 +622,18 @@ export default function ManagerPage() {
               {selectedVenueId && (
                 <>
                   <form onSubmit={createScreen} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24 }}>
-                    <Field label="Screen Name">
+                    <Field label="Screen / Stage Name">
                       <input style={inputStyle} value={newScreen.name}
                         onChange={e => setNewScreen(s => ({ ...s, name: e.target.value }))} required />
+                    </Field>
+                    <Field label="Layout Template">
+                      <select style={inputStyle} value={newScreen.layout_type}
+                        onChange={e => setNewScreen(s => ({ ...s, layout_type: e.target.value }))}>
+                        <option value="cinema">🎬 Cinema Proscenium (Screen + Rows)</option>
+                        <option value="concert">🎸 Concert Arena / Stadium (Stage + Fan Pit + Stands)</option>
+                        <option value="theatre">🎭 Auditorium / Theatre (Stage + Stalls + Balcony)</option>
+                        <option value="other">🎟️ General Admission / Passes (Open Lawn / Table)</option>
+                      </select>
                     </Field>
                     <Field label="Rows">
                       <input style={inputStyle} type="number" value={newScreen.rows}
@@ -539,14 +643,21 @@ export default function ManagerPage() {
                       <input style={inputStyle} type="number" value={newScreen.cols}
                         onChange={e => setNewScreen(s => ({ ...s, cols: e.target.value }))} required />
                     </Field>
-                    <Field label="Capacity">
-                      <div style={{ ...inputStyle, color: C.muted, background: C.bg }}>
-                        {(parseInt(newScreen.rows)||0)*(parseInt(newScreen.cols)||0)} seats
-                      </div>
+                    <Field label="Mark Premium Rows (e.g. A, B)">
+                      <input style={inputStyle} placeholder="e.g. A, B or D, E" value={newScreen.premium_rows}
+                        onChange={e => setNewScreen(s => ({ ...s, premium_rows: e.target.value }))} />
+                    </Field>
+                    <Field label="Stage Position">
+                      <select style={inputStyle} value={newScreen.stage_position}
+                        onChange={e => setNewScreen(s => ({ ...s, stage_position: e.target.value }))}>
+                        <option value="front">Front Stage</option>
+                        <option value="center">Center Stage (360° In-the-Round)</option>
+                        <option value="end">End Stage</option>
+                      </select>
                     </Field>
                     <div style={{ gridColumn: "1 / -1" }}>
                       <button type="submit" style={{ width: "100%", background: C.blue, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-                        Create Screen
+                        Create Screen / Stage Layout
                       </button>
                     </div>
                   </form>
