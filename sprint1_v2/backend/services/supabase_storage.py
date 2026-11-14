@@ -59,7 +59,7 @@ async def ensure_bucket_exists(bucket_name: str = VERIFICATION_DOCUMENTS_BUCKET)
         if resp.status_code == 200:
             return True
 
-        if resp.status_code == 404:
+        if resp.status_code in (404, 400) and ("not found" in resp.text.lower() or "nosuchbucket" in resp.text.lower() or resp.status_code == 404):
             create_url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/bucket"
             payload = {
                 "id": bucket_name,
