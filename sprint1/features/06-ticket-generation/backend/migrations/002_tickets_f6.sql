@@ -1,6 +1,27 @@
 -- 002_tickets_f6.sql
 -- F6 · Digital Ticket Generation & Verification
 --
+-- ⚠️  SUPERSEDED — DO NOT RUN THIS FILE FOR SPRINT 2 (sprint1_v2) ⚠️
+-- This migration creates a denormalised Sprint 1 `tickets` table whose
+-- schema is INCOMPATIBLE with the sprint1_v2 backend (routers/tickets.py).
+--
+-- If you have already run this file, the sprint1_v2 `confirm` and `pdf`
+-- ticket endpoints will fail because the backend expects columns:
+--   booking_id UUID FK, user_id UUID FK, show_id UUID FK, qr_code_data TEXT
+-- whereas this file created: booking_number VARCHAR, user_name VARCHAR, etc.
+--
+-- WHAT TO USE INSTEAD:
+--   Run sprint1_v2/database/unified_schema.sql in the Supabase SQL editor.
+--   It includes the correct normalised tickets schema in Step 3.
+--
+-- If the wrong table was created, drop it first:
+--   DROP TABLE IF EXISTS tickets CASCADE;
+-- then run unified_schema.sql Step 3.
+--
+-- =====================================================================
+-- ORIGINAL SPRINT 1 CONTENT BELOW (archived for reference only)
+-- =====================================================================
+--
 -- Creates a self-contained `tickets` table that stores the full confirmed
 -- ticket payload. It is intentionally denormalised for Sprint 1 so that
 -- F6 works independently of whether F3/F4/F5 have wired up the full

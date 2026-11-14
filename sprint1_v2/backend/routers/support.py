@@ -18,6 +18,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from database import get_conn
+from config import GMAIL_USER
+from services.support_email_service import send_new_ticket_notification
 from dependencies import get_current_user
 
 router = APIRouter(prefix="/api/support", tags=["support"])
@@ -135,6 +137,20 @@ async def create_request(
                VALUES ($1, $2, false, $3)""",
             row["id"], user_id, req.message,
         )
+
+    # Email admin on new ticket (item 7 — fire-and-forget)
+    try:
+        await send_new_ticket_notification(
+            admin_email=GMAIL_USER,
+            user_name=current_user["name"],
+            user_email=current_user["email"],
+            subject=req.subject,
+            request_number=request_number,
+            category=req.category,
+            message_preview=req.message,
+        )
+    except Exception as exc:
+        print(f"[support] admin email failed: {exc}")
 
     return dict(row)
 

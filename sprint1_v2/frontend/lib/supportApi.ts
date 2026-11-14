@@ -24,12 +24,14 @@ export interface SupportRequestSummary {
   booking_number: string | null;
   message_count: number;
   last_reply_by_admin: boolean | null;
+  user_name: string;
 }
 
 export interface SupportRequestDetail extends SupportRequestSummary {
   booking_id: string | null;
   resolved_at: string | null;
   messages: SupportMessage[];
+  user_email: string;
 }
 
 export interface CreateSupportRequestBody {
