@@ -1,5 +1,5 @@
 
-# TicketFlow — Show Ticket Booking System
+# TicketFlow - Show Ticket Booking System
 
 > **IT314 Software Engineering** · **DA-IICT** · **Batch 2024** · **Sprint 1 (Under Active Development)**
 
