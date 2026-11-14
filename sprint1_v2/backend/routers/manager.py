@@ -25,13 +25,24 @@ async def list_venues(conn: asyncpg.Connection = Depends(get_conn)):
 @router.post("/venues")
 async def create_venue(
     body: VenueCreate,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    row = await conn.fetchrow(
-        "INSERT INTO venues (name, address, city, state, pincode) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-        body.name, body.address, body.city, body.state, body.pincode
-    )
+    is_admin = user.get("role") == "admin"
+    v_status = "approved" if is_admin else "unverified"
+    
+    async with conn.transaction():
+        row = await conn.fetchrow(
+            """INSERT INTO venues (name, address, city, state, pincode, verification_status)
+               VALUES ($1,$2,$3,$4,$5,$6) RETURNING *""",
+            body.name, body.address, body.city, body.state, body.pincode, v_status
+        )
+        if not is_admin:
+            await conn.execute(
+                """INSERT INTO venue_verification_cases (venue_id, applicant_id, status)
+                   VALUES ($1, $2, 'DRAFT') ON CONFLICT DO NOTHING""",
+                row["id"], user["id"]
+            )
     return dict(row)
 
 # ---- Screens ----
@@ -128,23 +139,58 @@ class EventCreate(BaseModel):
     genre: Optional[str] = None
     poster_url: Optional[str] = None
     status: str = "draft"
+    organizer_id: Optional[str] = None
 
 @router.get("/events")
 async def list_events(conn: asyncpg.Connection = Depends(get_conn)):
-    rows = await conn.fetch("SELECT * FROM events ORDER BY created_at DESC")
+    rows = await conn.fetch(
+        """SELECT e.*, op.legal_name as organization_name, op.verification_status as organizer_status
+           FROM events e
+           LEFT JOIN organizer_profiles op ON op.id = e.organizer_id
+           ORDER BY e.created_at DESC"""
+    )
     return [dict(r) for r in rows]
 
 @router.post("/events")
 async def create_event(
     body: EventCreate,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    organizer_id = body.organizer_id
+    is_admin = user.get("role") == "admin"
+
+    if not is_admin:
+        if not organizer_id:
+            # If manager didn't pass organizer_id, find approved organization for this account
+            approved_orgs = await conn.fetch(
+                "SELECT id, legal_name FROM organizer_profiles WHERE user_id = $1 AND verification_status = 'APPROVED'",
+                user["id"]
+            )
+            if not approved_orgs:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Organizer verification required: You must have an approved organization profile to list events. Complete verification at /verification/organizer."
+                )
+            organizer_id = str(approved_orgs[0]["id"])
+        else:
+            org = await conn.fetchrow(
+                "SELECT id, verification_status, legal_name FROM organizer_profiles WHERE id = $1::uuid AND user_id = $2",
+                organizer_id, user["id"]
+            )
+            if not org:
+                raise HTTPException(status_code=404, detail="Selected organization profile not found for your account.")
+            if org["verification_status"] != "APPROVED":
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Organization '{org['legal_name']}' is not approved (status: {org['verification_status']}). Only approved organizations can host events."
+                )
+
     row = await conn.fetchrow(
-        """INSERT INTO events (title, description, event_type, duration_minutes, language, genre, poster_url, status)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *""",
+        """INSERT INTO events (title, description, event_type, duration_minutes, language, genre, poster_url, status, organizer_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid) RETURNING *""",
         body.title, body.description, body.event_type, body.duration_minutes,
-        body.language, body.genre, body.poster_url, body.status
+        body.language, body.genre, body.poster_url, body.status, organizer_id
     )
     return dict(row)
 
@@ -204,9 +250,39 @@ async def list_shows(conn: asyncpg.Connection = Depends(get_conn)):
 @router.post("/shows")
 async def create_show(
     body: ShowCreate,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    is_admin = user.get("role") == "admin"
+
+    # Double-Lock Verification Guard: Both Event Organizer AND Venue must be verified
+    if not is_admin:
+        guard_row = await conn.fetchrow(
+            """SELECT e.title as event_title, e.organizer_id,
+                      op.legal_name as org_name, op.verification_status as org_status,
+                      v.name as venue_name, v.verification_status as venue_status
+               FROM events e
+               LEFT JOIN organizer_profiles op ON op.id = e.organizer_id
+               JOIN screens sc ON sc.id = $1::uuid
+               JOIN venues v ON v.id = sc.venue_id
+               WHERE e.id = $2::uuid""",
+            body.screen_id, body.event_id
+        )
+        if not guard_row:
+            raise HTTPException(status_code=404, detail="Selected event or venue screen not found.")
+
+        if guard_row["org_status"] != "APPROVED":
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cannot schedule show: Event '{guard_row['event_title']}' host organization '{guard_row['org_name'] or 'Unknown'}' is not verified (status: {guard_row['org_status'] or 'unverified'}). Complete organizer verification first."
+            )
+
+        if guard_row["venue_status"] != "approved":
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cannot schedule show: Venue '{guard_row['venue_name']}' is not verified (status: {guard_row['venue_status'] or 'unverified'}). Complete venue safety verification first."
+            )
+
     show = await conn.fetchrow(
         """INSERT INTO shows
         (event_id, screen_id, start_time, end_time, base_price, status)
