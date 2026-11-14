@@ -63,16 +63,24 @@ export const browseApi = {
 };
 
 export const seatsApi = {
-  map: (showId: string) => api.get<any[]>(`/api/seats/${showId}/map`, false),
+  map: (showId: string) => api.get<any>(`/api/seats/${showId}/map`, false),
   lock: (showId: string, seat_ids: string[]) =>
     api.post(`/api/seats/${showId}/lock`, { seat_ids }),
   release: (showId: string, seat_ids: string[]) =>
     api.post(`/api/seats/${showId}/release`, { seat_ids }),
+  lockZone: (showId: string, zone_id: string, quantity: number) =>
+    api.post<any>(`/api/seats/${showId}/lock-zone`, { zone_id, quantity }),
+  releaseZone: (showId: string, zone_id: string, quantity: number) =>
+    api.post<any>(`/api/seats/${showId}/release-zone`, { zone_id, quantity }),
 };
 
 export const bookingsApi = {
-  create: (show_id: string, seat_ids: string[]) =>
-    api.post<any>("/api/bookings", { show_id, seat_ids }),
+  create: (data: { show_id: string; seat_ids?: string[]; zone_id?: string; zone_quantity?: number } | string, maybeSeatIds?: string[]) => {
+    if (typeof data === "string") {
+      return api.post<any>("/api/bookings", { show_id: data, seat_ids: maybeSeatIds || [] });
+    }
+    return api.post<any>("/api/bookings", data);
+  },
   get: (id: string) => api.get<any>(`/api/bookings/${id}`),
   list: () => api.get<any[]>("/api/bookings"),
 };
@@ -109,6 +117,15 @@ export const managerApi = {
   shows: () => api.get<any[]>("/api/manager/shows"),
   createShow: (data: object) => api.post("/api/manager/shows", data),
   deleteShow: (id: string) => api.delete(`/api/manager/shows/${id}`),
+
+  updateSeatTier: (screenId: string, data: { row_label?: string; seat_ids?: string[]; seat_type: string }) =>
+    api.put<any>(`/api/manager/screens/${screenId}/seats/tier`, data),
+  getShowZones: (showId: string) =>
+    api.get<any[]>(`/api/manager/shows/${showId}/zones`),
+  addShowZone: (showId: string, data: object) =>
+    api.post<any>(`/api/manager/shows/${showId}/zones`, data),
+  deleteShowZone: (showId: string, zoneId: string) =>
+    api.delete(`/api/manager/shows/${showId}/zones/${zoneId}`),
 };
 
 export const adminApi = {
