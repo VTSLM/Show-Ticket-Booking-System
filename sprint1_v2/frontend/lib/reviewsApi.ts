@@ -21,6 +21,8 @@ export interface ReviewComment {
   author_name: string;
   author_avatar?: string | null;
   is_critic: boolean;
+  parent_comment_id?: string | null; // set on replies
+  is_review_author?: boolean; // commenter wrote the review
 }
 
 export interface Review {
@@ -33,6 +35,7 @@ export interface Review {
   sections?: Record<string, string> | null;
   media_url?: string | null;
   is_spoiler: boolean;
+  is_draft: boolean;
   version: number;
   published_at: string;
   updated_at: string;
@@ -42,6 +45,7 @@ export interface Review {
   comments_count: number;
   comments: ReviewComment[];
   versions_count: number;
+  scheduled_for?: string | null;
 }
 
 export interface Aggregates {
@@ -65,7 +69,10 @@ export interface MyReview {
   headline: string;
   content: string;
   is_spoiler: boolean;
+  is_draft: boolean;
   version: number;
+  scheduled_for: string | null;
+  is_scheduled: boolean; // true while the review is waiting for its publish time
 }
 
 export type SortBy = "newest" | "highest" | "lowest" | "helpful";
@@ -122,6 +129,8 @@ export const reviewsApi = {
       headline: string;
       content: string;
       is_spoiler?: boolean;
+      scheduled_for?: string | null; // ISO date-time; omit to publish now
+      is_draft?: boolean; // save as a private draft instead of publishing
     }
   ) {
     return request<Review>("", { method: "POST", token, body });
@@ -130,7 +139,15 @@ export const reviewsApi = {
   update(
     token: string,
     reviewId: string,
-    body: { rating?: number; headline?: string; content?: string; is_spoiler?: boolean }
+    body: {
+      rating?: number;
+      headline?: string;
+      content?: string;
+      is_spoiler?: boolean;
+      scheduled_for?: string | null; // reschedule (only while still scheduled)
+      publish_now?: boolean; // publish a draft / scheduled review immediately
+      is_draft?: boolean; // keep as draft, or move a scheduled review back to draft
+    }
   ) {
     return request<Review>(`/${reviewId}`, { method: "PATCH", token, body });
   },
@@ -146,11 +163,13 @@ export const reviewsApi = {
     );
   },
 
-  comment(token: string, reviewId: string, content: string) {
+  comment(token: string, reviewId: string, content: string, parentCommentId?: string) {
     return request<ReviewComment>(`/${reviewId}/comments`, {
       method: "POST",
       token,
-      body: { content },
+      body: parentCommentId
+        ? { content, parent_comment_id: parentCommentId }
+        : { content },
     });
   },
 };
