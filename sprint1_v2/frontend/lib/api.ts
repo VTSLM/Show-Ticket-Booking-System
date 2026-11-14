@@ -20,14 +20,38 @@ async function request<T>(
     if (!token) throw new Error("Not authenticated");
     headers["Authorization"] = `Bearer ${token}`;
   }
-  const res = await fetch(`${API_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (netErr: any) {
+    if (netErr?.name === "TypeError" && String(netErr?.message || "").toLowerCase().includes("fetch")) {
+      throw new Error(`Cannot reach backend API at ${API_URL}. Please verify the server is running.`);
+    }
+    throw netErr;
+  }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Request failed");
+    const err = await res.json().catch(() => ({ detail: res.statusText || `Request failed (${res.status})` }));
+    let message = "Request failed";
+    if (typeof err?.detail === "string" && err.detail.trim()) {
+      message = err.detail;
+    } else if (Array.isArray(err?.detail) && err.detail.length > 0) {
+      message = err.detail
+        .map((d: any) => {
+          const field = Array.isArray(d?.loc) ? d.loc.slice(1).join(".") : "";
+          const msg = d?.msg || JSON.stringify(d);
+          return field ? `${field}: ${msg}` : msg;
+        })
+        .join("; ");
+    } else if (typeof err?.message === "string" && err.message.trim()) {
+      message = err.message;
+    } else if (err?.detail) {
+      message = JSON.stringify(err.detail);
+    }
+    throw new Error(message);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
