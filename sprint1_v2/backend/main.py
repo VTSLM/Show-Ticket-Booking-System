@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from routers.venue_verification import router as venue_verification_router
 from fastapi import FastAPI
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +14,9 @@ from routers.bookings import router as bookings_router
 from routers.cancellations import router as cancellations_router
 from routers.tickets import router as tickets_router
 from routers.support import router as support_router
+from routers.verification_documents import router as verification_documents_router
+from routers.organizer_verification import router as organizer_verification_router
+from routers.organizer_admin import router as organizer_admin_router
 from routers.support_admin import router as support_admin_router
 from routers.venue_verification import router as venue_verification_router
 
@@ -35,7 +37,6 @@ async def _cleanup_expired_locks():
                 print(f"[seat-cleanup] {result}")
         except Exception as e:
             print(f"[seat-cleanup] error: {e}")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -72,6 +73,9 @@ app.include_router(bookings_router)
 app.include_router(cancellations_router)
 app.include_router(tickets_router)
 app.include_router(support_router)
+app.include_router(verification_documents_router)
+app.include_router(organizer_verification_router)
+app.include_router(organizer_admin_router)
 app.include_router(support_admin_router)
 app.include_router(venue_verification_router)
 

@@ -30,9 +30,14 @@ ENV/
 frontend/.next/
 node_modules/
 frontend/node_modules/
+dist/
+**/dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Nested clone
+Show-Ticket-Booking-System/
 
 # OS & Temporary
 .DS_Store
