@@ -37,11 +37,15 @@ export default function Navbar() {
             </Link>
 
             {isManager && !isAdmin && (
-              <Link href="/venue-verification" className="hover:text-red-300">
-                Venue Verification
-              </Link>
+              <>
+                <Link href="/verification/organizer" className="hover:text-red-300">
+                  Organizer Verification
+                </Link>
+                <Link href="/venue-verification" className="hover:text-red-300">
+                  Venue Verification
+                </Link>
+              </>
             )}
-
             {isManager && (
               <Link href="/manager" className="hover:text-red-300">
                 Manager
@@ -55,6 +59,12 @@ export default function Navbar() {
                 </Link>
                 <Link href="/admin/venue-reviews" className="hover:text-red-300">
                   Venue Reviews
+                </Link>
+                <Link href="/admin/organizer-reviews" className="hover:text-red-300">
+                  Organizer Reviews
+                </Link>
+                <Link href="/admin/organizers" className="hover:text-red-300">
+                  Organizers
                 </Link>
               </>
             )}
