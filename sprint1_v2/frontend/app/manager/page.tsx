@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { managerApi } from "@/lib/api";
+import { managerApi, organizerVerificationApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
@@ -110,10 +110,11 @@ export default function ManagerPage() {
   const [shows, setShows] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [venues, setVenues] = useState<any[]>([]);
+  const [organizations, setOrganizations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "" });
+  const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "", organizer_id: "" });
   const [newVenue, setNewVenue] = useState({ name: "", city: "", address: "" });
   const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5" });
   const [showZones, setShowZones] = useState<{ name: string; total_capacity: number; price: number; zone_type: string; color_hex: string }[]>([]);
@@ -128,6 +129,13 @@ export default function ManagerPage() {
         managerApi.shows().then(setShows),
         managerApi.events().then(setEvents),
         managerApi.venues().then(setVenues),
+        organizerVerificationApi.myApplications().then(apps => {
+          setOrganizations(apps || []);
+          const approved = (apps || []).filter((a: any) => a.verification_status === "APPROVED");
+          if (approved.length > 0) {
+            setNewEvent(v => ({ ...v, organizer_id: approved[0].id }));
+          }
+        }),
       ]).then((results) => {
         results.forEach((r) => {
           if (r.status === "rejected") {
@@ -137,6 +145,9 @@ export default function ManagerPage() {
       }).finally(() => setLoading(false));
     }
   }, [isManager, authLoading]);
+
+  const approvedOrgs = organizations.filter(o => o.verification_status === "APPROVED");
+  const selectedVenue = venues.find(v => v.id === selectedVenueId);
 
   const eventMap = Object.fromEntries(events.map(ev => [ev.id, ev]));
 
@@ -148,10 +159,24 @@ export default function ManagerPage() {
 
   const createEvent = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (approvedOrgs.length === 0) {
+      toast.error("Organizer verification required: Please complete organizer verification before creating events.");
+      return;
+    }
     try {
-      await managerApi.createEvent({ ...newEvent, duration_minutes: parseInt(newEvent.duration_minutes) || undefined });
+      await managerApi.createEvent({
+        ...newEvent,
+        duration_minutes: parseInt(newEvent.duration_minutes) || undefined,
+        organizer_id: newEvent.organizer_id || approvedOrgs[0]?.id,
+      });
       setEvents(await managerApi.events());
-      setNewEvent({ title: "", event_type: "movie", language: "", duration_minutes: "" });
+      setNewEvent({
+        title: "",
+        event_type: "movie",
+        language: "",
+        duration_minutes: "",
+        organizer_id: approvedOrgs[0]?.id || "",
+      });
       toast.success("Event created (draft) — publish it to make shows visible on Browse.");
     } catch (err: any) { toast.error(err.message); }
   };
@@ -345,7 +370,11 @@ export default function ManagerPage() {
                   <Field label="Filter Screens by Venue">
                     <select style={inputStyle} onChange={e => loadScreens(e.target.value)}>
                       <option value="">Select venue to load screens</option>
-                      {venues.map(v => <option key={v.id} value={v.id}>{v.name} — {v.city}</option>)}
+                      {venues.map(v => (
+                        <option key={v.id} value={v.id}>
+                          {v.name} — {v.city} {v.verification_status === "approved" ? "✓" : "(Pending Verification)"}
+                        </option>
+                      ))}
                     </select>
                   </Field>
                 </div>
@@ -475,12 +504,69 @@ export default function ManagerPage() {
         {/* ════ EVENTS TAB ════ */}
         {tab === "events" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            {approvedOrgs.length === 0 && (
+              <div style={{
+                padding: "20px 24px",
+                borderRadius: 14,
+                background: `${C.amber}15`,
+                border: `1.5px solid ${C.amber}44`,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 16
+              }}>
+                <div>
+                  <h3 style={{ margin: "0 0 6px", fontSize: 16, fontWeight: 700, color: C.amber }}>
+                    🛡️ Organizer Verification Required
+                  </h3>
+                  <p style={{ margin: 0, fontSize: 13, color: C.muted, maxWidth: 600 }}>
+                    In compliance with ticketing regulations, events can only be created by an approved organization. Submit your PAN, GSTIN, and Bank Proof to get verified.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.push("/verification/organizer")}
+                  style={{
+                    background: C.amber,
+                    color: "#000",
+                    border: "none",
+                    borderRadius: 10,
+                    padding: "10px 20px",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  Verify Organization →
+                </button>
+              </div>
+            )}
+
             <SectionCard>
               <SectionTitle>Create Event</SectionTitle>
               <p style={{ fontSize: 12, color: C.muted, marginBottom: 18, marginTop: -12 }}>
                 Events are saved as <strong style={{ color: C.amber }}>Draft</strong> by default. Use the Publish button on each event to make its shows visible on Browse.
               </p>
               <form onSubmit={createEvent} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <Field label="Host Organization">
+                    <select
+                      style={inputStyle}
+                      value={newEvent.organizer_id}
+                      onChange={e => setNewEvent(v => ({ ...v, organizer_id: e.target.value }))}
+                      required
+                    >
+                      {approvedOrgs.length === 0 && <option value="">No approved organization (Verification required)</option>}
+                      {approvedOrgs.map(org => (
+                        <option key={org.id} value={org.id}>
+                          🏢 {org.legal_name} ({org.business_type} · Verified)
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
                 <Field label="Title">
                   <input style={inputStyle} value={newEvent.title}
                     onChange={e => setNewEvent(v => ({ ...v, title: e.target.value }))} required />
@@ -530,6 +616,11 @@ export default function ManagerPage() {
                         <span style={{ fontWeight: 700, fontSize: 15 }}>{ev.title}</span>
                         <Badge status={ev.status} />
                       </div>
+                      {ev.organization_name && (
+                        <p style={{ fontSize: 12, color: C.blue, margin: "0 0 4px", fontWeight: 600 }}>
+                          🏢 Host: {ev.organization_name}
+                        </p>
+                      )}
                       <p style={{ fontSize: 12, color: C.muted, margin: "0 0 3px" }}>
                         {ev.event_type}{ev.language ? ` · ${ev.language}` : ""}{ev.duration_minutes ? ` · ${ev.duration_minutes} min` : ""}
                       </p>
@@ -569,7 +660,28 @@ export default function ManagerPage() {
         {tab === "venues" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             <SectionCard>
-              <SectionTitle>Create Venue</SectionTitle>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+                <SectionTitle>Create Venue</SectionTitle>
+                <button
+                  type="button"
+                  onClick={() => router.push("/verification/venue")}
+                  style={{
+                    background: "transparent",
+                    color: C.blue,
+                    border: `1px solid ${C.blue}55`,
+                    borderRadius: 8,
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Submit Venue Safety Documents →
+                </button>
+              </div>
+              <p style={{ fontSize: 12, color: C.muted, margin: "-10px 0 16px" }}>
+                New venues are submitted for compliance & safety verification. Once verified by admin, you can schedule public shows.
+              </p>
               <form onSubmit={createVenue} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <Field label="Name">
                   <input style={inputStyle} value={newVenue.name}
@@ -587,7 +699,7 @@ export default function ManagerPage() {
                 </div>
                 <div style={{ gridColumn: "1 / -1" }}>
                   <button type="submit" style={{ width: "100%", background: C.blue, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-                    Create Venue
+                    Create Venue & Register Case
                   </button>
                 </div>
               </form>
@@ -595,18 +707,36 @@ export default function ManagerPage() {
 
             <SectionCard>
               <SectionTitle>Venues ({venues.length})</SectionTitle>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
-                {venues.map(v => (
-                  <div key={v.id} style={{
-                    padding: "14px 16px",
-                    background: C.raised,
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 12,
-                  }}>
-                    <p style={{ fontWeight: 600, fontSize: 14, margin: "0 0 3px" }}>🏛 {v.name}</p>
-                    <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>📍 {v.city}</p>
-                  </div>
-                ))}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+                {venues.map(v => {
+                  const isApproved = v.verification_status === "approved";
+                  return (
+                    <div key={v.id} style={{
+                      padding: "16px",
+                      background: C.raised,
+                      border: `1px solid ${isApproved ? C.border : C.amber + "33"}`,
+                      borderRadius: 12,
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                        <p style={{ fontWeight: 700, fontSize: 14, margin: 0 }}>🏛 {v.name}</p>
+                        <span style={{
+                          fontSize: 9,
+                          fontWeight: 800,
+                          padding: "2px 8px",
+                          borderRadius: 999,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                          background: isApproved ? `${C.green}18` : `${C.amber}18`,
+                          color: isApproved ? C.green : C.amber,
+                          border: `1px solid ${isApproved ? C.green + "44" : C.amber + "44"}`,
+                        }}>
+                          {isApproved ? "✓ Verified" : "⚠ Pending Safety Review"}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>📍 {v.city}</p>
+                    </div>
+                  );
+                })}
                 {venues.length === 0 && (
                   <p style={{ color: C.muted, fontSize: 13 }}>No venues yet.</p>
                 )}
@@ -620,10 +750,22 @@ export default function ManagerPage() {
                   <select style={inputStyle} value={selectedVenueId}
                     onChange={async (e) => { setSelectedVenueId(e.target.value); await loadScreens(e.target.value); }}>
                     <option value="">Select venue</option>
-                    {venues.map(v => <option key={v.id} value={v.id}>{v.name} — {v.city}</option>)}
+                    {venues.map(v => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} — {v.city} {v.verification_status === "approved" ? "✓" : "(Pending Verification)"}
+                      </option>
+                    ))}
                   </select>
                 </Field>
               </div>
+
+              {selectedVenue && selectedVenue.verification_status !== "approved" && (
+                <div style={{ padding: "12px 16px", borderRadius: 10, background: `${C.amber}14`, border: `1px solid ${C.amber}44`, marginBottom: 18 }}>
+                  <p style={{ margin: 0, fontSize: 12, color: C.amber, fontWeight: 600 }}>
+                    ⚠ Venue "{selectedVenue.name}" is pending safety compliance verification. Layouts can be configured, but public shows cannot be scheduled until admin approves venue safety documents.
+                  </p>
+                </div>
+              )}
 
               {selectedVenueId && (
                 <>
