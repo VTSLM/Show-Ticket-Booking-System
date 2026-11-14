@@ -225,10 +225,10 @@ async def create_show(
     # Populate show_seats from screen seats with tiered pricing (standard vs premium)
     await conn.execute(
         """INSERT INTO show_seats (show_id, seat_id, price, status)
-           SELECT $1, s.id,
-                  CASE WHEN s.seat_type = 'premium' THEN ROUND($2 * $3, 2) ELSE $2 END,
+           SELECT $1::uuid, s.id,
+                  CASE WHEN s.seat_type = 'premium' THEN ROUND(($2::numeric * $3::numeric), 2) ELSE $2::numeric END,
                   'available'
-           FROM seats s WHERE s.screen_id=(SELECT screen_id FROM shows WHERE id=$1)
+           FROM seats s WHERE s.screen_id=(SELECT screen_id FROM shows WHERE id=$1::uuid)
            ON CONFLICT DO NOTHING""",
         show_id, body.base_price, mult
     )
