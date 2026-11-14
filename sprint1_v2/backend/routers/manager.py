@@ -40,10 +40,13 @@ class ScreenCreate(BaseModel):
     capacity: int
     rows: Optional[int] = None
     cols: Optional[int] = None
+    layout_type: Optional[str] = "cinema"  # "cinema", "concert", "theatre", "other"
+    stage_position: Optional[str] = "front"  # "front", "center", "end"
+    premium_rows: Optional[List[str]] = None  # e.g. ["D", "E"] or ["A", "B"]
 
 @router.get("/venues/{venue_id}/screens")
 async def list_screens(venue_id: str, conn: asyncpg.Connection = Depends(get_conn)):
-    rows = await conn.fetch("SELECT * FROM screens WHERE venue_id=$1 ORDER BY name", venue_id)
+    rows = await conn.fetch("SELECT * FROM screens WHERE venue_id=$1::uuid ORDER BY name", venue_id)
     return [dict(r) for r in rows]
 
 @router.post("/venues/{venue_id}/screens")
@@ -54,21 +57,53 @@ async def create_screen(
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     screen = await conn.fetchrow(
-        "INSERT INTO screens (venue_id, name, capacity) VALUES ($1,$2,$3) RETURNING *",
-        venue_id, body.name, body.capacity
+        """INSERT INTO screens (venue_id, name, capacity, layout_type, stage_position)
+           VALUES ($1::uuid, $2, $3, $4, $5) RETURNING *""",
+        venue_id, body.name, body.capacity, body.layout_type or "cinema", body.stage_position or "front"
     )
     screen_id = screen["id"]
     # Auto-generate seats if rows/cols provided
     if body.rows and body.cols:
         import string
         row_labels = list(string.ascii_uppercase[:body.rows])
+        prem_rows = set(body.premium_rows or [])
         for label in row_labels:
+            stype = "premium" if label in prem_rows else "standard"
             for num in range(1, body.cols + 1):
                 await conn.execute(
-                    "INSERT INTO seats (screen_id, row_label, seat_number) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
-                    screen_id, label, num
+                    """INSERT INTO seats (screen_id, row_label, seat_number, seat_type)
+                       VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING""",
+                    screen_id, label, num, stype
                 )
     return dict(screen)
+
+class UpdateSeatTierRequest(BaseModel):
+    seat_type: str = "premium"  # "standard", "premium", "accessible"
+    row_label: Optional[str] = None
+    seat_ids: Optional[List[str]] = None
+
+@router.put("/screens/{screen_id}/seats/tier")
+async def update_seat_tier(
+    screen_id: str,
+    body: UpdateSeatTierRequest,
+    _: dict = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    if body.row_label:
+        await conn.execute(
+            """UPDATE seats SET seat_type=$1::seat_type
+               WHERE screen_id=$2::uuid AND row_label=$3""",
+            body.seat_type, screen_id, body.row_label
+        )
+    elif body.seat_ids:
+        await conn.execute(
+            """UPDATE seats SET seat_type=$1::seat_type
+               WHERE screen_id=$2::uuid AND id=ANY($3::uuid[])""",
+            body.seat_type, screen_id, body.seat_ids
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Provide row_label or seat_ids")
+    return {"status": "success", "seat_type": body.seat_type}
 
 # ---- Events ----
 class EventCreate(BaseModel):
@@ -121,19 +156,30 @@ async def update_event(
         raise HTTPException(status_code=404, detail="Event not found")
     return dict(row)
 
-# ---- Shows ----
+# ---- Shows & Zones ----
+class ZoneInput(BaseModel):
+    name: str
+    total_capacity: int
+    price: float
+    zone_type: Optional[str] = "standing"
+    color_hex: Optional[str] = "#287cff"
+
+
 class ShowCreate(BaseModel):
     event_id: str
     screen_id: str
     start_time: datetime
     end_time: datetime
     base_price: float
+    premium_multiplier: Optional[float] = 1.5
     status: str = "scheduled"
+    zones: Optional[List[ZoneInput]] = None
 
 @router.get("/shows")
 async def list_shows(conn: asyncpg.Connection = Depends(get_conn)):
     rows = await conn.fetch(
-        """SELECT s.*, e.title as event_title, v.name as venue_name, sc.name as screen_name
+        """SELECT s.*, e.title as event_title, v.name as venue_name, sc.name as screen_name,
+                  sc.layout_type
            FROM shows s
            JOIN events e ON e.id=s.event_id
            JOIN screens sc ON sc.id=s.screen_id
@@ -161,15 +207,64 @@ async def create_show(
         body.status
     )
     show_id = show["id"]
-    # Populate show_seats from screen seats
+    mult = body.premium_multiplier or 1.5
+
+    # Populate show_seats from screen seats with tiered pricing (standard vs premium)
     await conn.execute(
         """INSERT INTO show_seats (show_id, seat_id, price, status)
-           SELECT $1, s.id, $2, 'available'
+           SELECT $1, s.id,
+                  CASE WHEN s.seat_type = 'premium' THEN ROUND($2 * $3, 2) ELSE $2 END,
+                  'available'
            FROM seats s WHERE s.screen_id=(SELECT screen_id FROM shows WHERE id=$1)
            ON CONFLICT DO NOTHING""",
-        show_id, body.base_price
+        show_id, body.base_price, mult
     )
+
+    # If concert/event standing zones are provided, create them
+    if body.zones:
+        for idx, z in enumerate(body.zones, start=1):
+            await conn.execute(
+                """INSERT INTO show_zones (show_id, name, zone_type, total_capacity, price, color_hex, display_order)
+                   VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)""",
+                show_id, z.name, z.zone_type or "standing", z.total_capacity, z.price, z.color_hex or "#287cff", idx
+            )
+
     return dict(show)
+
+@router.get("/shows/{show_id}/zones")
+async def list_show_zones(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
+    rows = await conn.fetch(
+        """SELECT * FROM show_zones WHERE show_id=$1::uuid ORDER BY display_order, price DESC""",
+        show_id
+    )
+    return [dict(r) for r in rows]
+
+@router.post("/shows/{show_id}/zones")
+async def add_show_zone(
+    show_id: str,
+    body: ZoneInput,
+    _: dict = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    row = await conn.fetchrow(
+        """INSERT INTO show_zones (show_id, name, zone_type, total_capacity, price, color_hex)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6) RETURNING *""",
+        show_id, body.name, body.zone_type or "standing", body.total_capacity, body.price, body.color_hex or "#287cff"
+    )
+    return dict(row)
+
+@router.delete("/shows/{show_id}/zones/{zone_id}")
+async def delete_show_zone(
+    show_id: str,
+    zone_id: str,
+    _: dict = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    await conn.execute(
+        """DELETE FROM show_zones WHERE id=$1::uuid AND show_id=$2::uuid""",
+        zone_id, show_id
+    )
+    return {"deleted": True}
 
 @router.get("/shows/{show_id}")
 async def get_show(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
