@@ -145,5 +145,13 @@ async def test_manager_create_screen_with_custom_tiers():
     result = await create_screen(venue_id=venue_id, body=body, _={}, conn=conn)
     assert result["layout_type"] == "concert"
     assert result["stage_position"] == "front"
-    # Verify execute was called for 3 rows * 4 cols = 12 seats
-    assert conn.execute.call_count == 12
+    # Verify executemany was called in batch for 3 rows * 4 cols = 12 seats
+    assert conn.executemany.call_count == 1
+    args, _ = conn.executemany.call_args
+    assert len(args[1]) == 12
+    # Verify rows A and B were marked as premium, row C as standard
+    seat_types = {record[1]: record[3] for record in args[1]}
+    assert seat_types["A"] == "premium"
+    assert seat_types["B"] == "premium"
+    assert seat_types["C"] == "standard"
+

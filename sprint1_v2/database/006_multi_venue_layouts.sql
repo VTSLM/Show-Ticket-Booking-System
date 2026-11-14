@@ -38,3 +38,4 @@ CREATE TABLE IF NOT EXISTS booking_zones (
 );
 
 CREATE INDEX IF NOT EXISTS idx_booking_zones_booking_id ON booking_zones(booking_id);
+
