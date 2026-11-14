@@ -25,6 +25,7 @@ async def get_current_user(
     row = await conn.fetchrow(
         """
         SELECT u.id, u.firebase_uid, u.name, u.email, u.phone, u.birthdate, u.status,
+               u.is_verified, u.publication, u.avatar_url, u.bio,
                array_agg(r.code) FILTER (WHERE r.code IS NOT NULL) AS roles
         FROM users u
         LEFT JOIN user_roles ur ON ur.user_id = u.id

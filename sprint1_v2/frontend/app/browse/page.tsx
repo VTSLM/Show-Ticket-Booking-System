@@ -631,12 +631,20 @@ export default function BrowsePage() {
                 </div>
               </Link>
 
-              <Link
-                href={`/events/${show.event_id}/reviews`}
-                className="mt-2 block rounded-xl border border-slate-800 bg-slate-900/60 py-2 text-center text-sm text-blue-400 transition hover:border-blue-500/70"
-              >
-                ★ Reviews &amp; Ratings
-              </Link>
+              <div className="px-5 pb-5">
+                {show.event_id ? (
+                  <Link
+                    href={`/events/${show.event_id}/reviews`}
+                    className="inline-flex items-center rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 transition hover:border-blue-400 hover:bg-blue-500/20"
+                  >
+                    ★ Reviews &amp; Ratings
+                  </Link>
+                ) : (
+                  <span className="text-xs text-slate-500">
+                    Reviews unavailable for this show
+                  </span>
+                )}
+              </div>
             </div>
           ))}
         </div>
