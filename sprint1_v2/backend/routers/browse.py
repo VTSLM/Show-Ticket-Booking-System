@@ -41,7 +41,7 @@ async def browse_shows(
 
     where = " AND ".join(filters)
     rows = await conn.fetch(
-        f"""SELECT s.id as show_id, s.start_time, MIN(ss.price) as base_price, s.status as show_status,
+        f"""SELECT s.id as show_id, s.start_time, COALESCE(MIN(ss.price), s.base_price) as base_price, s.status as show_status,
                    e.id as event_id, e.title, e.event_type, e.language, e.genre, e.duration_minutes,
                    e.poster_url, e.description,
                    v.id as venue_id, v.name as venue_name, v.city, v.address,
@@ -65,7 +65,7 @@ async def browse_shows(
 @router.get("/shows/{show_id}")
 async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
     row = await conn.fetchrow(
-        """SELECT s.id as show_id, s.start_time, MIN(ss.price) as base_price, s.status as show_status,
+        """SELECT s.id as show_id, s.start_time, COALESCE(MIN(ss.price), s.base_price) as base_price, s.status as show_status,
                   e.id as event_id, e.title, e.event_type, e.language, e.genre,
                   e.duration_minutes, e.poster_url, e.description,
                   v.id as venue_id, v.name as venue_name, v.city, v.address,
@@ -77,7 +77,7 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
            JOIN screens sc ON sc.id=s.screen_id
            JOIN venues v ON v.id=sc.venue_id
            LEFT JOIN show_seats ss ON ss.show_id=s.id
-           WHERE s.id=$1
+           WHERE s.id=$1 AND e.status='published' AND s.status='scheduled'
            GROUP BY s.id, e.id, v.id, sc.id""",
         show_id
     )
@@ -89,7 +89,14 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
 
 @router.get("/cities")
 async def list_cities(conn: asyncpg.Connection = Depends(get_conn)):
-    rows = await conn.fetch("SELECT DISTINCT city FROM venues ORDER BY city")
+    rows = await conn.fetch("""SELECT DISTINCT v.city
+           FROM venues v
+           JOIN screens sc ON sc.venue_id = v.id
+           JOIN shows s ON s.screen_id = sc.id
+           JOIN events e ON e.id = s.event_id
+           WHERE s.status='scheduled' AND s.start_time > now()
+             AND e.status='published'
+           ORDER BY v.city""")
     return [r["city"] for r in rows]
 
 
@@ -98,6 +105,7 @@ async def list_event_types(conn: asyncpg.Connection = Depends(get_conn)):
     rows = await conn.fetch(
         """SELECT DISTINCT e.event_type FROM events e
            JOIN shows s ON s.event_id=e.id
-           WHERE s.status='scheduled' AND s.start_time > now()"""
+           WHERE s.status='scheduled' AND s.start_time > now()
+             AND e.status='published'"""
     )
     return [r["event_type"] for r in rows]
