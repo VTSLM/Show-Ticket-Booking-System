@@ -124,11 +124,17 @@ export default function ManagerPage() {
   useEffect(() => {
     if (!authLoading && !isManager) { router.push("/"); return; }
     if (!authLoading && isManager) {
-      Promise.all([
+      Promise.allSettled([
         managerApi.shows().then(setShows),
         managerApi.events().then(setEvents),
         managerApi.venues().then(setVenues),
-      ]).finally(() => setLoading(false));
+      ]).then((results) => {
+        results.forEach((r) => {
+          if (r.status === "rejected") {
+            console.error("Dashboard init error:", r.reason);
+          }
+        });
+      }).finally(() => setLoading(false));
     }
   }, [isManager, authLoading]);
 

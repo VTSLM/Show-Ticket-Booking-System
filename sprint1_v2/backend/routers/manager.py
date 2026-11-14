@@ -62,18 +62,31 @@ async def create_screen(
         venue_id, body.name, body.capacity, body.layout_type or "cinema", body.stage_position or "front"
     )
     screen_id = screen["id"]
-    # Auto-generate seats if rows/cols provided
+    # Auto-generate seats if rows/cols provided with ultra-fast batch insertion
     if body.rows and body.cols:
-        import string
-        row_labels = list(string.ascii_uppercase[:body.rows])
-        prem_rows = set(body.premium_rows or [])
+        def get_row_label(i: int) -> str:
+            res = ""
+            while i >= 0:
+                res = chr(i % 26 + 65) + res
+                i = i // 26 - 1
+            return res
+
+        row_labels = [get_row_label(i) for i in range(body.rows)]
+        prem_rows = {r.strip().upper() for r in (body.premium_rows or []) if r.strip()}
+
+        seat_records = []
         for label in row_labels:
-            stype = "premium" if label in prem_rows else "standard"
+            stype = "premium" if (label in prem_rows or label.upper() in prem_rows) else "standard"
             for num in range(1, body.cols + 1):
-                await conn.execute(
+                seat_records.append((screen_id, label, num, stype))
+
+        if seat_records:
+            # Batch in chunks of 1000 to prevent timeouts and provide sub-second execution
+            for i in range(0, len(seat_records), 1000):
+                await conn.executemany(
                     """INSERT INTO seats (screen_id, row_label, seat_number, seat_type)
-                       VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING""",
-                    screen_id, label, num, stype
+                       VALUES ($1, $2, $3, $4::seat_type) ON CONFLICT DO NOTHING""",
+                    seat_records[i:i+1000]
                 )
     return dict(screen)
 
