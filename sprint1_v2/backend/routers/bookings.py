@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import uuid as uuid_module
 from datetime import datetime
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import asyncpg
 from database import get_conn
 from dependencies import get_current_user
@@ -11,7 +11,9 @@ router = APIRouter(prefix="/api/bookings", tags=["bookings"])
 
 class CreateBookingRequest(BaseModel):
     show_id: str
-    seat_ids: List[str]  # show_seat_ids
+    seat_ids: Optional[List[str]] = None  # show_seat_ids
+    zone_id: Optional[str] = None
+    zone_quantity: Optional[int] = None
 
 @router.post("")
 async def create_booking(
@@ -20,6 +22,55 @@ async def create_booking(
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     user_id = str(current_user["id"])
+    booking_number = f"TF-{datetime.now().strftime('%Y%m%d')}-{str(uuid_module.uuid4())[:6].upper()}"
+
+    # Mode 1: Zone Booking (Concerts / Standing / Passes)
+    if req.zone_id and req.zone_quantity and req.zone_quantity > 0:
+        zone = await conn.fetchrow(
+            """SELECT * FROM show_zones WHERE id=$1::uuid AND show_id=$2::uuid""",
+            req.zone_id, req.show_id
+        )
+        if not zone:
+            raise HTTPException(status_code=404, detail="Selected zone not found")
+
+        total = float(zone["price"]) * req.zone_quantity
+
+        async with conn.transaction():
+            # Atomically decrement locked/increase booked
+            updated = await conn.execute(
+                """UPDATE show_zones
+                   SET booked_count = booked_count + $3,
+                       locked_count = GREATEST(0, locked_count - $3)
+                   WHERE id=$1::uuid AND (total_capacity - booked_count) >= $3""",
+                req.zone_id, req.show_id, req.zone_quantity
+            )
+            if updated != "UPDATE 1":
+                raise HTTPException(status_code=409, detail="Not enough tickets available in this zone")
+
+            booking_id = await conn.fetchval(
+                """INSERT INTO bookings (booking_number, user_id, show_id, status, total_amount)
+                   VALUES ($1, $2, $3, 'pending', $4) RETURNING id""",
+                booking_number, user_id, req.show_id, total
+            )
+            await conn.execute(
+                """INSERT INTO booking_zones (booking_id, zone_id, quantity, unit_price)
+                   VALUES ($1, $2, $3, $4)""",
+                booking_id, req.zone_id, req.zone_quantity, zone["price"]
+            )
+
+        return {
+            "booking_id": str(booking_id),
+            "booking_number": booking_number,
+            "total_amount": float(total),
+            "status": "pending",
+            "zone_name": zone["name"],
+            "quantity": req.zone_quantity
+        }
+
+    # Mode 2: Reserved Seat Booking (Cinema, Theatre, Stadium)
+    if not req.seat_ids:
+        raise HTTPException(status_code=400, detail="Either seat_ids or zone_id with quantity must be provided")
+
     # Verify all seats are locked by this user
     seats = await conn.fetch(
         """SELECT ss.id, ss.price, ss.status, ss.locked_by
@@ -34,8 +85,6 @@ async def create_booking(
             raise HTTPException(status_code=409, detail=f"Seat {s['id']} is not locked by you")
 
     total = sum(s["price"] for s in seats)
-
-    booking_number = f"TF-{datetime.now().strftime('%Y%m%d')}-{str(uuid_module.uuid4())[:6].upper()}"
 
     async with conn.transaction():
         booking_id = await conn.fetchval(
