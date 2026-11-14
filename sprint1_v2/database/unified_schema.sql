@@ -1,5 +1,12 @@
 -- TicketFlow Unified Schema
 -- Run in Supabase SQL editor in order: Step 1 then Step 2 then Step 3
+--
+-- ⚠️  IMPORTANT: Do NOT also run sprint1/features/06-ticket-generation/backend/migrations/002_tickets_f6.sql
+-- That file creates a DIFFERENT (denormalised) `tickets` table incompatible with this backend.
+-- This file's Step 3 creates the correct normalised tickets schema used by sprint1_v2.
+-- If you accidentally ran 002_tickets_f6.sql first, run: DROP TABLE IF EXISTS tickets CASCADE;
+-- before running Step 3 below.
+
 
 -- ===================== STEP 1: Base Schema (001_initial_schema.sql) =====================
 -- Copy the full content of sprint1/database/migrations/001_initial_schema.sql here,
@@ -52,3 +59,7 @@ ON CONFLICT (code) DO NOTHING;
 -- UPDATE users SET status='active' WHERE email='admin@yourproject.com';
 -- INSERT INTO user_roles (user_id, role_id)
 --   SELECT u.id, r.id FROM users u, roles r WHERE u.email='admin@yourproject.com' AND r.code='admin';
+
+-- ===================== STEP 4: Customer Care & Organizer Verification (Sprint 2) =====================
+-- Run 003_customer_care.sql
+-- Run 004_organizer_verification.sql
