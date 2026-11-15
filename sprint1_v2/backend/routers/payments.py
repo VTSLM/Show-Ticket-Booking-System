@@ -10,6 +10,8 @@ from database import get_conn
 from dependencies import get_current_user
 from config import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
 
+from services.terms_service import resolve_show_terms, check_terms_acceptance
+
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
 def get_razorpay():
@@ -52,6 +54,29 @@ async def create_order(
         raise HTTPException(status_code=404, detail="Booking not found")
     if booking["status"] not in ("pending",):
         raise HTTPException(status_code=400, detail=f"Booking is {booking['status']}, cannot pay")
+
+    # Verify that show Terms and Conditions have been accepted for this booking
+    show_meta = await conn.fetchrow(
+        """SELECT sh.terms_and_conditions as show_terms, e.terms_and_conditions as event_terms
+           FROM shows sh JOIN events e ON e.id = sh.event_id WHERE sh.id = $1::uuid""",
+        booking["show_id"]
+    )
+    _, active_hash, _ = resolve_show_terms(
+        show_meta.get("show_terms") if show_meta else None,
+        show_meta.get("event_terms") if show_meta else None
+    )
+    accepted = await check_terms_acceptance(
+        conn=conn,
+        user_id=str(current_user["id"]),
+        show_id=str(booking["show_id"]),
+        expected_terms_hash=active_hash,
+        booking_id=req.booking_id
+    )
+    if not accepted:
+        raise HTTPException(
+            status_code=403,
+            detail="Show Terms and Conditions must be accepted before initiating payment."
+        )
 
     amount_paise = round(float(booking["total_amount"]) * 100)
     client = get_razorpay()
