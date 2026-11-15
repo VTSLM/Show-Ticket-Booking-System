@@ -116,7 +116,7 @@ export default function ManagerPage() {
 
   const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "", organizer_id: "" });
   const [newVenue, setNewVenue] = useState({ name: "", city: "", address: "" });
-  const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5" });
+  const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5", dynamic_pricing: false });
   const [showZones, setShowZones] = useState<{ name: string; total_capacity: number; price: number; zone_type: string; color_hex: string }[]>([]);
   const [screens, setScreens] = useState<any[]>([]);
   const [selectedVenueId, setSelectedVenueId] = useState("");
@@ -238,10 +238,18 @@ export default function ManagerPage() {
         zones: showZones.length > 0 ? showZones : undefined,
       });
       setShows(await managerApi.shows());
-      setNewShow({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5" });
+      setNewShow({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5", dynamic_pricing: false });
       setShowZones([]);
       toast.success("Show created with custom layout and pricing!");
     } catch (err: any) { toast.error(err.message); }
+  };
+
+  const toggleDynamicPricing = async (id: string, enabled: boolean) => {
+    try {
+      await managerApi.setDynamicPricing(id, enabled);
+      setShows(ss => ss.map(s => (s.id === id ? { ...s, dynamic_pricing: enabled } : s)));
+      toast.success(enabled ? "Dynamic pricing turned on" : "Dynamic pricing turned off");
+    } catch (err: any) { toast.error(err.message || "Could not update pricing"); }
   };
 
   const deleteShow = async (id: string) => {
@@ -367,6 +375,21 @@ export default function ManagerPage() {
                     onChange={e => setNewShow(s => ({ ...s, premium_multiplier: e.target.value }))} placeholder="1.5" />
                 </Field>
                 <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "12px 14px", background: C.raised, border: `1px solid ${newShow.dynamic_pricing ? C.blue : C.border}`, borderRadius: 10 }}>
+                    <input type="checkbox" checked={newShow.dynamic_pricing}
+                      onChange={e => setNewShow(s => ({ ...s, dynamic_pricing: e.target.checked }))}
+                      style={{ marginTop: 3, accentColor: C.blue }} />
+                    <span>
+                      <span style={{ fontWeight: 600, fontSize: 14 }}>⚡ Enable dynamic pricing</span>
+                      <span style={{ display: "block", fontSize: 12, color: C.muted, marginTop: 2 }}>
+                        Prices adjust automatically: +10% when 50% sold, +25% when 80% sold, +15% in the last 24 hours,
+                        +10% for Fri–Sun evening shows. Movies: −10% off-peak (Mon–Fri before 5 PM).
+                        Concerts &amp; theatre: −10% early-bird (7+ days before). Always between 0.8× and 1.5× the base price.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
                   <Field label="Filter Screens by Venue">
                     <select style={inputStyle} onChange={e => loadScreens(e.target.value)}>
                       <option value="">Select venue to load screens</option>
@@ -483,6 +506,13 @@ export default function ManagerPage() {
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <span style={{ color: C.blue, fontWeight: 800, fontSize: 15 }}>₹{s.base_price}</span>
+                        <button
+                          onClick={() => toggleDynamicPricing(s.id, !s.dynamic_pricing)}
+                          title={s.dynamic_pricing ? "Dynamic pricing is ON — click to use fixed prices" : "Fixed prices — click to turn on dynamic pricing"}
+                          style={{ background: s.dynamic_pricing ? `${C.blue}22` : C.surface, border: `1px solid ${s.dynamic_pricing ? C.blue : C.border}`, color: s.dynamic_pricing ? C.blue : C.muted, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                        >
+                          ⚡ Dynamic {s.dynamic_pricing ? "ON" : "OFF"}
+                        </button>
                         <button
                           onClick={() => deleteShow(s.id)}
                           style={{ background: `${C.red}15`, border: `1px solid ${C.red}44`, color: C.red, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}

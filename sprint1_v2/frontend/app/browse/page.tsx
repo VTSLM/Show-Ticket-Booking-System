@@ -300,7 +300,7 @@ export default function BrowsePage() {
                                   {show.title}
                                 </p>
                                 <p className="truncate text-xs text-slate-400">
-                                  {show.venue_name} • {show.city} • ₹{show.base_price ?? "—"}
+                                  {show.venue_name} • {show.city} • ₹{show.current_price ?? show.base_price ?? "—"}
                                 </p>
                               </div>
                             </button>
@@ -615,8 +615,24 @@ export default function BrowsePage() {
                   </p>
 
                   <div className="mt-5 flex items-center justify-between border-t border-slate-800 pt-4">
-                    <span className="text-lg font-bold text-blue-400">
-                      ₹{show.base_price ?? "—"}
+                    <span className="flex flex-col">
+                      <span className="flex items-baseline gap-2">
+                        <span className="text-lg font-bold text-blue-400">
+                          ₹{show.current_price ?? show.base_price ?? "—"}
+                        </span>
+                        {show.price_change_pct ? (
+                          <span className="text-xs text-slate-500 line-through">₹{show.base_price}</span>
+                        ) : null}
+                      </span>
+                      {show.pricing_reasons?.length ? (
+                        <span
+                          className={`text-xs font-medium ${
+                            show.price_change_pct > 0 ? "text-amber-400" : show.price_change_pct < 0 ? "text-emerald-400" : "text-slate-400"
+                          }`}
+                        >
+                          ⚡ {show.pricing_reasons.join(" · ")}
+                        </span>
+                      ) : null}
                     </span>
                     <span
                       className={`text-sm font-medium ${
