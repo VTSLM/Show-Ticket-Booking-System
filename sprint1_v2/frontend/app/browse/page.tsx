@@ -22,6 +22,34 @@ function getDateOffset(days: number): string {
   return d.toISOString().split("T")[0];
 }
 
+// Sorts the shows on the page itself so the chosen sort always applies,
+// whatever order the API returned them in.
+function sortShows(list: any[], sortBy: string): any[] {
+  const price = (s: any) =>
+    s.base_price === null || s.base_price === undefined || Number.isNaN(Number(s.base_price))
+      ? null
+      : Number(s.base_price);
+  const time = (s: any) => new Date(s.start_time).getTime() || 0;
+  const seats = (s: any) => Number(s.available_seats ?? 0);
+
+  return [...list].sort((a, b) => {
+    if (sortBy === "price_asc" || sortBy === "price_desc") {
+      const pa = price(a);
+      const pb = price(b);
+      if (pa === null && pb !== null) return 1; // shows without a price go last
+      if (pa !== null && pb === null) return -1;
+      if (pa !== null && pb !== null && pa !== pb) {
+        return sortBy === "price_asc" ? pa - pb : pb - pa;
+      }
+      return time(a) - time(b);
+    }
+    if (sortBy === "seats_desc") {
+      return seats(b) - seats(a) || time(a) - time(b);
+    }
+    return time(a) - time(b); // time_asc
+  });
+}
+
 export default function BrowsePage() {
   const [shows, setShows] = useState<any[]>([]);
   const [allShowsCache, setAllShowsCache] = useState<any[]>([]);
@@ -120,7 +148,8 @@ export default function BrowsePage() {
         }
       });
       const uniqueShows = Array.from(groupedMap.values());
-      setShows(uniqueShows);
+      const hasSearch = !!filters.search.trim();
+      setShows(hasSearch && filters.sort_by === "time_asc" ? uniqueShows : sortShows(uniqueShows, filters.sort_by));
 
       if (!filters.search.trim() && data.length > 0) {
         setAllShowsCache(data);

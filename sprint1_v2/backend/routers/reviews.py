@@ -3,6 +3,7 @@ TicketFlow — Critics Reviews & Ratings Router (Sprint 2 Module)
 Matches TicketFlow variables: events, shows, users, asyncpg, and UUIDs.
 """
 import json
+import os
 import uuid as uuid_module
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field
 from database import get_conn
 from dependencies import get_current_user
 from firebase_admin_setup import verify_firebase_token
+from services.ai_review_summary_service import generate_summary
 from schemas.reviews import (
     CreateReviewRequest,
     UpdateReviewRequest,
@@ -359,6 +361,146 @@ async def get_my_review(
         "is_scheduled": bool(row["is_scheduled"]),
     }}
 
+
+@router.get("/events/{event_id}/ai-summary")
+async def get_ai_review_summary(
+    event_id: uuid_module.UUID,
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Return a cached AI summary, regenerating it when reviews changed or cache expired."""
+    event = await conn.fetchrow("SELECT id, title FROM events WHERE id=$1", event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    source = await conn.fetchrow(
+        f"""
+        SELECT COUNT(*) AS review_count, MAX(r.updated_at) AS source_review_updated_at
+        FROM reviews r
+        WHERE r.event_id=$1 AND {PUBLIC_REVIEW_SQL}
+        """,
+        event_id,
+    )
+    review_count = int(source["review_count"] or 0)
+    source_updated_at = source["source_review_updated_at"]
+
+    cache = await conn.fetchrow(
+        "SELECT * FROM ai_review_summaries WHERE event_id=$1",
+        event_id,
+    )
+
+    cache_days = int(os.getenv("AI_REVIEW_CACHE_DAYS", "7"))
+    cache_valid = False
+    if cache:
+        generated_at = cache["generated_at"]
+        age = datetime.now(timezone.utc) - generated_at
+        same_source = (
+            int(cache["review_count"]) == review_count
+            and cache["source_review_updated_at"] == source_updated_at
+        )
+        cache_valid = same_source and age <= timedelta(days=cache_days)
+
+    if cache_valid:
+        return {
+            "event_id": str(event_id),
+            "cached": True,
+            "generated_at": cache["generated_at"].isoformat(),
+            "review_count": review_count,
+            "audience_rating": float(cache["audience_rating"]),
+            "critic_rating": float(cache["critic_rating"]),
+            "overall_rating": float(cache["overall_rating"]),
+            "audience_summary": cache["audience_summary"],
+            "critic_summary": cache["critic_summary"],
+            "overall_summary": cache["overall_summary"],
+            "audience_liked": cache["audience_liked"] or [],
+            "audience_disliked": cache["audience_disliked"] or [],
+            "critic_liked": cache["critic_liked"] or [],
+            "critic_disliked": cache["critic_disliked"] or [],
+        }
+
+    # Match the existing review-router definition of critic vs audience.
+    rows = await conn.fetch(
+        f"""
+        SELECT r.rating, r.headline, r.content, r.is_spoiler,
+               CASE
+                 WHEN u.is_verified = true OR EXISTS (
+                   SELECT 1 FROM user_roles ur
+                   JOIN roles ro ON ro.id=ur.role_id
+                   WHERE ur.user_id=r.user_id AND ro.code IN ('critic','admin')
+                 ) THEN 'critic'
+                 ELSE 'audience'
+               END AS review_type
+        FROM reviews r
+        JOIN users u ON u.id=r.user_id
+        WHERE r.event_id=$1 AND {PUBLIC_REVIEW_SQL}
+        ORDER BY r.published_at ASC
+        """,
+        event_id,
+    )
+
+    reviews = [dict(r) for r in rows]
+
+    critic_scores = [float(r["rating"]) for r in reviews if r["review_type"] == "critic"]
+    audience_scores = [float(r["rating"]) for r in reviews if r["review_type"] == "audience"]
+
+    critic_rating = round(sum(critic_scores) / len(critic_scores), 1) if critic_scores else 0.0
+    audience_rating = round(sum(audience_scores) / len(audience_scores), 1) if audience_scores else 0.0
+    available_scores = [x for x in (critic_scores, audience_scores) if x]
+    all_scores = [score for group in available_scores for score in group]
+    overall_rating = round(sum(all_scores) / len(all_scores), 1) if all_scores else 0.0
+
+    try:
+        ai = await generate_summary(reviews)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        print(f"AI review summary generation failed for {event_id}: {exc!r}")
+        raise HTTPException(status_code=502, detail="Unable to generate AI review summary")
+
+    now = datetime.now(timezone.utc)
+    await conn.execute(
+        """
+        INSERT INTO ai_review_summaries (
+            event_id, audience_summary, critic_summary, overall_summary,
+            audience_liked, audience_disliked, critic_liked, critic_disliked,
+            audience_rating, critic_rating, overall_rating,
+            review_count, source_review_updated_at, generated_at, updated_at
+        )
+        VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,
+                $9,$10,$11,$12,$13,$14,$14)
+        ON CONFLICT (event_id) DO UPDATE SET
+            audience_summary=EXCLUDED.audience_summary,
+            critic_summary=EXCLUDED.critic_summary,
+            overall_summary=EXCLUDED.overall_summary,
+            audience_liked=EXCLUDED.audience_liked,
+            audience_disliked=EXCLUDED.audience_disliked,
+            critic_liked=EXCLUDED.critic_liked,
+            critic_disliked=EXCLUDED.critic_disliked,
+            audience_rating=EXCLUDED.audience_rating,
+            critic_rating=EXCLUDED.critic_rating,
+            overall_rating=EXCLUDED.overall_rating,
+            review_count=EXCLUDED.review_count,
+            source_review_updated_at=EXCLUDED.source_review_updated_at,
+            generated_at=EXCLUDED.generated_at,
+            updated_at=EXCLUDED.updated_at
+        """,
+        event_id,
+        ai["audience_summary"], ai["critic_summary"], ai["overall_summary"],
+        json.dumps(ai.get("audience_liked", [])), json.dumps(ai.get("audience_disliked", [])),
+        json.dumps(ai.get("critic_liked", [])), json.dumps(ai.get("critic_disliked", [])),
+        audience_rating, critic_rating, overall_rating,
+        review_count, source_updated_at, now,
+    )
+
+    return {
+        "event_id": str(event_id),
+        "cached": False,
+        "generated_at": now.isoformat(),
+        "review_count": review_count,
+        "audience_rating": audience_rating,
+        "critic_rating": critic_rating,
+        "overall_rating": overall_rating,
+        **ai,
+    }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. POST /api/reviews — Submit Review (FR-01, FR-06, FR-12)

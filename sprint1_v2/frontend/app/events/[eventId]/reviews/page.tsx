@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import AiReviewSummaryCard from "@/components/AiReviewSummary";
 import {
   reviewsApi,
   Audience,
@@ -561,6 +562,8 @@ export default function EventReviewsPage() {
           />
         </div>
       )}
+
+      <AiReviewSummaryCard eventId={eventId} />
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-2">
