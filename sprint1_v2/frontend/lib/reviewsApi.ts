@@ -65,6 +65,23 @@ export interface EventReviews {
   reviews: Review[];
 }
 
+export interface AiReviewSummary {
+  event_id: string;
+  cached: boolean;
+  generated_at: string;
+  review_count: number;
+  audience_rating: number;
+  critic_rating: number;
+  overall_rating: number;
+  audience_summary: string;
+  critic_summary: string;
+  overall_summary: string;
+  audience_liked: string[];
+  audience_disliked: string[];
+  critic_liked: string[];
+  critic_disliked: string[];
+}
+
 export interface MyReview {
   id: string;
   rating: number;
@@ -132,6 +149,10 @@ async function request<T>(
 }
 
 export const reviewsApi = {
+  aiSummary(eventId: string) {
+    return request<AiReviewSummary>(`/events/${eventId}/ai-summary`);
+  },
+
   forEvent(
     eventId: string,
     opts: { audience?: Audience; sortBy?: SortBy; token?: string | null } = {}
