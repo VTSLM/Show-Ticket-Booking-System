@@ -96,6 +96,8 @@ class ReviewOut(ReviewBase):
     author: ReviewAuthor
     upvotes_count: int = 0
     has_upvoted: bool = False
+    has_reported: bool = False            # current user already reported this review
+    is_verified_attendee: bool = False    # reviewer booked a ticket for this event
     comments_count: int = 0
     comments: List[CommentOut] = Field(default_factory=list)
     versions_count: int = 0
