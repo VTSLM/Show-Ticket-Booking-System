@@ -4,8 +4,17 @@ import { managerApi, organizerVerificationApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { reviewsApi, ReportedReview } from "@/lib/reviewsApi";
 
-type Tab = "shows" | "events" | "venues";
+type Tab = "shows" | "events" | "venues" | "reports";
+
+const REASON_LABEL: Record<string, string> = {
+  spam: "Spam or advertising",
+  abusive: "Abusive or offensive",
+  spoiler: "Spoiler not marked",
+  off_topic: "Not about this event",
+  other: "Something else",
+};
 
 /* ── Design tokens (inline — no globals needed) ── */
 const C = {
@@ -104,7 +113,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export default function ManagerPage() {
-  const { isManager, loading: authLoading } = useAuth();
+  const { user, isManager, loading: authLoading } = useAuth();
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("shows");
   const [shows, setShows] = useState<any[]>([]);
@@ -113,6 +122,11 @@ export default function ManagerPage() {
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  // Reported reviews
+  const [reports, setReports] = useState<ReportedReview[]>([]);
+  const [reportFilter, setReportFilter] = useState<"open" | "all">("open");
+  const [reportsLoading, setReportsLoading] = useState(false);
 
   const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "", organizer_id: "" });
   const [newVenue, setNewVenue] = useState({ name: "", city: "", address: "" });
@@ -150,6 +164,36 @@ export default function ManagerPage() {
   const selectedVenue = venues.find(v => v.id === selectedVenueId);
 
   const eventMap = Object.fromEntries(events.map(ev => [ev.id, ev]));
+
+  const loadReports = async (filter: "open" | "all" = reportFilter) => {
+    if (!user) return;
+    setReportsLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await reviewsApi.reports(token, filter);
+      setReports(res.items);
+    } catch (err: any) {
+      toast.error(err.message || "Could not load reports");
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === "reports" && !authLoading && isManager) loadReports(reportFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, reportFilter, authLoading, isManager]);
+
+  const resolveReports = async (reviewId: string, status: "dismissed" | "reviewed") => {
+    try {
+      const token = await user.getIdToken();
+      await reviewsApi.resolveReports(token, reviewId, status);
+      toast.success(status === "dismissed" ? "Reports dismissed" : "Marked as reviewed");
+      await loadReports(reportFilter);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
 
   const loadScreens = async (venueId: string) => {
     if (!venueId) { setScreens([]); return; }
@@ -263,10 +307,11 @@ export default function ManagerPage() {
     );
   }
 
-  const tabs: { key: Tab; label: string; count: number }[] = [
+  const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: "shows", label: "Shows", count: shows.length },
     { key: "events", label: "Events", count: events.length },
     { key: "venues", label: "Venues", count: venues.length },
+    { key: "reports", label: "Reported reviews" },
   ];
 
   return (
@@ -306,7 +351,7 @@ export default function ManagerPage() {
                   }}
                 >
                   {label}
-                  <span style={{
+                  {count !== undefined && <span style={{
                     background: active ? `${C.blue}22` : C.raised,
                     color: active ? C.blue : C.muted,
                     border: `1px solid ${active ? C.blue + "44" : C.border}`,
@@ -316,7 +361,7 @@ export default function ManagerPage() {
                     fontWeight: 700,
                   }}>
                     {count}
-                  </span>
+                  </span>}
                 </button>
               );
             })}
@@ -368,7 +413,8 @@ export default function ManagerPage() {
                 </Field>
                 <div style={{ gridColumn: "1 / -1" }}>
                   <Field label="Filter Screens by Venue">
-                    <select style={inputStyle} onChange={e => loadScreens(e.target.value)}>
+                    <select style={inputStyle} value={selectedVenueId}
+                      onChange={async (e) => { setSelectedVenueId(e.target.value); await loadScreens(e.target.value); }}>
                       <option value="">Select venue to load screens</option>
                       {venues.map(v => (
                         <option key={v.id} value={v.id}>
@@ -841,6 +887,90 @@ export default function ManagerPage() {
                 </>
               )}
             </SectionCard>
+          </div>
+        )}
+
+        {/* ════ REPORTED REVIEWS TAB ════ */}
+        {tab === "reports" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: C.fg, margin: 0 }}>Reported reviews</h2>
+              <select
+                style={{ ...inputStyle, width: "auto" }}
+                value={reportFilter}
+                onChange={e => setReportFilter(e.target.value as "open" | "all")}
+              >
+                <option value="open">Open only</option>
+                <option value="all">All (including closed)</option>
+              </select>
+            </div>
+
+            {reportsLoading ? (
+              <SectionCard><p style={{ color: C.muted, fontSize: 13, textAlign: "center", margin: 0 }}>Loading…</p></SectionCard>
+            ) : reports.length === 0 ? (
+              <SectionCard><p style={{ color: C.muted, fontSize: 13, textAlign: "center", margin: 0 }}>No reported reviews.</p></SectionCard>
+            ) : reports.map(r => (
+              <SectionCard key={r.review_id} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ fontSize: 12, color: C.muted, margin: "0 0 4px" }}>
+                      {r.event_title} · by {r.author_name} · {r.rating.toFixed(1)} / 10{!r.is_public && " · not public"}
+                    </p>
+                    <p style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{r.headline}</p>
+                  </div>
+                  <span style={{
+                    flexShrink: 0,
+                    padding: "3px 10px",
+                    borderRadius: 999,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    background: r.open_count > 0 ? `${C.red}18` : C.raised,
+                    color: r.open_count > 0 ? C.red : C.muted,
+                    border: `1px solid ${r.open_count > 0 ? C.red + "44" : C.border}`,
+                  }}>
+                    {r.open_count > 0 ? `${r.open_count} open` : "Closed"}
+                  </span>
+                </div>
+
+                <p style={{ fontSize: 13, color: C.muted, margin: 0, whiteSpace: "pre-line" }}>
+                  {r.content.length > 300 ? `${r.content.slice(0, 300).trimEnd()}…` : r.content}
+                </p>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {r.reports.map(rp => (
+                    <div key={rp.id} style={{ background: C.raised, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
+                        {REASON_LABEL[rp.reason] || rp.reason}
+                        <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: C.muted }}>
+                          by {rp.reporter_name} · {new Date(rp.created_at).toLocaleString("en-IN")}
+                          {rp.status !== "open" && ` · ${rp.status}`}
+                        </span>
+                      </p>
+                      {rp.details && <p style={{ fontSize: 12, color: C.muted, margin: "4px 0 0" }}>{rp.details}</p>}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <a href={`/events/${r.event_id}/reviews`} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 13, color: C.blue, textDecoration: "none", fontWeight: 600 }}>
+                    Open reviews page →
+                  </a>
+                  {r.open_count > 0 && (
+                    <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                      <button onClick={() => resolveReports(r.review_id, "dismissed")}
+                        style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.fg, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                        Dismiss
+                      </button>
+                      <button onClick={() => resolveReports(r.review_id, "reviewed")}
+                        style={{ background: C.blue, border: "none", color: "#fff", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                        Mark as reviewed
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </SectionCard>
+            ))}
           </div>
         )}
       </div>
