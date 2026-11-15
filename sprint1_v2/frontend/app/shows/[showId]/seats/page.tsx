@@ -34,6 +34,7 @@ export default function SeatsPage() {
   const [selectedZoneQty, setSelectedZoneQty] = useState<number>(1);
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState(false);
+  const [pricing, setPricing] = useState<{ dynamic: boolean; multiplier: number; reasons: string[] } | null>(null);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -44,6 +45,7 @@ export default function SeatsPage() {
       const zoneList: any[] = Array.isArray(data?.zones) ? data.zones : [];
       if (data?.layout_type) setLayoutType(data.layout_type);
       if (data?.stage_position) setStagePosition(data.stage_position);
+      setPricing(data?.pricing || null);
       setZones(zoneList);
 
       setSeats(
@@ -306,6 +308,14 @@ export default function SeatsPage() {
           <h2 style={{ textAlign: "center", fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 20, letterSpacing: "-0.01em" }}>
             {layoutType === "concert" ? "Select Concert Zones or Seats" : layoutType === "theatre" ? "Select Theatre Seats" : "Select Your Seats"}
           </h2>
+          {pricing?.dynamic && seats.length > 0 && (
+            <p
+              role="status"
+              style={{ maxWidth: 560, margin: "-8px auto 20px", textAlign: "center", fontSize: 13, color: "#9ba3b5" }}
+            >
+              🔒 Lock your seats to lock the price shown.
+            </p>
+          )}
 
           {/* ── Dynamic Focal Element: Stage vs Screen ── */}
           {layoutType === "concert" ? (
