@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from database import get_conn, get_pool
 from dependencies import get_current_user
+from services.dynamic_pricing import get_show_pricing, apply_multiplier
 
 router = APIRouter(prefix="/api/seats", tags=["seats"])
 
@@ -44,12 +45,12 @@ LOCK_DURATION_MINUTES = 10
 async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
     # Release expired locks in DB before returning the map
     await conn.execute(
-        """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL
+        """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL, locked_price=NULL
            WHERE show_id=$1::uuid AND status='locked' AND locked_until < NOW()""",
         show_id
     )
     rows = await conn.fetch(
-        """SELECT ss.id as show_seat_id, ss.status, ss.price,
+        """SELECT ss.id as show_seat_id, ss.status, ss.price, ss.locked_price,
                   s.row_label, s.seat_number, s.seat_type
            FROM show_seats ss
            JOIN seats s ON s.id = ss.seat_id
@@ -84,12 +85,32 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
     stage_pos = show_meta["stage_position"] if show_meta and show_meta["stage_position"] else "front"
     event_type = show_meta["event_type"] if show_meta else "movie"
 
+    # Dynamic pricing: show the current price; a locked seat shows its frozen price
+    pricing = await get_show_pricing(conn, show_id)
+    seats = []
+    for r in rows:
+        seat = dict(r)
+        locked_price = seat.pop("locked_price")
+        seat["base_price"] = seat["price"]
+        if pricing["dynamic"]:
+            if seat["status"] == "locked" and locked_price is not None:
+                seat["price"] = locked_price
+            elif seat["status"] == "available":
+                seat["price"] = apply_multiplier(seat["price"], pricing["multiplier"])
+        seats.append(seat)
+
     return {
         "layout_type": layout_type,
         "stage_position": stage_pos,
         "event_type": event_type,
         "zones": [dict(z) for z in zones],
-        "seats": [dict(r) for r in rows],
+        "seats": seats,
+        "pricing": {
+            "dynamic": pricing["dynamic"],
+            "multiplier": float(pricing["multiplier"]),
+            "reasons": pricing["reasons"],
+            "change_pct": pricing["change_pct"],
+        },
     }
 
 
@@ -199,6 +220,19 @@ async def lock_seats(
         )
         raise HTTPException(status_code=409, detail=f"Seats unavailable: {failed}")
 
+    # Freeze the price the customer pays (dynamic shows), or clear any old frozen price
+    pricing = await get_show_pricing(conn, show_id)
+    if pricing["dynamic"]:
+        await conn.execute(
+            """UPDATE show_seats SET locked_price = ROUND(price * $2::numeric, 2)
+               WHERE id = ANY($1::uuid[])""",
+            locked, pricing["multiplier"]
+        )
+    else:
+        await conn.execute(
+            "UPDATE show_seats SET locked_price = NULL WHERE id = ANY($1::uuid[])", locked
+        )
+
     await manager.broadcast(show_id, {"type": "lock", "seat_ids": locked, "user_id": user_id})
     return {"locked": locked, "locked_until": locked_until.isoformat()}
 
@@ -212,7 +246,7 @@ async def release_seats(
 ):
     user_id = str(current_user["id"])
     await conn.execute(
-        """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL
+        """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL, locked_price=NULL
            WHERE id=ANY($1::uuid[]) AND show_id=$2 AND locked_by=$3 AND status='locked'""",
         req.seat_ids, show_id, user_id
     )
