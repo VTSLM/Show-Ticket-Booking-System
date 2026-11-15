@@ -73,7 +73,13 @@ export default function Navbar() {
               |
             </span>
 
-            <span className="text-gray-300">{profile.name}</span>
+            <Link
+              href="/profile"
+              className="text-gray-300 underline-offset-4 hover:text-white hover:underline"
+              title="View and edit your profile"
+            >
+              {profile.name}
+            </Link>
 
             <button
               type="button"
