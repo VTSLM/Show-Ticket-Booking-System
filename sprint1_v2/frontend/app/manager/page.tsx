@@ -114,9 +114,9 @@ export default function ManagerPage() {
   const [loading, setLoading] = useState(true);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "", organizer_id: "" });
+  const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "", organizer_id: "", description: "", terms_and_conditions: "" });
   const [newVenue, setNewVenue] = useState({ name: "", city: "", address: "" });
-  const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5" });
+  const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5", terms_and_conditions: "" });
   const [showZones, setShowZones] = useState<{ name: string; total_capacity: number; price: number; zone_type: string; color_hex: string }[]>([]);
   const [screens, setScreens] = useState<any[]>([]);
   const [selectedVenueId, setSelectedVenueId] = useState("");
@@ -176,6 +176,8 @@ export default function ManagerPage() {
         language: "",
         duration_minutes: "",
         organizer_id: approvedOrgs[0]?.id || "",
+        description: "",
+        terms_and_conditions: "",
       });
       toast.success("Event created (draft) — publish it to make shows visible on Browse.");
     } catch (err: any) { toast.error(err.message); }
@@ -238,7 +240,7 @@ export default function ManagerPage() {
         zones: showZones.length > 0 ? showZones : undefined,
       });
       setShows(await managerApi.shows());
-      setNewShow({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5" });
+      setNewShow({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5", terms_and_conditions: "" });
       setShowZones([]);
       toast.success("Show created with custom layout and pricing!");
     } catch (err: any) { toast.error(err.message); }
