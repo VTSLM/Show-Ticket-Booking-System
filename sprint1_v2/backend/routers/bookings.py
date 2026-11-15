@@ -143,7 +143,7 @@ async def create_booking(
 
     # Verify all seats are locked by this user
     seats = await conn.fetch(
-        """SELECT ss.id, ss.price, ss.status, ss.locked_by
+        """SELECT ss.id, COALESCE(ss.locked_price, ss.price) AS price, ss.status, ss.locked_by
            FROM show_seats ss
            WHERE ss.id=ANY($1::uuid[]) AND ss.show_id=$2""",
         req.seat_ids, req.show_id

@@ -4,6 +4,7 @@ from datetime import date as dt_date
 from difflib import SequenceMatcher
 import asyncpg
 from database import get_conn
+from services.dynamic_pricing import pricing_summary, apply_multiplier
 
 router = APIRouter(prefix="/api/browse", tags=["browse"])
 
@@ -40,6 +41,22 @@ def _fuzzy_score(query: str, *fields: Optional[str]) -> float:
     return best
 
 
+def _with_dynamic_price(item: dict) -> dict:
+    """Add the current dynamic 'from' price next to the fixed base price."""
+    sold = item.pop("sold_seats", 0) or 0
+    enabled = bool(item.pop("dynamic_pricing", False))
+    base = item.get("base_price")
+    if base is None:                           # zone-only show: no seat prices to adjust
+        item.update(current_price=None, price_change_pct=0, pricing_reasons=[])
+        return item
+    pricing = pricing_summary(item["start_time"], sold, item.get("total_seats") or 0, enabled,
+                              str(item.get("event_type") or "movie"))
+    item["current_price"] = float(apply_multiplier(base, pricing["multiplier"]))
+    item["price_change_pct"] = pricing["change_pct"]
+    item["pricing_reasons"] = pricing["reasons"]
+    return item
+
+
 @router.get("/shows")
 async def browse_shows(
     city: Optional[str] = Query(None),
@@ -67,7 +84,7 @@ async def browse_shows(
         filters.append(f"lower(e.language) = lower(${idx})")
         params.append(language.strip())
         idx += 1
-    if genre:
+    if genre and isinstance(genre, str):
         filters.append(f"lower(COALESCE(e.genre, '')) LIKE lower(${idx})")
         params.append(f"%{genre.strip()}%")
         idx += 1
@@ -95,6 +112,7 @@ async def browse_shows(
                    MIN(s.start_time) as start_time,
                    MIN(ss.price) as base_price,
                    'scheduled' as show_status,
+                   BOOL_OR(COALESCE(s.dynamic_pricing, false)) as dynamic_pricing,
                    e.title, e.event_type, e.language, e.genre, e.duration_minutes,
                    e.poster_url, e.backdrop_url, e.description,
                    op.legal_name as organizer_name,
@@ -106,6 +124,7 @@ async def browse_shows(
                    (ARRAY_AGG(sc.name ORDER BY s.start_time ASC))[1] as screen_name,
                    SUM(DISTINCT sc.capacity) as capacity,
                    COUNT(ss.id) FILTER (WHERE ss.status='available') as available_seats,
+                   COUNT(ss.id) FILTER (WHERE ss.status='booked') as sold_seats,
                    COUNT(ss.id) as total_seats
             FROM shows s
             JOIN events e ON e.id = s.event_id
@@ -120,7 +139,7 @@ async def browse_shows(
         *params
     )
 
-    results = [dict(r) for r in rows]
+    results = [_with_dynamic_price(dict(r)) for r in rows]
 
     # Apply fuzzy spelling-tolerant search across title, venue, city, genre, and language
     if search and search.strip():
@@ -143,6 +162,14 @@ async def browse_shows(
             scored.sort(key=lambda x: (-x["relevance"], x["start_time"]))
         results = scored
 
+    # Sort by the price customers actually pay now (dynamic) or by seats
+    if sort_by == "price_asc":
+        results.sort(key=lambda x: (x["current_price"] is None, x["current_price"] or 0, x["start_time"]))
+    elif sort_by == "price_desc":
+        results.sort(key=lambda x: (x["current_price"] is None, -(x["current_price"] or 0), x["start_time"]))
+    elif sort_by == "seats_desc":
+        results.sort(key=lambda x: (-(x["available_seats"] or 0), x["start_time"]))
+
     return results[:100]
 
 
@@ -152,7 +179,7 @@ from services.terms_service import resolve_show_terms
 @router.get("/shows/{show_id}")
 async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
     row = await conn.fetchrow(
-        """SELECT s.id as show_id, s.start_time, s.end_time, MIN(ss.price) as base_price, s.status as show_status,
+        """SELECT s.id as show_id, s.start_time, s.end_time, MIN(ss.price) as base_price, s.status as show_status, s.dynamic_pricing,
                   s.terms_and_conditions as show_terms,
                   e.id as event_id, e.title, e.event_type, e.language, e.genre,
                   e.duration_minutes, e.poster_url, e.backdrop_url, e.description,
@@ -164,6 +191,7 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
                   sc.id as screen_id, sc.name as screen_name, sc.capacity,
                   sc.layout_type, sc.stage_position, sc.layout_config,
                   COUNT(ss.id) FILTER (WHERE ss.status='available') as available_seats,
+                  COUNT(ss.id) FILTER (WHERE ss.status='booked') as sold_seats,
                   COUNT(ss.id) as total_seats
            FROM shows s
            JOIN events e ON e.id=s.event_id
@@ -178,7 +206,7 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
     if not row:
         raise HTTPException(status_code=404, detail="Show not found")
 
-    res = dict(row)
+    res = _with_dynamic_price(dict(row))
     # Parse JSON fields if strings
     for field in ("cast_crew", "artists", "layout_config"):
         if isinstance(res.get(field), str):
@@ -197,13 +225,17 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
     res["is_default_terms"] = is_default
 
     # Fetch ratings summary for this event
-    rating_row = await conn.fetchrow(
-        """SELECT COUNT(id) as review_count, ROUND(AVG(rating), 1) as avg_rating
-           FROM reviews WHERE event_id = $1::uuid AND is_draft = false""",
-        res["event_id"]
-    )
-    res["review_count"] = int(rating_row["review_count"]) if rating_row and rating_row["review_count"] else 0
-    res["avg_rating"] = float(rating_row["avg_rating"]) if rating_row and rating_row["avg_rating"] else None
+    if res.get("event_id"):
+        rating_row = await conn.fetchrow(
+            """SELECT COUNT(id) as review_count, ROUND(AVG(rating), 1) as avg_rating
+               FROM reviews WHERE event_id = $1::uuid AND is_draft = false""",
+            res["event_id"]
+        )
+        res["review_count"] = int(rating_row["review_count"]) if rating_row and rating_row["review_count"] else 0
+        res["avg_rating"] = float(rating_row["avg_rating"]) if rating_row and rating_row["avg_rating"] else None
+    else:
+        res["review_count"] = 0
+        res["avg_rating"] = None
 
     # Fetch zones if concert/festival
     zones = await conn.fetch(
@@ -216,22 +248,25 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
     res["zones"] = [dict(z) for z in zones]
 
     # Fetch upcoming scheduled shows for this event across all venues & dates
-    shows = await conn.fetch(
-        """SELECT s.id as show_id, s.start_time, s.end_time, s.base_price, s.status as show_status,
-                  v.id as venue_id, v.name as venue_name, v.city, v.address,
-                  sc.id as screen_id, sc.name as screen_name, sc.layout_type, sc.stage_position,
-                  COUNT(ss.id) FILTER (WHERE ss.status='available') as available_seats,
-                  COUNT(ss.id) as total_seats
-           FROM shows s
-           JOIN screens sc ON sc.id = s.screen_id
-           JOIN venues v ON v.id = sc.venue_id
-           LEFT JOIN show_seats ss ON ss.show_id = s.id
-           WHERE s.event_id = $1::uuid AND s.status = 'scheduled' AND s.start_time > NOW()
-           GROUP BY s.id, v.id, sc.id
-           ORDER BY s.start_time ASC""",
-        res["event_id"]
-    )
-    res["upcoming_shows"] = [dict(s) for s in shows]
+    if res.get("event_id"):
+        shows = await conn.fetch(
+            """SELECT s.id as show_id, s.start_time, s.end_time, s.base_price, s.status as show_status,
+                      v.id as venue_id, v.name as venue_name, v.city, v.address,
+                      sc.id as screen_id, sc.name as screen_name, sc.layout_type, sc.stage_position,
+                      COUNT(ss.id) FILTER (WHERE ss.status='available') as available_seats,
+                      COUNT(ss.id) as total_seats
+               FROM shows s
+               JOIN screens sc ON sc.id = s.screen_id
+               JOIN venues v ON v.id = sc.venue_id
+               LEFT JOIN show_seats ss ON ss.show_id = s.id
+               WHERE s.event_id = $1::uuid AND s.status = 'scheduled' AND s.start_time > NOW()
+               GROUP BY s.id, v.id, sc.id
+               ORDER BY s.start_time ASC""",
+            res["event_id"]
+        )
+        res["upcoming_shows"] = [dict(s) for s in shows]
+    else:
+        res["upcoming_shows"] = []
 
     return res
 

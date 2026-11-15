@@ -42,6 +42,8 @@ export interface Review {
   author: ReviewAuthor;
   upvotes_count: number;
   has_upvoted: boolean;
+  has_reported?: boolean; // current user already reported this review
+  is_verified_attendee?: boolean; // reviewer holds a ticket for a show of this event
   comments_count: number;
   comments: ReviewComment[];
   versions_count: number;
@@ -73,6 +75,30 @@ export interface MyReview {
   version: number;
   scheduled_for: string | null;
   is_scheduled: boolean; // true while the review is waiting for its publish time
+}
+
+export type ReportReason = "spam" | "abusive" | "spoiler" | "off_topic" | "other";
+
+export interface ReportedReview {
+  review_id: string;
+  event_id: string;
+  event_title: string;
+  author_name: string;
+  rating: number;
+  headline: string;
+  content: string;
+  is_spoiler: boolean;
+  is_public: boolean;
+  latest_report_at: string;
+  open_count: number;
+  reports: {
+    id: string;
+    reason: ReportReason;
+    details: string | null;
+    status: "open" | "dismissed" | "reviewed";
+    reporter_name: string;
+    created_at: string;
+  }[];
 }
 
 export type SortBy = "newest" | "highest" | "lowest" | "helpful";
@@ -170,6 +196,27 @@ export const reviewsApi = {
       body: parentCommentId
         ? { content, parent_comment_id: parentCommentId }
         : { content },
+    });
+  },
+
+  report(token: string, reviewId: string, reason: ReportReason, details?: string) {
+    return request<{ reported: boolean }>(`/${reviewId}/report`, {
+      method: "POST",
+      token,
+      body: details?.trim() ? { reason, details: details.trim() } : { reason },
+    });
+  },
+
+  // Manager / admin only
+  reports(token: string, status: "open" | "all" = "open") {
+    return request<{ items: ReportedReview[] }>(`/reports?status=${status}`, { token });
+  },
+
+  resolveReports(token: string, reviewId: string, status: "dismissed" | "reviewed") {
+    return request<{ updated: number; status: string }>(`/reports/${reviewId}`, {
+      method: "PATCH",
+      token,
+      body: { status },
     });
   },
 };
