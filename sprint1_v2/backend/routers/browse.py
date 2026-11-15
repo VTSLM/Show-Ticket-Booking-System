@@ -4,6 +4,7 @@ from datetime import date as dt_date
 from difflib import SequenceMatcher
 import asyncpg
 from database import get_conn
+from services.dynamic_pricing import pricing_summary, apply_multiplier
 
 router = APIRouter(prefix="/api/browse", tags=["browse"])
 
@@ -38,6 +39,22 @@ def _fuzzy_score(query: str, *fields: Optional[str]) -> float:
                 best = max(best, SequenceMatcher(None, q, word).ratio())
 
     return best
+
+
+def _with_dynamic_price(item: dict) -> dict:
+    """Add the current dynamic 'from' price next to the fixed base price."""
+    sold = item.pop("sold_seats", 0) or 0
+    enabled = bool(item.pop("dynamic_pricing", False))
+    base = item.get("base_price")
+    if base is None:                           # zone-only show: no seat prices to adjust
+        item.update(current_price=None, price_change_pct=0, pricing_reasons=[])
+        return item
+    pricing = pricing_summary(item["start_time"], sold, item.get("total_seats") or 0, enabled,
+                              str(item.get("event_type") or "movie"))
+    item["current_price"] = float(apply_multiplier(base, pricing["multiplier"]))
+    item["price_change_pct"] = pricing["change_pct"]
+    item["pricing_reasons"] = pricing["reasons"]
+    return item
 
 
 @router.get("/shows")
@@ -80,22 +97,16 @@ async def browse_shows(
         params.append(parsed_date)
         idx += 1
 
-    order_map = {
-        "time_asc": "s.start_time ASC",
-        "price_asc": "MIN(ss.price) ASC NULLS LAST, s.start_time ASC",
-        "price_desc": "MIN(ss.price) DESC NULLS LAST, s.start_time ASC",
-        "seats_desc": "available_seats DESC, s.start_time ASC",
-    }
-    order_clause = order_map.get(sort_by or "time_asc", "s.start_time ASC")
 
     where = " AND ".join(filters)
     rows = await conn.fetch(
-        f"""SELECT s.id as show_id, s.start_time, MIN(ss.price) as base_price, s.status as show_status,
+        f"""SELECT s.id as show_id, s.start_time, MIN(ss.price) as base_price, s.status as show_status, s.dynamic_pricing,
                    e.id as event_id, e.title, e.event_type, e.language, e.genre, e.duration_minutes,
                    e.poster_url, e.description, op.legal_name as organizer_name,
                    v.id as venue_id, v.name as venue_name, v.city, v.address,
                    sc.name as screen_name, sc.capacity,
                    COUNT(ss.id) FILTER (WHERE ss.status='available') as available_seats,
+                   COUNT(ss.id) FILTER (WHERE ss.status='booked') as sold_seats,
                    COUNT(ss.id) as total_seats
             FROM shows s
             JOIN events e ON e.id = s.event_id
@@ -110,7 +121,7 @@ async def browse_shows(
         *params
     )
 
-    results = [dict(r) for r in rows]
+    results = [_with_dynamic_price(dict(r)) for r in rows]
 
     # Apply fuzzy spelling-tolerant search across title, venue, city, genre, and language
     if search and search.strip():
@@ -133,18 +144,27 @@ async def browse_shows(
             scored.sort(key=lambda x: (-x["relevance"], x["start_time"]))
         results = scored
 
+    # Sort by the price customers actually pay now (dynamic) or by seats
+    if sort_by == "price_asc":
+        results.sort(key=lambda x: (x["current_price"] is None, x["current_price"] or 0, x["start_time"]))
+    elif sort_by == "price_desc":
+        results.sort(key=lambda x: (x["current_price"] is None, -(x["current_price"] or 0), x["start_time"]))
+    elif sort_by == "seats_desc":
+        results.sort(key=lambda x: (-(x["available_seats"] or 0), x["start_time"]))
+
     return results[:100]
 
 
 @router.get("/shows/{show_id}")
 async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
     row = await conn.fetchrow(
-        """SELECT s.id as show_id, s.start_time, MIN(ss.price) as base_price, s.status as show_status,
+        """SELECT s.id as show_id, s.start_time, MIN(ss.price) as base_price, s.status as show_status, s.dynamic_pricing,
                   e.id as event_id, e.title, e.event_type, e.language, e.genre,
                   e.duration_minutes, e.poster_url, e.description, op.legal_name as organizer_name,
                   v.id as venue_id, v.name as venue_name, v.city, v.address,
                   sc.name as screen_name, sc.capacity,
                   COUNT(ss.id) FILTER (WHERE ss.status='available') as available_seats,
+                  COUNT(ss.id) FILTER (WHERE ss.status='booked') as sold_seats,
                   COUNT(ss.id) as total_seats
            FROM shows s
            JOIN events e ON e.id=s.event_id
@@ -158,7 +178,7 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
     )
     if not row:
         raise HTTPException(status_code=404, detail="Show not found")
-    return dict(row)
+    return _with_dynamic_price(dict(row))
 
 
 @router.get("/cities")
