@@ -13,6 +13,7 @@ from routers.payments import router as payments_router
 from routers.bookings import router as bookings_router
 from routers.cancellations import router as cancellations_router
 from routers.tickets import router as tickets_router
+from routers.reviews import router as reviews_router
 from routers.support import router as support_router
 from routers.verification_documents import router as verification_documents_router
 from routers.organizer_verification import router as organizer_verification_router
@@ -57,7 +58,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://ticketflow.vercel.app"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://ticketflow.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -72,6 +77,7 @@ app.include_router(payments_router)
 app.include_router(bookings_router)
 app.include_router(cancellations_router)
 app.include_router(tickets_router)
+app.include_router(reviews_router)
 app.include_router(support_router)
 app.include_router(verification_documents_router)
 app.include_router(organizer_verification_router)

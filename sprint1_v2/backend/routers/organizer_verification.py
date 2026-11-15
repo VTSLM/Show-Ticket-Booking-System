@@ -68,6 +68,7 @@ REQUIRED_DOCUMENTS_BY_TYPE: Dict[BusinessType, List[DocumentType]] = {
 
 
 class ApplicationDraftRequest(BaseModel):
+    application_id: Optional[str] = None
     legal_name: str = Field(..., min_length=2, max_length=255)
     business_type: BusinessType
     state: Optional[str] = Field(None, max_length=100)
@@ -210,11 +211,19 @@ async def save_application_draft(
             )
 
     async with conn.transaction():
-        # Check if an existing profile exists for this user
-        existing_profile = await conn.fetchrow(
-            "SELECT id, verification_status FROM organizer_profiles WHERE user_id = $1",
-            user_id,
-        )
+        # Check if an existing profile exists for this organization application
+        if payload.application_id:
+            existing_profile = await conn.fetchrow(
+                "SELECT id, verification_status FROM organizer_profiles WHERE id = $1 AND user_id = $2",
+                payload.application_id,
+                user_id,
+            )
+        else:
+            existing_profile = await conn.fetchrow(
+                "SELECT id, verification_status FROM organizer_profiles WHERE user_id = $1 AND legal_name = $2",
+                user_id,
+                payload.legal_name.strip(),
+            )
 
         if existing_profile:
             current_status = existing_profile["verification_status"]

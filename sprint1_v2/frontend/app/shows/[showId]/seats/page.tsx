@@ -26,7 +26,12 @@ export default function SeatsPage() {
 
   const [show, setShow] = useState<any>(null);
   const [seats, setSeats] = useState<Seat[]>([]);
+  const [zones, setZones] = useState<any[]>([]);
+  const [layoutType, setLayoutType] = useState<string>("cinema");
+  const [stagePosition, setStagePosition] = useState<string>("front");
   const [selected, setSelected] = useState<string[]>([]);
+  const [selectedZone, setSelectedZone] = useState<any>(null);
+  const [selectedZoneQty, setSelectedZoneQty] = useState<number>(1);
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState(false);
 
@@ -35,8 +40,14 @@ export default function SeatsPage() {
   const loadSeats = useCallback(async () => {
     try {
       const data = await seatsApi.map(showId);
+      const seatList: any[] = Array.isArray(data) ? data : (data?.seats || []);
+      const zoneList: any[] = Array.isArray(data?.zones) ? data.zones : [];
+      if (data?.layout_type) setLayoutType(data.layout_type);
+      if (data?.stage_position) setStagePosition(data.stage_position);
+      setZones(zoneList);
+
       setSeats(
-        data.map((seat: any) => ({
+        seatList.map((seat: any) => ({
           ...seat,
           status:
             seat.status === "locked" && seat.locked_by === profile?.id
@@ -92,6 +103,10 @@ export default function SeatsPage() {
       catch { toast.error("Could not release this seat"); }
       return;
     }
+    // Deselect zone pass if switching to numbered seats
+    if (selectedZone) {
+      setSelectedZone(null);
+    }
     try {
       await seatsApi.lock(showId, [seatId]);
       setSelected((current) => [...current, seatId]);
@@ -102,11 +117,47 @@ export default function SeatsPage() {
     }
   };
 
+  const selectZoneTicket = (zone: any) => {
+    if (authLoading) return;
+    if (!user) {
+      toast.error("Please log in to select passes");
+      router.push(`/auth/login?redirect=/shows/${showId}/seats`);
+      return;
+    }
+    // Deselect numbered seats if switching to standing zone
+    if (selected.length > 0) {
+      seatsApi.release(showId, selected).catch(() => {});
+      setSelected([]);
+    }
+    if (selectedZone?.id === zone.id) {
+      setSelectedZone(null);
+    } else {
+      setSelectedZone(zone);
+      setSelectedZoneQty(1);
+      toast.success(`Selected ${zone.name}`);
+    }
+  };
+
   const handleBook = async () => {
-    if (!selected.length) { toast.error("Select at least one seat"); return; }
+    if (!selected.length && !selectedZone) {
+      toast.error("Select seats or a ticket zone to proceed");
+      return;
+    }
     setBooking(true);
     try {
-      const result = (await bookingsApi.create(showId, selected)) as { booking_id: string };
+      let result: any;
+      if (selectedZone) {
+        result = await bookingsApi.create({
+          show_id: showId,
+          zone_id: selectedZone.id,
+          zone_quantity: selectedZoneQty,
+        });
+      } else {
+        result = await bookingsApi.create({
+          show_id: showId,
+          seat_ids: selected,
+        });
+      }
       toast.success("Booking created! Proceeding to payment...");
       router.push(`/payment?booking_id=${result.booking_id}`);
     } catch (error: any) {
@@ -154,9 +205,13 @@ export default function SeatsPage() {
     return { ...base, background: "#0a2a1a", borderColor: "#0d6b34", color: "#2ae87c" };
   };
 
-  const total = seats
+  const seatsTotal = seats
     .filter((seat) => selected.includes(seat.show_seat_id))
     .reduce((sum, seat) => sum + Number(seat.price || 0), 0);
+
+  const total = selectedZone
+    ? Number(selectedZone.price || 0) * selectedZoneQty
+    : seatsTotal;
 
   if (loading) {
     return (
@@ -248,47 +303,187 @@ export default function SeatsPage() {
             padding: "28px 20px",
           }}
         >
-          <h2 style={{ textAlign: "center", fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 24, letterSpacing: "-0.01em" }}>
-            Select Your Seats
+          <h2 style={{ textAlign: "center", fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 20, letterSpacing: "-0.01em" }}>
+            {layoutType === "concert" ? "Select Concert Zones or Seats" : layoutType === "theatre" ? "Select Theatre Seats" : "Select Your Seats"}
           </h2>
-          {/* Screen arc */}
-          <div style={{ textAlign: "center", marginBottom: 36 }}>
-            <div
-              style={{
-                display: "inline-block",
-                background: "linear-gradient(180deg, rgba(40,124,255,0.18) 0%, transparent 100%)",
-                border: "2px solid rgba(40,124,255,0.35)",
-                borderBottom: "none",
-                borderRadius: "80px 80px 0 0",
-                padding: "10px 60px 0",
-                marginBottom: 4,
-              }}
-            >
-              <span
+
+          {/* ── Dynamic Focal Element: Stage vs Screen ── */}
+          {layoutType === "concert" ? (
+            <div style={{ textAlign: "center", marginBottom: 28 }}>
+              <div
                 style={{
-                  fontSize: 10,
-                  fontWeight: 800,
-                  letterSpacing: "0.3em",
-                  color: "rgba(40,124,255,0.7)",
-                  textTransform: "uppercase",
+                  display: "inline-block",
+                  background: "linear-gradient(180deg, #ff0055 0%, #7928ca 100%)",
+                  borderRadius: "8px",
+                  padding: "12px 64px",
+                  boxShadow: "0 0 35px rgba(255, 0, 85, 0.4)",
+                  border: "1px solid rgba(255, 255, 255, 0.25)",
+                  marginBottom: 8,
                 }}
               >
-                SCREEN
-              </span>
+                <span style={{ fontSize: 13, fontWeight: 900, letterSpacing: "0.3em", color: "#fff", textTransform: "uppercase" }}>
+                  🎤 MAIN LIVE STAGE 🎸
+                </span>
+              </div>
+              <div style={{ height: 2, background: "linear-gradient(90deg, transparent, #ff0055, #7928ca, transparent)", marginBottom: 6 }} />
+              <p style={{ fontSize: 11, color: "var(--muted,#9ba3b5)", margin: 0 }}>Front of Stage · Live Standing & Fan Pit Zone</p>
             </div>
-            <div
-              style={{
-                height: 2,
-                background: "linear-gradient(90deg, transparent, rgba(40,124,255,0.4), transparent)",
-                marginBottom: 8,
-              }}
-            />
-            <p style={{ fontSize: 11, color: "var(--muted,#9ba3b5)", margin: 0 }}>All eyes this way</p>
-          </div>
+          ) : layoutType === "theatre" ? (
+            <div style={{ textAlign: "center", marginBottom: 28 }}>
+              <div
+                style={{
+                  display: "inline-block",
+                  background: "linear-gradient(180deg, #8b0000 0%, #4a0000 100%)",
+                  borderRadius: "8px 8px 0 0",
+                  padding: "10px 56px",
+                  boxShadow: "0 0 25px rgba(139, 0, 0, 0.4)",
+                  border: "1.5px solid rgba(212, 168, 50, 0.4)",
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.25em", color: "#d4a832", textTransform: "uppercase" }}>
+                  🎭 PROSCENIUM THEATRE STAGE 🎭
+                </span>
+              </div>
+              <div style={{ height: 2, background: "linear-gradient(90deg, transparent, #d4a832, transparent)", marginBottom: 6 }} />
+              <p style={{ fontSize: 11, color: "var(--muted,#9ba3b5)", margin: 0 }}>Orchestra Pit · Direct Sightline to Center Stage</p>
+            </div>
+          ) : (
+            <div style={{ textAlign: "center", marginBottom: 36 }}>
+              <div
+                style={{
+                  display: "inline-block",
+                  background: "linear-gradient(180deg, rgba(40,124,255,0.18) 0%, transparent 100%)",
+                  border: "2px solid rgba(40,124,255,0.35)",
+                  borderBottom: "none",
+                  borderRadius: "80px 80px 0 0",
+                  padding: "10px 60px 0",
+                  marginBottom: 4,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    letterSpacing: "0.3em",
+                    color: "rgba(40,124,255,0.7)",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  SCREEN
+                </span>
+              </div>
+              <div
+                style={{
+                  height: 2,
+                  background: "linear-gradient(90deg, transparent, rgba(40,124,255,0.4), transparent)",
+                  marginBottom: 8,
+                }}
+              />
+              <p style={{ fontSize: 11, color: "var(--muted,#9ba3b5)", margin: 0 }}>All eyes this way</p>
+            </div>
+          )}
 
-          {/* Seat grid */}
-          <div style={{ overflowX: "auto", paddingBottom: 8 }}>
-            <div style={{ minWidth: "max-content", margin: "0 auto", width: "max-content" }}>
+          {/* ── General Admission & Standing Fan Pits (Concerts / Festivals / Passes) ── */}
+          {zones.length > 0 && (
+            <div style={{ marginBottom: 32 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 700, color: "var(--muted,#9ba3b5)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12, textAlign: "center" }}>
+                Standing & Experience Zones
+              </h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+                {zones.map((zone) => {
+                  const isSelected = selectedZone?.id === zone.id;
+                  const available = Number(zone.available_capacity ?? (zone.total_capacity - (zone.booked_count || 0) - (zone.locked_count || 0)));
+                  const isSoldOut = available <= 0;
+
+                  return (
+                    <div
+                      key={zone.id}
+                      onClick={() => !isSoldOut && selectZoneTicket(zone)}
+                      style={{
+                        padding: "16px 18px",
+                        borderRadius: 14,
+                        border: isSelected ? "2px solid #287cff" : "1px solid var(--border, #292e3d)",
+                        background: isSelected ? "#0d1b33" : "var(--surface-raised, #181c28)",
+                        cursor: isSoldOut ? "not-allowed" : "pointer",
+                        opacity: isSoldOut ? 0.45 : 1,
+                        transition: "all 0.15s",
+                        position: "relative",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                        <div>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: zone.color_hex || "#287cff", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                            {zone.zone_type || "Standing"}
+                          </span>
+                          <h4 style={{ fontSize: 16, fontWeight: 800, color: "#fff", margin: "2px 0 0" }}>
+                            {zone.name}
+                          </h4>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <span style={{ fontSize: 18, fontWeight: 800, color: "#287cff" }}>
+                            ₹{Number(zone.price).toLocaleString("en-IN")}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: 12, color: isSoldOut ? "#ff4455" : "var(--muted,#9ba3b5)", margin: "0 0 10px" }}>
+                        {isSoldOut ? "Sold Out" : `⚡ ${available} passes available`}
+                      </p>
+
+                      {isSelected && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "8px 12px",
+                            background: "#11141e",
+                            borderRadius: 8,
+                            marginTop: 8,
+                          }}
+                        >
+                          <span style={{ fontSize: 12, fontWeight: 600, color: "#9ba3b5" }}>Select Quantity:</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedZoneQty((q) => Math.max(1, q - 1))}
+                              style={{ width: 28, height: 28, borderRadius: 6, background: "#292e3d", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700 }}
+                            >
+                              -
+                            </button>
+                            <span style={{ fontSize: 14, fontWeight: 800, color: "#fff", minWidth: 16, textAlign: "center" }}>
+                              {selectedZoneQty}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedZoneQty((q) => Math.min(available, Math.min(10, q + 1)))}
+                              style={{ width: 28, height: 28, borderRadius: 6, background: "#287cff", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700 }}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Numbered Seat Grid (Grandstands / Stalls / Cinema Rows) ── */}
+          {seats.length > 0 && (
+            <div>
+              {zones.length > 0 && (
+                <h3 style={{ fontSize: 13, fontWeight: 700, color: "var(--muted,#9ba3b5)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 16, textAlign: "center" }}>
+                  Reserved Seating Stands
+                </h3>
+              )}
+              <div style={{ overflowX: "auto", paddingBottom: 8 }}>
+                <div style={{ minWidth: "max-content", margin: "0 auto", width: "max-content" }}>
               {Object.keys(rows).length === 0 ? (
                 <p style={{ textAlign: "center", color: "var(--muted,#9ba3b5)", padding: "40px 0" }}>
                   No seats available for this show.
@@ -344,8 +539,10 @@ export default function SeatsPage() {
                     ))}
                 </div>
               )}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Legend */}
           <div
@@ -384,7 +581,7 @@ export default function SeatsPage() {
         </div>
 
         {/* ── Sticky booking bar ── */}
-        {selected.length > 0 && (
+        {(selected.length > 0 || selectedZone) && (
           <div
             style={{
               position: "fixed",
@@ -407,7 +604,7 @@ export default function SeatsPage() {
           >
             <div>
               <p style={{ fontSize: 13, color: "var(--muted, #9ba3b5)", margin: "0 0 2px" }}>
-                {selected.length} seat{selected.length !== 1 ? "s" : ""} selected
+                {selectedZone ? `${selectedZoneQty} × ${selectedZone.name}` : `${selected.length} seat${selected.length !== 1 ? "s" : ""} selected`}
               </p>
               <p style={{ fontSize: 20, fontWeight: 800, color: "var(--blue, #287cff)", letterSpacing: "-0.02em", margin: 0 }}>
                 ₹{total.toLocaleString("en-IN")}
