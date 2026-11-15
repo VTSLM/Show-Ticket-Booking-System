@@ -3,10 +3,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://postgres.nvgghebapzhxzrwunwrj:REDACTED_DB_PASSWORD@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
-SUPABASE_URL = os.getenv("SUPABASE_URL") or "https://nvgghebapzhxzrwunwrj.supabase.co"
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or "REDACTED_SUPABASE_JWT"
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY") or "REDACTED_SUPABASE_JWT"
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 FIREBASE_SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "/app/ticketflow-firebase.json")
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
