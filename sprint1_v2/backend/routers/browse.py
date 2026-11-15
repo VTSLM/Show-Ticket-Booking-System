@@ -57,6 +57,29 @@ def _with_dynamic_price(item: dict) -> dict:
     return item
 
 
+async def _attach_ratings(conn: asyncpg.Connection, items: list) -> None:
+    """Add avg_rating and review_count (public reviews only) to every show dict."""
+    event_ids = list({i["event_id"] for i in items if i.get("event_id")})
+    stats = {}
+    if event_ids:
+        rows = await conn.fetch(
+            """
+            SELECT r.event_id, ROUND(AVG(r.rating)::numeric, 1) AS avg_rating, COUNT(*) AS review_count
+            FROM reviews r
+            WHERE r.event_id = ANY($1)
+              AND r.is_draft = false
+              AND (r.scheduled_for IS NULL OR r.scheduled_for <= now())
+            GROUP BY r.event_id
+            """,
+            event_ids,
+        )
+        stats = {str(r["event_id"]): r for r in rows}
+    for item in items:
+        st = stats.get(str(item.get("event_id")))
+        item["avg_rating"] = float(st["avg_rating"]) if st else None
+        item["review_count"] = int(st["review_count"]) if st else 0
+
+
 @router.get("/shows")
 async def browse_shows(
     city: Optional[str] = Query(None),
@@ -65,7 +88,7 @@ async def browse_shows(
     genre: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     date: Optional[str] = Query(None),  # YYYY-MM-DD
-    sort_by: Optional[str] = Query("time_asc"),  # time_asc | price_asc | price_desc | seats_desc
+    sort_by: Optional[str] = Query("time_asc"),  # time_asc | price_asc | price_desc | seats_desc | rating_desc
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     filters = ["s.status='scheduled'", "e.status='published'", "s.start_time > now()"]
@@ -162,8 +185,18 @@ async def browse_shows(
             scored.sort(key=lambda x: (-x["relevance"], x["start_time"]))
         results = scored
 
-    # Sort by the price customers actually pay now (dynamic) or by seats
-    if sort_by == "price_asc":
+    # Ratings shown on each card (and used by the "Top rated" sort)
+    await _attach_ratings(conn, results)
+
+    # Sort by the price customers actually pay now (dynamic), by seats, or by rating
+    if sort_by == "rating_desc":
+        results.sort(key=lambda x: (
+            x["avg_rating"] is None,
+            -(x["avg_rating"] or 0),
+            -x["review_count"],
+            x["start_time"],
+        ))
+    elif sort_by == "price_asc":
         results.sort(key=lambda x: (x["current_price"] is None, x["current_price"] or 0, x["start_time"]))
     elif sort_by == "price_desc":
         results.sort(key=lambda x: (x["current_price"] is None, -(x["current_price"] or 0), x["start_time"]))

@@ -44,6 +44,9 @@ export interface Review {
   has_upvoted: boolean;
   has_reported?: boolean; // current user already reported this review
   is_verified_attendee?: boolean; // reviewer holds a ticket for a show of this event
+  watched_at?: string | null; // start time of the show the reviewer booked
+  watched_venue?: string | null;
+  watched_city?: string | null;
   comments_count: number;
   comments: ReviewComment[];
   versions_count: number;

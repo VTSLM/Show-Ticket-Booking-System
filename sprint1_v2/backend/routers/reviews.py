@@ -200,17 +200,29 @@ async def get_event_reviews(
            u.name as author_name, u.email as author_email, u.is_verified as author_verified,
            u.publication as author_publication, u.avatar_url as author_avatar, u.bio as author_bio,
            {VERIFIED_ATTENDEE_SQL} AS is_verified_attendee,
+           w.watched_at, w.watched_venue, w.watched_city,
            array_agg(DISTINCT ro.code) FILTER (WHERE ro.code IS NOT NULL) as author_roles,
            COUNT(DISTINCT up.user_id) as upvotes_count,
            COUNT(DISTINCT rv.id) as versions_count
     FROM reviews r
     JOIN users u ON u.id = r.user_id
+    LEFT JOIN LATERAL (
+        SELECT s.start_time AS watched_at, v.name AS watched_venue, v.city AS watched_city
+        FROM bookings b
+        JOIN shows s    ON s.id  = b.show_id
+        JOIN screens sc ON sc.id = s.screen_id
+        JOIN venues v   ON v.id  = sc.venue_id
+        WHERE b.user_id = r.user_id AND s.event_id = r.event_id
+          AND b.status::text IN ('confirmed', 'completed')
+        ORDER BY s.start_time DESC
+        LIMIT 1
+    ) w ON true
     LEFT JOIN user_roles ur ON ur.user_id = u.id
     LEFT JOIN roles ro ON ro.id = ur.role_id
     LEFT JOIN review_upvotes up ON up.review_id = r.id
     LEFT JOIN review_versions rv ON rv.review_id = r.id
     WHERE {where_clause}
-    GROUP BY r.id, u.id
+    GROUP BY r.id, u.id, w.watched_at, w.watched_venue, w.watched_city
     ORDER BY {order_by_sql}
     """
 
@@ -317,6 +329,9 @@ async def get_event_reviews(
             has_upvoted=rid_str in upvoted_set,
             has_reported=rid_str in reported_set,
             is_verified_attendee=bool(r["is_verified_attendee"]),
+            watched_at=r["watched_at"],
+            watched_venue=r["watched_venue"],
+            watched_city=r["watched_city"],
             comments_count=len(comments_by_review.get(rid_str, [])),
             comments=comments_by_review.get(rid_str, []),
             versions_count=r["versions_count"]
@@ -740,7 +755,7 @@ async def update_review(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3b. DELETE /api/reviews/{review_id} — Delete Review (owner or admin)
+# 3b. DELETE /api/reviews/{review_id} — Delete Review (owner, admin, or manager for reported reviews)
 # ─────────────────────────────────────────────────────────────────────────────
 @router.delete("/{review_id}")
 async def delete_review(
@@ -754,8 +769,16 @@ async def delete_review(
             raise HTTPException(status_code=404, detail="Review not found")
 
         roles = current_user.get("roles", [])
-        if review["user_id"] != current_user["id"] and "admin" not in roles:
-            raise HTTPException(status_code=403, detail="Not authorized to delete this review")
+        is_author = review["user_id"] == current_user["id"]
+        if not is_author and "admin" not in roles:
+            # A manager may remove a review only when it has been reported
+            reported = False
+            if "manager" in roles:
+                reported = bool(await conn.fetchval(
+                    "SELECT EXISTS (SELECT 1 FROM review_reports WHERE review_id=$1)", review_id
+                ))
+            if not reported:
+                raise HTTPException(status_code=403, detail="Not authorized to delete this review")
 
         # Snapshot everything before the CASCADE wipes it
         versions = await conn.fetch(
