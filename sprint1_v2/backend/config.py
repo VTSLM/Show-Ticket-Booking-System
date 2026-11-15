@@ -3,10 +3,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://postgres.nvgghebapzhxzrwunwrj:IT314SoftwareEngineering@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
-SUPABASE_URL = os.getenv("SUPABASE_URL") or "https://nvgghebapzhxzrwunwrj.supabase.co"
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im52Z2doZWJhcHpoeHpyd3Vud3JqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTAzOTI0MywiZXhwIjoyMTA2NjE1MjQzfQ.H2ieFx7ERXeZ2ryU15UAjpVb6EhsWwkuz1PVIVn_eeg"
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im52Z2doZWJhcHpoeHpyd3Vud3JqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEwMzkyNDMsImV4cCI6MjEwNjYxNTI0M30.c9MND0-buyRcsIwhTaM-2Lze25woQMBVirCYfONC1I4"
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 FIREBASE_SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "/app/ticketflow-firebase.json")
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
