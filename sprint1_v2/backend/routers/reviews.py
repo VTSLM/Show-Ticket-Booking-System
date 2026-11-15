@@ -10,6 +10,7 @@ from typing import Optional, List, Dict
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, Field
 
 from database import get_conn
 from dependencies import get_current_user
@@ -33,6 +34,24 @@ optional_security = HTTPBearer(auto_error=False)
 # No cron job needed: reviews whose time has not come are simply filtered out.
 # "r" must be the alias of the reviews table in any query that uses this fragment.
 PUBLIC_REVIEW_SQL = "(r.is_draft = false AND (r.scheduled_for IS NULL OR r.scheduled_for <= now()))"
+
+# "Verified attendee": the reviewer holds a ticket (not cancelled) for a show of this event.
+# "r" must be the alias of the reviews table.
+VERIFIED_ATTENDEE_SQL = """(
+    EXISTS (
+        SELECT 1 FROM tickets t
+        JOIN shows s ON s.id = t.show_id
+        WHERE t.user_id = r.user_id AND s.event_id = r.event_id AND t.status IN ('valid', 'used')
+    )
+    OR EXISTS (
+        SELECT 1 FROM bookings b
+        JOIN shows s2 ON s2.id = b.show_id
+        WHERE b.user_id = r.user_id AND s2.event_id = r.event_id
+          AND b.status::text IN ('confirmed', 'completed')
+    )
+)"""
+
+REPORT_REASONS = ("spam", "abusive", "spoiler", "off_topic", "other")
 
 MIN_SCHEDULE_LEAD = timedelta(minutes=1)
 MAX_SCHEDULE_AHEAD = timedelta(days=365)
@@ -178,6 +197,7 @@ async def get_event_reviews(
            r.published_at, r.updated_at,
            u.name as author_name, u.email as author_email, u.is_verified as author_verified,
            u.publication as author_publication, u.avatar_url as author_avatar, u.bio as author_bio,
+           {VERIFIED_ATTENDEE_SQL} AS is_verified_attendee,
            array_agg(DISTINCT ro.code) FILTER (WHERE ro.code IS NOT NULL) as author_roles,
            COUNT(DISTINCT up.user_id) as upvotes_count,
            COUNT(DISTINCT rv.id) as versions_count
@@ -203,6 +223,15 @@ async def get_event_reviews(
             current_user_id
         )
         upvoted_set = {str(r["review_id"]) for r in upvoted_rows}
+
+    # Reviews the current user has already reported (so the UI can show "Reported")
+    reported_set = set()
+    if current_user_id:
+        reported_rows = await conn.fetch(
+            "SELECT review_id FROM review_reports WHERE reporter_id=$1",
+            current_user_id
+        )
+        reported_set = {str(r["review_id"]) for r in reported_rows}
 
     # Fetch comments for these reviews
     review_ids = [r["id"] for r in reviews_rows]
@@ -284,6 +313,8 @@ async def get_event_reviews(
             author=author,
             upvotes_count=r["upvotes_count"],
             has_upvoted=rid_str in upvoted_set,
+            has_reported=rid_str in reported_set,
+            is_verified_attendee=bool(r["is_verified_attendee"]),
             comments_count=len(comments_by_review.get(rid_str, [])),
             comments=comments_by_review.get(rid_str, []),
             versions_count=r["versions_count"]
@@ -872,3 +903,128 @@ Exported from TicketFlow Cinema Discovery & Review Module
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="critique-{review_id}.{format}"'}
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Report a review + Manager moderation
+# ─────────────────────────────────────────────────────────────────────────────
+class ReportCreate(BaseModel):
+    reason: str = Field(..., pattern="^(spam|abusive|spoiler|off_topic|other)$")
+    details: Optional[str] = Field(None, max_length=500)
+
+
+class ReportResolve(BaseModel):
+    status: str = Field(..., pattern="^(dismissed|reviewed)$")
+
+
+def require_moderator(current_user: dict = Depends(get_current_user)) -> dict:
+    roles = current_user.get("roles", [])
+    if "manager" not in roles and "admin" not in roles:
+        raise HTTPException(status_code=403, detail="Managers only")
+    return current_user
+
+
+@router.post("/{review_id}/report", status_code=status.HTTP_201_CREATED)
+async def report_review(
+    review_id: uuid_module.UUID,
+    body: ReportCreate,
+    current_user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    review = await conn.fetchrow(
+        f"SELECT r.user_id, {PUBLIC_REVIEW_SQL} AS is_public FROM reviews r WHERE r.id=$1",
+        review_id
+    )
+    if not review or not review["is_public"]:
+        raise HTTPException(status_code=404, detail="Review not found")
+    if review["user_id"] == current_user["id"]:
+        raise HTTPException(status_code=400, detail="You cannot report your own review")
+
+    details = body.details.strip() if body.details else None
+    try:
+        await conn.execute(
+            "INSERT INTO review_reports (review_id, reporter_id, reason, details) VALUES ($1, $2, $3, $4)",
+            review_id, current_user["id"], body.reason, details or None
+        )
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(status_code=409, detail="You have already reported this review")
+    return {"reported": True}
+
+
+@router.get("/reports")
+async def list_review_reports(
+    status_filter: str = Query("open", alias="status", pattern="^(open|all)$"),
+    moderator: dict = Depends(require_moderator),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    """One entry per reported review, newest report first, with every report on it."""
+    where_open = "WHERE rp.status = 'open'" if status_filter == "open" else ""
+    rows = await conn.fetch(
+        f"""
+        SELECT rp.id, rp.review_id, rp.reason, rp.details, rp.status, rp.created_at,
+               rep.name AS reporter_name,
+               r.rating, r.headline, r.content, r.is_spoiler, r.event_id,
+               e.title AS event_title,
+               au.name AS author_name,
+               ({PUBLIC_REVIEW_SQL}) AS is_public
+        FROM review_reports rp
+        JOIN reviews r  ON r.id  = rp.review_id
+        JOIN events e   ON e.id  = r.event_id
+        JOIN users au   ON au.id = r.user_id
+        JOIN users rep  ON rep.id = rp.reporter_id
+        {where_open}
+        ORDER BY rp.created_at DESC
+        """
+    )
+    grouped: Dict[str, dict] = {}
+    for row in rows:
+        key = str(row["review_id"])
+        item = grouped.get(key)
+        if item is None:
+            item = grouped[key] = {
+                "review_id": key,
+                "event_id": str(row["event_id"]),
+                "event_title": row["event_title"],
+                "author_name": row["author_name"],
+                "rating": float(row["rating"]),
+                "headline": row["headline"],
+                "content": row["content"],
+                "is_spoiler": row["is_spoiler"],
+                "is_public": bool(row["is_public"]),
+                "latest_report_at": row["created_at"].isoformat(),
+                "open_count": 0,
+                "reports": [],
+            }
+        if row["status"] == "open":
+            item["open_count"] += 1
+        item["reports"].append({
+            "id": str(row["id"]),
+            "reason": row["reason"],
+            "details": row["details"],
+            "status": row["status"],
+            "reporter_name": row["reporter_name"],
+            "created_at": row["created_at"].isoformat(),
+        })
+    return {"items": list(grouped.values())}
+
+
+@router.patch("/reports/{review_id}")
+async def resolve_review_reports(
+    review_id: uuid_module.UUID,
+    body: ReportResolve,
+    moderator: dict = Depends(require_moderator),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    """Close every open report on a review: 'dismissed' (no action) or 'reviewed' (handled)."""
+    result = await conn.execute(
+        """
+        UPDATE review_reports
+        SET status=$1, resolved_at=now(), resolved_by=$2
+        WHERE review_id=$3 AND status='open'
+        """,
+        body.status, moderator["id"], review_id
+    )
+    updated = int(result.split()[-1])
+    if updated == 0:
+        raise HTTPException(status_code=404, detail="No open reports for this review")
+    return {"updated": updated, "status": body.status}
