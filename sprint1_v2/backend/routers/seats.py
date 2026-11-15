@@ -37,6 +37,8 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+from services.terms_service import resolve_show_terms
+
 LOCK_DURATION_MINUTES = 10
 
 # ---- REST endpoints ----
@@ -50,7 +52,8 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
     )
     rows = await conn.fetch(
         """SELECT ss.id as show_seat_id, ss.status, ss.price,
-                  s.row_label, s.seat_number, s.seat_type
+                  s.row_label, s.seat_number, s.seat_type,
+                  s.x_pos, s.y_pos, s.section_name
            FROM show_seats ss
            JOIN seats s ON s.id = ss.seat_id
            WHERE ss.show_id = $1::uuid
@@ -60,7 +63,9 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
 
     # Fetch screen and event layout metadata
     show_meta = await conn.fetchrow(
-        """SELECT sc.layout_type, sc.stage_position, e.event_type
+        """SELECT sc.layout_type, sc.stage_position, sc.layout_config,
+                  sh.terms_and_conditions as show_terms,
+                  e.terms_and_conditions as event_terms, e.event_type
            FROM shows sh
            JOIN screens sc ON sc.id = sh.screen_id
            JOIN events e ON e.id = sh.event_id
@@ -71,6 +76,7 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
     zones = await conn.fetch(
         """SELECT id, name, zone_type, total_capacity, booked_count, locked_count,
                   price, color_hex, display_order,
+                  polygon_coords, x_pos, y_pos, width, height,
                   GREATEST(0, total_capacity - booked_count - locked_count) as available_capacity
            FROM show_zones
            WHERE show_id = $1::uuid
@@ -78,18 +84,78 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
         show_id
     )
 
-    layout_type = show_meta["layout_type"] if show_meta and show_meta["layout_type"] else (
-        show_meta["event_type"] if show_meta else "cinema"
+    layout_type = show_meta.get("layout_type") if show_meta and show_meta.get("layout_type") else (
+        show_meta.get("event_type") if show_meta else "cinema"
     )
-    stage_pos = show_meta["stage_position"] if show_meta and show_meta["stage_position"] else "front"
-    event_type = show_meta["event_type"] if show_meta else "movie"
+    stage_pos = show_meta.get("stage_position") if show_meta and show_meta.get("stage_position") else "front"
+    event_type = show_meta.get("event_type") if show_meta else "movie"
+    layout_cfg = show_meta.get("layout_config") if show_meta and show_meta.get("layout_config") else None
+    if isinstance(layout_cfg, str):
+        try:
+            layout_cfg = json.loads(layout_cfg)
+        except Exception:
+            pass
+
+    # Resolve active terms and conditions
+    terms_text, terms_hash, is_default = resolve_show_terms(
+        show_terms=show_meta.get("show_terms") if show_meta else None,
+        event_terms=show_meta.get("event_terms") if show_meta else None
+    )
+
+    formatted_zones = []
+    for z in zones:
+        zd = dict(z)
+        if isinstance(zd.get("polygon_coords"), str):
+            try:
+                zd["polygon_coords"] = json.loads(zd["polygon_coords"])
+            except Exception:
+                pass
+        formatted_zones.append(zd)
 
     return {
         "layout_type": layout_type,
         "stage_position": stage_pos,
         "event_type": event_type,
-        "zones": [dict(z) for z in zones],
+        "layout_config": layout_cfg,
+        "terms_and_conditions": terms_text,
+        "terms_hash": terms_hash,
+        "is_default_terms": is_default,
+        "zones": formatted_zones,
         "seats": [dict(r) for r in rows],
+    }
+
+
+@router.get("/{show_id}/terms")
+async def get_show_terms_endpoint(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
+    """
+    Dedicated endpoint to fetch active terms and conditions for a specific show.
+    """
+    row = await conn.fetchrow(
+        """SELECT sh.id as show_id, sh.terms_and_conditions as show_terms,
+                  e.title as event_title, e.terms_and_conditions as event_terms,
+                  v.name as venue_name, sh.start_time
+           FROM shows sh
+           JOIN events e ON e.id = sh.event_id
+           JOIN screens sc ON sc.id = sh.screen_id
+           JOIN venues v ON v.id = sc.venue_id
+           WHERE sh.id = $1::uuid""",
+        show_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Show not found")
+
+    terms_text, terms_hash, is_default = resolve_show_terms(
+        show_terms=row["show_terms"],
+        event_terms=row["event_terms"]
+    )
+    return {
+        "show_id": str(row["show_id"]),
+        "event_title": row["event_title"],
+        "venue_name": row["venue_name"],
+        "start_time": row["start_time"].isoformat(),
+        "terms_and_conditions": terms_text,
+        "terms_hash": terms_hash,
+        "is_default": is_default
     }
 
 
@@ -181,8 +247,8 @@ async def lock_seats(
     failed = []
     for seat_id in req.seat_ids:
         result = await conn.execute(
-            """UPDATE show_seats SET status='locked', locked_by=$3, locked_until=$4
-               WHERE id=$1 AND show_id=$2 AND status='available'""",
+            """UPDATE show_seats SET status='locked', locked_by=$3::uuid, locked_until=$4
+               WHERE id=$1::uuid AND show_id=$2::uuid AND status='available'""",
             seat_id, show_id, user_id, locked_until
         )
         if result == "UPDATE 1":
@@ -192,11 +258,12 @@ async def lock_seats(
 
     if failed:
         # Rollback
-        await conn.execute(
-            """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL
-               WHERE id=ANY($1::uuid[]) AND locked_by=$2""",
-            locked, user_id
-        )
+        if locked:
+            await conn.execute(
+                """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL
+                   WHERE id=ANY($1::uuid[]) AND locked_by=$2::uuid""",
+                locked, user_id
+            )
         raise HTTPException(status_code=409, detail=f"Seats unavailable: {failed}")
 
     await manager.broadcast(show_id, {"type": "lock", "seat_ids": locked, "user_id": user_id})
@@ -211,12 +278,14 @@ async def release_seats(
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     user_id = str(current_user["id"])
-    await conn.execute(
-        """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL
-           WHERE id=ANY($1::uuid[]) AND show_id=$2 AND locked_by=$3 AND status='locked'""",
-        req.seat_ids, show_id, user_id
-    )
-    await manager.broadcast(show_id, {"type": "release", "seat_ids": req.seat_ids})
+    if req.seat_ids:
+        await conn.execute(
+            """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL
+               WHERE id=ANY($1::uuid[]) AND show_id=$2::uuid AND locked_by=$3::uuid AND status='locked'""",
+            req.seat_ids, show_id, user_id
+        )
+        await manager.broadcast(show_id, {"type": "release", "seat_ids": req.seat_ids})
+    return {"released": True}
     return {"released": req.seat_ids}
 
 
