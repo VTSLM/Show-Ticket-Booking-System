@@ -121,6 +121,8 @@ export const managerApi = {
   shows: () => api.get<any[]>("/api/manager/shows"),
   createShow: (data: object) => api.post("/api/manager/shows", data),
   deleteShow: (id: string) => api.delete(`/api/manager/shows/${id}`),
+  setDynamicPricing: (id: string, enabled: boolean) =>
+    api.patch<any>(`/api/manager/shows/${id}`, { dynamic_pricing: enabled }),
 
   updateSeatTier: (screenId: string, data: { row_label?: string; seat_ids?: string[]; seat_type: string }) =>
     api.put<any>(`/api/manager/screens/${screenId}/seats/tier`, data),
