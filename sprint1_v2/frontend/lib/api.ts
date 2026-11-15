@@ -59,11 +59,13 @@ export const browseApi = {
     return api.get<any[]>(`/api/browse/shows${qs}`, false);
   },
   showDetail: (id: string) => api.get<any>(`/api/browse/shows/${id}`, false),
+  eventDetail: (id: string) => api.get<any>(`/api/browse/events/${id}`, false),
   cities: () => api.get<string[]>("/api/browse/cities", false),
 };
 
 export const seatsApi = {
   map: (showId: string) => api.get<any>(`/api/seats/${showId}/map`, false),
+  terms: (showId: string) => api.get<any>(`/api/seats/${showId}/terms`, false),
   lock: (showId: string, seat_ids: string[]) =>
     api.post(`/api/seats/${showId}/lock`, { seat_ids }),
   release: (showId: string, seat_ids: string[]) =>
@@ -75,12 +77,14 @@ export const seatsApi = {
 };
 
 export const bookingsApi = {
-  create: (data: { show_id: string; seat_ids?: string[]; zone_id?: string; zone_quantity?: number } | string, maybeSeatIds?: string[]) => {
+  create: (data: { show_id: string; seat_ids?: string[]; zone_id?: string; zone_quantity?: number; terms_accepted?: boolean; terms_hash?: string; terms_text?: string } | string, maybeSeatIds?: string[]) => {
     if (typeof data === "string") {
       return api.post<any>("/api/bookings", { show_id: data, seat_ids: maybeSeatIds || [] });
     }
     return api.post<any>("/api/bookings", data);
   },
+  acceptTerms: (bookingId: string, data: { terms_hash: string; terms_text: string }) =>
+    api.post<any>(`/api/bookings/${bookingId}/accept-terms`, data),
   get: (id: string) => api.get<any>(`/api/bookings/${id}`),
   list: () => api.get<any[]>("/api/bookings"),
 };
