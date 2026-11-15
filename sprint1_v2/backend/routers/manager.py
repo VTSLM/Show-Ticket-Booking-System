@@ -231,6 +231,7 @@ class ShowCreate(BaseModel):
     end_time: datetime
     base_price: float
     premium_multiplier: Optional[float] = 1.5
+    dynamic_pricing: bool = False
     status: str = "scheduled"
     zones: Optional[List[ZoneInput]] = None
 
@@ -285,15 +286,16 @@ async def create_show(
 
     show = await conn.fetchrow(
         """INSERT INTO shows
-        (event_id, screen_id, start_time, end_time, base_price, status)
-        VALUES ($1::uuid, $2::uuid, $3::timestamptz, $4::timestamptz, $5, $6)
+        (event_id, screen_id, start_time, end_time, base_price, status, dynamic_pricing)
+        VALUES ($1::uuid, $2::uuid, $3::timestamptz, $4::timestamptz, $5, $6, $7)
         RETURNING *""",
         body.event_id,
         body.screen_id,
         body.start_time,
         body.end_time,
         body.base_price,
-        body.status
+        body.status,
+        body.dynamic_pricing
     )
     show_id = show["id"]
     mult = body.premium_multiplier or 1.5
@@ -387,10 +389,12 @@ async def update_show(
     _: dict = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    allowed = {"start_time", "end_time", "base_price", "status"}
+    allowed = {"start_time", "end_time", "base_price", "status", "dynamic_pricing"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
+    if "dynamic_pricing" in updates and not isinstance(updates["dynamic_pricing"], bool):
+        raise HTTPException(status_code=400, detail="dynamic_pricing must be true or false")
     set_clause = ", ".join(f"{k}=${i+2}" for i, k in enumerate(updates))
     vals = list(updates.values())
     row = await conn.fetchrow(
