@@ -115,8 +115,41 @@ export default function BrowsePage() {
       if (filters.search.trim()) params.search = filters.search.trim();
 
       const data = await browseApi.shows(params);
+
+      // Group listings by movie/event identity so ANY movie appears EXACTLY ONCE on the page
+      const groupedMap = new Map<string, any>();
+      (Array.isArray(data) ? data : []).forEach((item: any) => {
+        const titleKey = (item.title || "").trim().toLowerCase();
+        const key = item.event_id || titleKey || item.show_id;
+        if (!groupedMap.has(key)) {
+          groupedMap.set(key, {
+            ...item,
+            all_shows: [item],
+            theatres_list: item.venue_name ? [item.venue_name] : [],
+            cities_list: item.city ? [item.city] : [],
+            theatres_count: item.theatres_count || (item.venue_name ? 1 : 0),
+            shows_count: item.shows_count || 1,
+          });
+        } else {
+          const existing = groupedMap.get(key);
+          existing.all_shows.push(item);
+          if (item.venue_name && !existing.theatres_list.includes(item.venue_name)) {
+            existing.theatres_list.push(item.venue_name);
+          }
+          if (item.city && !existing.cities_list.includes(item.city)) {
+            existing.cities_list.push(item.city);
+          }
+          if (item.base_price && (!existing.base_price || Number(item.base_price) < Number(existing.base_price))) {
+            existing.base_price = item.base_price;
+          }
+          existing.available_seats = (existing.available_seats || 0) + (item.available_seats || 0);
+          existing.theatres_count = existing.theatres_list.length;
+          existing.shows_count = existing.all_shows.length;
+        }
+      });
+      const uniqueShows = Array.from(groupedMap.values());
       const hasSearch = !!filters.search.trim();
-      setShows(hasSearch && filters.sort_by === "time_asc" ? data : sortShows(data, filters.sort_by));
+      setShows(hasSearch && filters.sort_by === "time_asc" ? uniqueShows : sortShows(uniqueShows, filters.sort_by));
 
       if (!filters.search.trim() && data.length > 0) {
         setAllShowsCache(data);
@@ -335,14 +368,14 @@ export default function BrowsePage() {
                             </button>
 
                             <Link
-                              href={`/shows/${show.show_id}/seats`}
+                              href={`/shows/${show.show_id}`}
                               onClick={() => {
                                 saveRecentSearch(show.title);
                                 setDropdownOpen(false);
                               }}
                               className="shrink-0 rounded-lg bg-blue-600/20 px-2.5 py-1 text-xs font-medium text-blue-400 hover:bg-blue-600 hover:text-white"
                             >
-                              Book
+                              View
                             </Link>
                           </div>
                         ))}
@@ -588,16 +621,22 @@ export default function BrowsePage() {
       ) : (
         <div className={gridClasses}>
           {shows.map((show) => (
-            <div key={show.show_id} className="flex flex-col">
+            <div key={show.event_id || show.show_id} className="flex flex-col">
               <Link
-                href={`/shows/${show.show_id}/seats`}
+                href={show.event_id ? `/events/${show.event_id}` : `/shows/${show.show_id}`}
                 className="group flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-950/30"
               >
-                {show.poster_url ? (
+                {show.poster_url || show.title?.toLowerCase().includes("ramayana") ? (
                   <img
-                    src={show.poster_url}
+                    src={show.poster_url || "/posters/ramayana.jpg"}
                     alt={`${show.title} poster`}
                     className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                    onError={(e) => {
+                      const img = e.currentTarget;
+                      if (!img.src.includes("/posters/ramayana.jpg")) {
+                        img.src = "/posters/ramayana.jpg";
+                      }
+                    }}
                   />
                 ) : (
                   <div className="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950">
@@ -635,19 +674,22 @@ export default function BrowsePage() {
 
                   <p className="mt-3 text-sm text-slate-300">
                     <span aria-hidden="true">📍 </span>
-                    {show.venue_name}
-                    {show.city ? `, ${show.city}` : ""}
+                    {show.theatres_count && show.theatres_count > 1
+                      ? `In ${show.theatres_count} Theatres (${show.city || "Multiple Venues"})`
+                      : `${show.venue_name || "Venue"}${show.city ? `, ${show.city}` : ""}`}
                   </p>
                   <p className="mt-1 text-sm text-slate-400">
                     <span aria-hidden="true">◷ </span>
-                    {formatTime(show.start_time)}
+                    {show.shows_count && show.shows_count > 1
+                      ? `${show.shows_count} Showtimes Available`
+                      : formatTime(show.start_time)}
                   </p>
 
                   <div className="mt-5 flex items-center justify-between border-t border-slate-800 pt-4">
                     <span className="flex flex-col">
                       <span className="flex items-baseline gap-2">
                         <span className="text-lg font-bold text-blue-400">
-                          ₹{show.current_price ?? show.base_price ?? "—"}
+                          {show.shows_count && show.shows_count > 1 ? "From " : ""}₹{show.current_price ?? show.base_price ?? "—"}
                         </span>
                         {show.price_change_pct ? (
                           <span className="text-xs text-slate-500 line-through">₹{show.base_price}</span>
