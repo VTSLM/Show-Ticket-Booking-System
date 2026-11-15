@@ -126,7 +126,7 @@ async def get_show_pricing(conn, show_id: str) -> dict:
            GROUP BY sh.id, e.event_type""",
         show_id,
     )
-    if not row:
+    if not row or "start_time" not in row:
         return dict(NO_CHANGE)
     return pricing_summary(row["start_time"], row["sold_seats"], row["total_seats"],
                            row["dynamic_pricing"], row["event_type"])

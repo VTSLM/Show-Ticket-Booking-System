@@ -9,11 +9,72 @@ from dependencies import get_current_user
 
 router = APIRouter(prefix="/api/bookings", tags=["bookings"])
 
+from services.terms_service import record_terms_acceptance, resolve_show_terms
+
 class CreateBookingRequest(BaseModel):
     show_id: str
     seat_ids: Optional[List[str]] = None  # show_seat_ids
     zone_id: Optional[str] = None
     zone_quantity: Optional[int] = None
+    terms_accepted: Optional[bool] = False
+    terms_hash: Optional[str] = None
+    terms_text: Optional[str] = None
+
+
+class AcceptTermsRequest(BaseModel):
+    terms_hash: str
+    terms_text: str
+
+
+@router.post("/{booking_id}/accept-terms")
+async def accept_terms(
+    booking_id: str,
+    req: AcceptTermsRequest,
+    current_user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    """
+    Explicitly records customer acceptance of the show's Terms & Conditions.
+    """
+    user_id = str(current_user["id"])
+    booking = await conn.fetchrow(
+        "SELECT id, show_id, user_id FROM bookings WHERE id = $1::uuid AND user_id = $2::uuid",
+        booking_id, user_id
+    )
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found for current user")
+
+    # Verify that the accepted terms_hash matches active terms for the show
+    show_meta = await conn.fetchrow(
+        """SELECT sh.terms_and_conditions as show_terms, e.terms_and_conditions as event_terms
+           FROM shows sh JOIN events e ON e.id = sh.event_id WHERE sh.id = $1::uuid""",
+        booking["show_id"]
+    )
+    _, active_hash, _ = resolve_show_terms(
+        show_meta.get("show_terms") if show_meta else None,
+        show_meta.get("event_terms") if show_meta else None
+    )
+
+    if req.terms_hash != active_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="Terms and Conditions have changed. Please review and accept the latest version."
+        )
+
+    acceptance = await record_terms_acceptance(
+        conn=conn,
+        user_id=user_id,
+        show_id=str(booking["show_id"]),
+        terms_hash=req.terms_hash,
+        terms_text=req.terms_text,
+        booking_id=booking_id
+    )
+    return {
+        "status": "accepted",
+        "acceptance_id": str(acceptance["id"]),
+        "accepted_at": acceptance["accepted_at"].isoformat(),
+        "terms_hash": acceptance["terms_hash"]
+    }
 
 @router.post("")
 async def create_booking(
@@ -57,6 +118,15 @@ async def create_booking(
                    VALUES ($1, $2, $3, $4)""",
                 booking_id, req.zone_id, req.zone_quantity, zone["price"]
             )
+            if req.terms_accepted and req.terms_hash:
+                await record_terms_acceptance(
+                    conn=conn,
+                    user_id=user_id,
+                    show_id=req.show_id,
+                    terms_hash=req.terms_hash,
+                    terms_text=req.terms_text or "",
+                    booking_id=str(booking_id)
+                )
 
         return {
             "booking_id": str(booking_id),
@@ -96,6 +166,15 @@ async def create_booking(
             await conn.execute(
                 "INSERT INTO booking_seats (booking_id, show_seat_id, unit_price) VALUES ($1,$2,$3)",
                 booking_id, s["id"], s["price"]
+            )
+        if req.terms_accepted and req.terms_hash:
+            await record_terms_acceptance(
+                conn=conn,
+                user_id=user_id,
+                show_id=req.show_id,
+                terms_hash=req.terms_hash,
+                terms_text=req.terms_text or "",
+                booking_id=str(booking_id)
             )
 
     return {"booking_id": str(booking_id), "booking_number": booking_number, "total_amount": float(total), "status": "pending"}

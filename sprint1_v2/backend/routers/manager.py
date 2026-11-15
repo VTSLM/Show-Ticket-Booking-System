@@ -7,6 +7,8 @@ import asyncpg
 from database import get_conn
 from dependencies import require_role
 
+import json
+
 router = APIRouter(prefix="/api/manager", tags=["manager"])
 
 # ---- Venues ----
@@ -54,6 +56,7 @@ class ScreenCreate(BaseModel):
     layout_type: Optional[str] = "cinema"  # "cinema", "concert", "theatre", "other"
     stage_position: Optional[str] = "front"  # "front", "center", "end"
     premium_rows: Optional[List[str]] = None  # e.g. ["D", "E"] or ["A", "B"]
+    layout_config: Optional[dict] = None  # Custom coordinate geometry, sections, polygons
 
 @router.get("/venues/{venue_id}/screens")
 async def list_screens(venue_id: str, conn: asyncpg.Connection = Depends(get_conn)):
@@ -67,13 +70,15 @@ async def create_screen(
     _: dict = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    cfg_json = json.dumps(body.layout_config) if body.layout_config else None
     screen = await conn.fetchrow(
-        """INSERT INTO screens (venue_id, name, capacity, layout_type, stage_position)
-           VALUES ($1::uuid, $2, $3, $4, $5) RETURNING *""",
-        venue_id, body.name, body.capacity, body.layout_type or "cinema", body.stage_position or "front"
+        """INSERT INTO screens (venue_id, name, capacity, layout_type, stage_position, layout_config)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6) RETURNING *""",
+        venue_id, body.name, body.capacity, body.layout_type or "cinema", body.stage_position or "front",
+        cfg_json
     )
     screen_id = screen["id"]
-    # Auto-generate seats if rows/cols provided with ultra-fast batch insertion
+    # Auto-generate seats if rows/cols provided with ultra-fast batch insertion and coordinate tracking
     if body.rows and body.cols:
         def get_row_label(i: int) -> str:
             res = ""
@@ -86,17 +91,19 @@ async def create_screen(
         prem_rows = {r.strip().upper() for r in (body.premium_rows or []) if r.strip()}
 
         seat_records = []
-        for label in row_labels:
+        for r_idx, label in enumerate(row_labels):
             stype = "premium" if (label in prem_rows or label.upper() in prem_rows) else "standard"
+            y_coord = float(r_idx * 42 + 60)
             for num in range(1, body.cols + 1):
-                seat_records.append((screen_id, label, num, stype))
+                x_coord = float((num - 1) * 38 + 50)
+                seat_records.append((screen_id, label, num, stype, x_coord, y_coord, "Main Seating"))
 
         if seat_records:
             # Batch in chunks of 1000 to prevent timeouts and provide sub-second execution
             for i in range(0, len(seat_records), 1000):
                 await conn.executemany(
-                    """INSERT INTO seats (screen_id, row_label, seat_number, seat_type)
-                       VALUES ($1, $2, $3, $4::seat_type) ON CONFLICT DO NOTHING""",
+                    """INSERT INTO seats (screen_id, row_label, seat_number, seat_type, x_pos, y_pos, section_name)
+                       VALUES ($1, $2, $3, $4::seat_type, $5, $6, $7) ON CONFLICT DO NOTHING""",
                     seat_records[i:i+1000]
                 )
     return dict(screen)
@@ -138,8 +145,15 @@ class EventCreate(BaseModel):
     language: Optional[str] = None
     genre: Optional[str] = None
     poster_url: Optional[str] = None
+    backdrop_url: Optional[str] = None
     status: str = "draft"
     organizer_id: Optional[str] = None
+    cast_crew: Optional[List[dict]] = None
+    artists: Optional[List[dict]] = None
+    formats: Optional[List[str]] = None
+    certificate: Optional[str] = "UA"
+    release_date: Optional[str] = None
+    terms_and_conditions: Optional[str] = None
 
 @router.get("/events")
 async def list_events(conn: asyncpg.Connection = Depends(get_conn)):
@@ -186,11 +200,19 @@ async def create_event(
                     detail=f"Organization '{org['legal_name']}' is not approved (status: {org['verification_status']}). Only approved organizations can host events."
                 )
 
+    cast_json = json.dumps(body.cast_crew) if body.cast_crew else "[]"
+    artist_json = json.dumps(body.artists) if body.artists else "[]"
+    rel_date = datetime.strptime(body.release_date, "%Y-%m-%d").date() if body.release_date else None
+
     row = await conn.fetchrow(
-        """INSERT INTO events (title, description, event_type, duration_minutes, language, genre, poster_url, status, organizer_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid) RETURNING *""",
+        """INSERT INTO events
+           (title, description, event_type, duration_minutes, language, genre, poster_url,
+            backdrop_url, status, organizer_id, cast_crew, artists, formats, certificate, release_date, terms_and_conditions)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::uuid,$11::jsonb,$12::jsonb,$13,$14,$15,$16)
+           RETURNING *""",
         body.title, body.description, body.event_type, body.duration_minutes,
-        body.language, body.genre, body.poster_url, body.status, organizer_id
+        body.language, body.genre, body.poster_url, body.backdrop_url, body.status, organizer_id,
+        cast_json, artist_json, body.formats or ["2D"], body.certificate or "UA", rel_date, body.terms_and_conditions
     )
     return dict(row)
 
@@ -201,8 +223,21 @@ async def update_event(
     _: dict = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    allowed = {"title","description","event_type","duration_minutes","language","genre","poster_url","status"}
-    updates = {k: v for k, v in body.items() if k in allowed}
+    allowed = {
+        "title","description","event_type","duration_minutes","language","genre",
+        "poster_url","backdrop_url","status","certificate","release_date",
+        "terms_and_conditions","cast_crew","artists","formats"
+    }
+    updates = {}
+    for k, v in body.items():
+        if k in allowed:
+            if k in ("cast_crew", "artists") and isinstance(v, (list, dict)):
+                updates[k] = json.dumps(v)
+            elif k == "release_date" and isinstance(v, str) and v.strip():
+                updates[k] = datetime.strptime(v.strip(), "%Y-%m-%d").date()
+            else:
+                updates[k] = v
+
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
     set_clause = ", ".join(f"{k}=${i+2}" for i, k in enumerate(updates))
@@ -222,6 +257,11 @@ class ZoneInput(BaseModel):
     price: float
     zone_type: Optional[str] = "standing"
     color_hex: Optional[str] = "#287cff"
+    polygon_coords: Optional[list] = None
+    x_pos: Optional[float] = None
+    y_pos: Optional[float] = None
+    width: Optional[float] = None
+    height: Optional[float] = None
 
 
 class ShowCreate(BaseModel):
@@ -233,6 +273,7 @@ class ShowCreate(BaseModel):
     premium_multiplier: Optional[float] = 1.5
     dynamic_pricing: bool = False
     status: str = "scheduled"
+    terms_and_conditions: Optional[str] = None
     zones: Optional[List[ZoneInput]] = None
 
 @router.get("/shows")
@@ -286,8 +327,8 @@ async def create_show(
 
     show = await conn.fetchrow(
         """INSERT INTO shows
-        (event_id, screen_id, start_time, end_time, base_price, status, dynamic_pricing)
-        VALUES ($1::uuid, $2::uuid, $3::timestamptz, $4::timestamptz, $5, $6, $7)
+        (event_id, screen_id, start_time, end_time, base_price, status, terms_and_conditions, dynamic_pricing)
+        VALUES ($1::uuid, $2::uuid, $3::timestamptz, $4::timestamptz, $5, $6, $7, $8)
         RETURNING *""",
         body.event_id,
         body.screen_id,
@@ -295,6 +336,7 @@ async def create_show(
         body.end_time,
         body.base_price,
         body.status,
+        body.terms_and_conditions,
         body.dynamic_pricing
     )
     show_id = show["id"]
@@ -314,10 +356,12 @@ async def create_show(
     # If concert/event standing zones are provided, create them
     if body.zones:
         for idx, z in enumerate(body.zones, start=1):
+            poly_json = json.dumps(z.polygon_coords) if z.polygon_coords else None
             await conn.execute(
-                """INSERT INTO show_zones (show_id, name, zone_type, total_capacity, price, color_hex, display_order)
-                   VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)""",
-                show_id, z.name, z.zone_type or "standing", z.total_capacity, z.price, z.color_hex or "#287cff", idx
+                """INSERT INTO show_zones (show_id, name, zone_type, total_capacity, price, color_hex, display_order, polygon_coords, x_pos, y_pos, width, height)
+                   VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)""",
+                show_id, z.name, z.zone_type or "standing", z.total_capacity, z.price, z.color_hex or "#287cff", idx,
+                poly_json, z.x_pos, z.y_pos, z.width, z.height
             )
 
     return dict(show)
@@ -337,10 +381,12 @@ async def add_show_zone(
     _: dict = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    poly_json = json.dumps(body.polygon_coords) if body.polygon_coords else None
     row = await conn.fetchrow(
-        """INSERT INTO show_zones (show_id, name, zone_type, total_capacity, price, color_hex)
-           VALUES ($1::uuid, $2, $3, $4, $5, $6) RETURNING *""",
-        show_id, body.name, body.zone_type or "standing", body.total_capacity, body.price, body.color_hex or "#287cff"
+        """INSERT INTO show_zones (show_id, name, zone_type, total_capacity, price, color_hex, polygon_coords, x_pos, y_pos, width, height)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11) RETURNING *""",
+        show_id, body.name, body.zone_type or "standing", body.total_capacity, body.price, body.color_hex or "#287cff",
+        poly_json, body.x_pos, body.y_pos, body.width, body.height
     )
     return dict(row)
 
