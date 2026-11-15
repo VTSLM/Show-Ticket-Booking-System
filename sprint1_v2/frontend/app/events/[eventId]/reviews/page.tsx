@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import AiReviewSummaryCard from "@/components/AiReviewSummary";
@@ -13,6 +13,7 @@ import {
   MyReview,
   Review,
   ReviewComment,
+  ReportReason,
   SortBy,
 } from "@/lib/reviewsApi";
 
@@ -30,6 +31,17 @@ const toLocalInput = (d: Date) => {
 const MIN_LEAD_MS = 2 * 60 * 1000; // pick a time at least 2 minutes ahead (server needs 1)
 const minScheduleInput = () => toLocalInput(new Date(Date.now() + MIN_LEAD_MS));
 const maxScheduleInput = () => toLocalInput(new Date(Date.now() + 364 * 24 * 60 * 60 * 1000));
+
+// "TF Verified" = reviews by people who booked a ticket for this event on TicketFlow
+type ReviewTab = Audience | "verified";
+
+// "Watched on 14 Nov, PVR Ahmedabad" — from the show the reviewer booked
+const watchedLine = (r: Review) => {
+  if (!r.watched_at) return null;
+  const day = new Date(r.watched_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const place = [r.watched_venue, r.watched_city].filter(Boolean).join(" ");
+  return place ? `Watched on ${day}, ${place}` : `Watched on ${day}`;
+};
 
 const EMPTY_FORM = { rating: 8, headline: "", content: "", is_spoiler: false };
 
@@ -65,11 +77,21 @@ function ScoreCard({
   );
 }
 
+const REPORT_REASONS: [ReportReason, string][] = [
+  ["spam", "Spam or advertising"],
+  ["abusive", "Abusive or offensive"],
+  ["spoiler", "Spoiler not marked"],
+  ["off_topic", "Not about this event"],
+  ["other", "Something else"],
+];
+
 function ReviewCard({
   review,
   token,
   onChange,
   canManage,
+  isMine,
+  hideSpoilers,
   onEdit,
   onDelete,
 }: {
@@ -77,20 +99,33 @@ function ReviewCard({
   token: string | null;
   onChange: (r: Review) => void;
   canManage: boolean;
+  isMine: boolean;
+  hideSpoilers: boolean;
   onEdit: (r: Review) => void;
   onDelete: (r: Review) => void;
 }) {
-  const [revealed, setRevealed] = useState(!review.is_spoiler);
+  const router = useRouter();
+  const [clicked, setClicked] = useState(false);
+  // Spoiler reviews stay covered while "Hide spoilers" is on, unless this card was clicked open
+  const revealed = !review.is_spoiler || !hideSpoilers || clicked;
+  const setRevealed = (v: boolean) => setClicked(v);
   const [showComments, setShowComments] = useState(false);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [replyTo, setReplyTo] = useState<string | null>(null); // id of the thread being replied to
   const [replyText, setReplyText] = useState("");
+  const [showReport, setShowReport] = useState(false);
+  const [reportReason, setReportReason] = useState<ReportReason>("spam");
+  const [reportDetails, setReportDetails] = useState("");
 
   const isCritic = review.author.role === "critic" || review.author.is_verified;
 
   const upvote = async () => {
-    if (!token) return toast.error("Log in to upvote");
+    if (!token) {
+      toast.error("Log in to mark reviews helpful");
+      router.push("/auth/login");
+      return;
+    }
     try {
       const res = await reviewsApi.toggleUpvote(token, review.id);
       onChange({ ...review, has_upvoted: res.upvoted, upvotes_count: res.upvotes_count });
@@ -117,6 +152,23 @@ function ReviewCard({
     } catch (e: any) {
       toast.error(e.message);
       return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitReport = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (!token) return toast.error("Log in to report a review");
+    setBusy(true);
+    try {
+      await reviewsApi.report(token, review.id, reportReason, reportDetails);
+      toast.success("Thanks, the review was reported to the managers");
+      onChange({ ...review, has_reported: true });
+      setShowReport(false);
+      setReportDetails("");
+    } catch (e: any) {
+      toast.error(e.message);
     } finally {
       setBusy(false);
     }
@@ -182,6 +234,14 @@ function ReviewCard({
         <div>
           <p className="font-semibold text-white">
             {review.author.name}
+            {review.is_verified_attendee && (
+              <span
+                className="ml-2 rounded-md bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300"
+                title="This reviewer booked a ticket for this event on TicketFlow"
+              >
+                ✓ Verified attendee
+              </span>
+            )}
             {isCritic && (
               <span className="ml-2 rounded-md bg-blue-500/20 px-2 py-0.5 text-xs text-blue-300">
                 {review.author.publication ? `Critic · ${review.author.publication}` : "Critic"}
@@ -191,7 +251,11 @@ function ReviewCard({
           <p className="text-xs text-slate-500">
             {fmtDate(review.published_at)}
             {review.version > 1 && " · edited"}
+            {review.is_verified_attendee && " · Booked on TicketFlow"}
           </p>
+          {watchedLine(review) && (
+            <p className="text-xs text-emerald-300/80">🎟 {watchedLine(review)}</p>
+          )}
         </div>
         <div className="shrink-0 rounded-xl border border-slate-700 px-3 py-1 text-lg font-bold text-blue-400">
           {review.rating.toFixed(1)}
@@ -235,6 +299,19 @@ function ReviewCard({
         >
           💬 Comments ({review.comments_count})
         </button>
+        {!isMine && (
+          <button
+            onClick={() => {
+              if (!token) return toast.error("Log in to report a review");
+              if (review.has_reported) return;
+              setShowReport((v) => !v);
+            }}
+            disabled={review.has_reported}
+            className="text-slate-500 hover:text-red-300 disabled:cursor-default disabled:hover:text-slate-500"
+          >
+            {review.has_reported ? "🚩 Reported" : "🚩 Report"}
+          </button>
+        )}
         {canManage && (
           <span className="ml-auto flex gap-4">
             <button onClick={() => onEdit(review)} className="text-slate-400 hover:text-white">
@@ -246,6 +323,45 @@ function ReviewCard({
           </span>
         )}
       </div>
+
+      {showReport && !review.has_reported && (
+        <form
+          onSubmit={submitReport}
+          className="mt-3 space-y-3 rounded-lg border border-slate-800 bg-slate-900/60 p-4"
+        >
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+            Report this review
+          </p>
+          <div className="space-y-2">
+            {REPORT_REASONS.map(([value, label]) => (
+              <label key={value} className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="radio"
+                  name={`report-${review.id}`}
+                  checked={reportReason === value}
+                  onChange={() => setReportReason(value)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <textarea
+            className="input min-h-[70px] text-sm"
+            maxLength={500}
+            placeholder="Add details (optional)"
+            value={reportDetails}
+            onChange={(e) => setReportDetails(e.target.value)}
+          />
+          <div className="flex items-center gap-2">
+            <button type="submit" className="btn-primary" disabled={busy}>
+              {busy ? "Sending…" : "Submit report"}
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => setShowReport(false)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
 
       {showComments && (
         <div className="mt-3 space-y-3">
@@ -316,8 +432,9 @@ export default function EventReviewsPage() {
   const [data, setData] = useState<EventReviews | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [audience, setAudience] = useState<Audience>("all");
+  const [audience, setAudience] = useState<ReviewTab>("all");
   const [sortBy, setSortBy] = useState<SortBy>("newest");
+  const [hideSpoilers, setHideSpoilers] = useState(true);
   const [token, setToken] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
@@ -345,7 +462,17 @@ export default function EventReviewsPage() {
     setLoading(true);
     setError(null);
     try {
-      setData(await reviewsApi.forEvent(eventId, { audience, sortBy, token }));
+      // "TF Verified" loads everyone and keeps only the verified attendees
+      const res = await reviewsApi.forEvent(eventId, {
+        audience: audience === "verified" ? "all" : audience,
+        sortBy,
+        token,
+      });
+      setData(
+        audience === "verified"
+          ? { ...res, reviews: res.reviews.filter((r) => r.is_verified_attendee) }
+          : res
+      );
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -567,31 +694,61 @@ export default function EventReviewsPage() {
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-2">
-          {(["all", "critics", "audience"] as Audience[]).map((t) => (
+          {(["all", "critics", "audience", "verified"] as ReviewTab[]).map((t) => (
             <button
               key={t}
               onClick={() => setAudience(t)}
-              className={`rounded-full border px-4 py-1.5 text-sm capitalize ${
+              className={`rounded-full border px-4 py-1.5 text-sm ${
+                t === "verified" ? "italic" : "capitalize"
+              } ${
                 audience === t
-                  ? "border-blue-500 bg-blue-500/20 text-blue-300"
+                  ? t === "verified"
+                    ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
+                    : "border-blue-500 bg-blue-500/20 text-blue-300"
                   : "border-slate-700 text-slate-400 hover:text-white"
               }`}
+              title={
+                t === "verified"
+                  ? "Reviews from people who booked this event on TicketFlow"
+                  : undefined
+              }
             >
-              {t}
+              {t === "verified" ? "TF Verified" : t}
             </button>
           ))}
         </div>
-        <select
-          className="input !w-auto"
-          aria-label="Sort reviews"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as SortBy)}
-        >
-          <option value="newest">Newest</option>
-          <option value="highest">Highest rated</option>
-          <option value="lowest">Lowest rated</option>
-          <option value="helpful">Most helpful</option>
-        </select>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-300">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={hideSpoilers}
+              aria-label="Hide spoilers"
+              onClick={() => setHideSpoilers((v) => !v)}
+              className={`relative h-5 w-9 rounded-full transition-colors ${
+                hideSpoilers ? "bg-blue-500" : "bg-slate-700"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${
+                  hideSpoilers ? "left-[18px]" : "left-0.5"
+                }`}
+              />
+            </button>
+            Hide spoilers
+          </label>
+          <select
+            className="input !w-auto"
+            aria-label="Sort reviews"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortBy)}
+          >
+            <option value="newest">Newest</option>
+            <option value="highest">Highest rated</option>
+            <option value="lowest">Lowest rated</option>
+            <option value="helpful">Most helpful</option>
+          </select>
+        </div>
       </div>
 
       <div className="mt-6">
@@ -797,20 +954,27 @@ export default function EventReviewsPage() {
           <div className="py-16 text-center text-red-400">{error}</div>
         ) : data && data.reviews.length === 0 ? (
           <div className="py-16 text-center text-slate-400">
-            No reviews yet — be the first to write one.
+            {audience === "verified"
+              ? "No verified attendee has reviewed this event yet."
+              : "No reviews yet — be the first to write one."}
           </div>
         ) : (
-          data?.reviews.map((r) => (
-            <ReviewCard
-              key={r.id}
-              review={r}
-              token={token}
-              onChange={updateReview}
-              canManage={Boolean(isAdmin) || (!!profile?.id && String(profile.id) === String(r.user_id))}
-              onEdit={startEdit}
-              onDelete={removeReview}
-            />
-          ))
+          data?.reviews.map((r) => {
+            const isMine = !!profile?.id && String(profile.id) === String(r.user_id);
+            return (
+              <ReviewCard
+                key={r.id}
+                review={r}
+                token={token}
+                onChange={updateReview}
+                canManage={Boolean(isAdmin) || isMine}
+                isMine={isMine}
+                hideSpoilers={hideSpoilers}
+                onEdit={startEdit}
+                onDelete={removeReview}
+              />
+            );
+          })
         )}
       </div>
     </div>

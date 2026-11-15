@@ -98,6 +98,9 @@ class ReviewOut(ReviewBase):
     has_upvoted: bool = False
     has_reported: bool = False            # current user already reported this review
     is_verified_attendee: bool = False    # reviewer booked a ticket for this event
+    watched_at: Optional[datetime] = None     # start time of the show the reviewer booked
+    watched_venue: Optional[str] = None       # venue name of that show
+    watched_city: Optional[str] = None        # venue city of that show
     comments_count: int = 0
     comments: List[CommentOut] = Field(default_factory=list)
     versions_count: int = 0

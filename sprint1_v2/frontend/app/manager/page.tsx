@@ -195,6 +195,19 @@ export default function ManagerPage() {
     }
   };
 
+  const removeReview = async (r: ReportedReview) => {
+    if (!user) return;
+    if (!confirm(`Remove "${r.headline}" by ${r.author_name}? This deletes the review and its comments permanently.`)) return;
+    try {
+      const token = await user.getIdToken();
+      await reviewsApi.remove(token, r.review_id);
+      toast.success("Review removed");
+      await loadReports(reportFilter);
+    } catch (err: any) {
+      toast.error(err.message || "Could not remove review");
+    }
+  };
+
   const loadScreens = async (venueId: string) => {
     if (!venueId) { setScreens([]); return; }
     try { setScreens(await managerApi.screens(venueId)); }
@@ -986,8 +999,12 @@ export default function ManagerPage() {
                     style={{ fontSize: 13, color: C.blue, textDecoration: "none", fontWeight: 600 }}>
                     Open reviews page →
                   </a>
-                  {r.open_count > 0 && (
-                    <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                  <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button onClick={() => removeReview(r)}
+                      style={{ background: `${C.red}15`, border: `1px solid ${C.red}55`, color: C.red, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                      🗑 Remove review
+                    </button>
+                    {r.open_count > 0 && (<>
                       <button onClick={() => resolveReports(r.review_id, "dismissed")}
                         style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.fg, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                         Dismiss
@@ -996,8 +1013,8 @@ export default function ManagerPage() {
                         style={{ background: C.blue, border: "none", color: "#fff", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                         Mark as reviewed
                       </button>
-                    </div>
-                  )}
+                    </>)}
+                  </div>
                 </div>
               </SectionCard>
             ))}
