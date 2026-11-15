@@ -22,6 +22,48 @@ function getDateOffset(days: number): string {
   return d.toISOString().split("T")[0];
 }
 
+// Poster that falls back to a placeholder when the image URL is empty or fails to load
+function Poster({
+  src,
+  alt,
+  className,
+  fallbackClassName,
+  emojiClassName = "text-6xl",
+  emoji = "🎥",
+}: {
+  src?: string | null;
+  alt: string;
+  className: string;
+  fallbackClassName: string;
+  emojiClassName?: string;
+  emoji?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+
+  if (!src || failed) {
+    return (
+      <div className={fallbackClassName}>
+        <span className={emojiClassName} aria-hidden="true">
+          {emoji}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+const hasRating = (s: any) => Number(s.review_count ?? 0) > 0 && s.avg_rating != null;
+
 // Sorts the shows on the page itself so the chosen sort always applies,
 // whatever order the API returned them in.
 function sortShows(list: any[], sortBy: string): any[] {
@@ -33,6 +75,13 @@ function sortShows(list: any[], sortBy: string): any[] {
   const seats = (s: any) => Number(s.available_seats ?? 0);
 
   return [...list].sort((a, b) => {
+    if (sortBy === "rating_desc") {
+      // best rating first, more reviews break ties, unrated shows go last
+      const ra = hasRating(a) ? Number(a.avg_rating) : -1;
+      const rb = hasRating(b) ? Number(b.avg_rating) : -1;
+      if (ra !== rb) return rb - ra;
+      return Number(b.review_count ?? 0) - Number(a.review_count ?? 0) || time(a) - time(b);
+    }
     if (sortBy === "price_asc" || sortBy === "price_desc") {
       const pa = price(a);
       const pb = price(b);
@@ -111,7 +160,8 @@ export default function BrowsePage() {
       if (filters.event_type) params.event_type = filters.event_type;
       if (filters.language) params.language = filters.language;
       if (filters.date) params.date = filters.date;
-      if (filters.sort_by) params.sort_by = filters.sort_by;
+      // "Top rated" is sorted on the page (the rating comes with each show)
+      if (filters.sort_by && filters.sort_by !== "rating_desc") params.sort_by = filters.sort_by;
       if (filters.search.trim()) params.search = filters.search.trim();
 
       const data = await browseApi.shows(params);
@@ -313,17 +363,14 @@ export default function BrowsePage() {
                               onClick={() => selectSuggestion(show.title)}
                               className="flex min-w-0 flex-1 items-center gap-3 text-left"
                             >
-                              {show.poster_url ? (
-                                <img
-                                  src={show.poster_url}
-                                  alt={show.title}
-                                  className="h-10 w-8 shrink-0 rounded object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-10 w-8 shrink-0 items-center justify-center rounded bg-slate-800 text-sm">
-                                  🎬
-                                </div>
-                              )}
+                              <Poster
+                                src={show.poster_url}
+                                alt={show.title}
+                                className="h-10 w-8 shrink-0 rounded object-cover"
+                                fallbackClassName="flex h-10 w-8 shrink-0 items-center justify-center rounded bg-slate-800"
+                                emojiClassName="text-sm"
+                                emoji="🎬"
+                              />
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-semibold text-white">
                                   {show.title}
@@ -460,6 +507,7 @@ export default function BrowsePage() {
             <option value="price_asc">Price: Low to High</option>
             <option value="price_desc">Price: High to Low</option>
             <option value="seats_desc">Most Seats Available</option>
+            <option value="rating_desc">Top Rated</option>
           </select>
         </div>
 
@@ -593,19 +641,12 @@ export default function BrowsePage() {
                 href={`/shows/${show.show_id}/seats`}
                 className="group flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-950/30"
               >
-                {show.poster_url ? (
-                  <img
-                    src={show.poster_url}
-                    alt={`${show.title} poster`}
-                    className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                  />
-                ) : (
-                  <div className="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950">
-                    <span className="text-6xl" aria-hidden="true">
-                      🎥
-                    </span>
-                  </div>
-                )}
+                <Poster
+                  src={show.poster_url}
+                  alt={`${show.title} poster`}
+                  className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                  fallbackClassName="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950"
+                />
 
                 <div className="p-5">
                   <div className="mb-2 flex items-start justify-between gap-3">
@@ -632,6 +673,20 @@ export default function BrowsePage() {
                       </>
                     )}
                   </div>
+
+                  <p className="mt-2 text-sm font-medium">
+                    {hasRating(show) ? (
+                      <span className="text-amber-400">
+                        ★ {Number(show.avg_rating).toFixed(1)}
+                        <span className="font-normal text-slate-400">
+                          {" "}
+                          · {show.review_count} {Number(show.review_count) === 1 ? "review" : "reviews"}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="font-normal text-slate-500">★ No ratings yet</span>
+                    )}
+                  </p>
 
                   <p className="mt-3 text-sm text-slate-300">
                     <span aria-hidden="true">📍 </span>
