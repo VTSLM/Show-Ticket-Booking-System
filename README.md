@@ -6,19 +6,13 @@ TicketFlow is a modern, full-stack event ticketing platform developed as a unive
 
 Venue managers can list and schedule events, while administrators manage access control and platform operations.
 
-> **Status:** Sprint 1 and Sprint 2 are preserved as runnable snapshots. Continue development in `sprint3/`.
+> **Status:** One app at the repo root. Earlier sprints are tagged: [v0.1.0 (Sprint 1)](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.1.0), [v0.2.0 (Sprint 2)](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.2.0).
 
 ---
 
-## Run a Sprint Locally
+## Run Locally
 
-| Sprint | Application directory | Baseline |
-|--------|-----------------------|----------|
-| Sprint 1 | [`sprint1/integrated/`](sprint1/integrated/) | Original Sprint 1 integration, `c0a3d7a`. The original standalone modules and database files are also in `sprint1/`. |
-| Sprint 2 | [`sprint2/`](sprint2/) | Completed integrated snapshot with fixes through `7ff0f85`. |
-| Sprint 3 | [`sprint3/`](sprint3/) | Active application, starting from the same merged baseline as Sprint 2. |
-
-From the selected application directory, run these commands in two terminals. Set up your local backend and frontend environment files for the team's test services before starting. Use the original setup notes for each snapshot. [Sprint 1 setup](sprint1/integrated/INTEGRATION_NOTES.md) · [Sprint 2 setup](sprint2/INTEGRATION_NOTES.md) · [Sprint 3 setup](sprint3/INTEGRATION_NOTES.md)
+Copy `backend/.env.example` to `backend/.env` and `frontend/.env.example` to `frontend/.env.local`, fill in the team's test values, then run these in two terminals from the repo root (or use `./scripts/dev.sh`).
 
 **Backend**
 
@@ -30,8 +24,6 @@ python -m pip install -r requirements.txt
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-For the original Sprint 1 snapshot, run `python -m pip install 'setuptools==80.9.0'` before starting the backend. Its original Razorpay dependency uses `pkg_resources`.
-
 **Frontend**
 
 ```sh
@@ -40,7 +32,7 @@ npm ci
 npm run dev
 ```
 
-Open [TicketFlow locally](http://localhost:3000). The frontend and backend commands use ports 3000 and 8000, so stop one sprint's servers before starting the next.
+Open [TicketFlow locally](http://localhost:3000). The API docs are at http://localhost:8000/docs.
 
 ---
 
@@ -69,7 +61,7 @@ Open [TicketFlow locally](http://localhost:3000). The frontend and backend comma
 | **F05** | **Payment Gateway** | `feature/05-payment-gateway` | Secure payment processing through Razorpay test integration. |
 | **F06** | **Ticket Generation & Email** | `ticket-generation-hari` | Automated PDF e-ticket generation with QR codes and email delivery via SMTP. |
 
-> All six features are included in the [Sprint 1 integrated snapshot](sprint1/integrated/).
+> All six features are included in [v0.1.0](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.1.0).
 
 ---
 
@@ -141,105 +133,19 @@ Open [TicketFlow locally](http://localhost:3000). The frontend and backend comma
 
 ```text
 Show-Ticket-Booking-System/
-│
-├── .github/                          # GitHub workflows & config
-├── .gitignore
-├── README.md
-│
-├── Documentation/                    # Architecture, UML diagrams, design specs
-│
-├── sprint1/                          # Sprint 1 snapshot and original modules
-│   ├── integrated/                  # Runnable Sprint 1 app
-│   ├── database/                    # Original database schema and migrations
-│   └── features/
-│       ├── 01-authentication/
-│       ├── 02-manager-show-listing/
-│       ├── 03-browse-nearby-shows/
-│       ├── 04-seat-allocation/
-│       ├── 05-payment/
-│       └── 06-ticket-generation/
-│
-├── sprint2/                          # Runnable Sprint 2 snapshot
-│
-└── sprint3/                          # Active integrated application
-    │
-    ├── backend/                      # FastAPI backend
-    │   ├── fixtures/                 # Seed / test data
-    │   ├── models/                   # Data models
-    │   ├── routers/                  # API route handlers
-    │   ├── schemas/                  # Pydantic request/response schemas
-    │   ├── services/                 # Business logic (pricing, AI summary, email...)
-    │   ├── tests/                    # Backend tests
-    │   ├── .env.example              # Environment variable template
-    │   ├── config.py
-    │   ├── database.py               # asyncpg connection setup
-    │   ├── dependencies.py           # Auth & shared dependencies
-    │   ├── firebase_admin_setup.py
-    │   ├── main.py                   # FastAPI entry point
-    │   ├── requirements.txt
-    │   └── Dockerfile
-    │
-    ├── database/                     # SQL migrations and rollback scripts
-    │   ├── seeds/
-    │   ├── 001_ai_review_summaries.sql
-    │   ├── 003_customer_care.sql
-    │   ├── 003_reviews_module.sql
-    │   ├── 004_admin_verification_person_b.sql
-    │   ├── 004_cancellation_refund.sql
-    │   ├── 004_critics_and_reviews.sql
-    │   ├── 004_organizer_verification.sql
-    │   ├── 004_organizer_verification_rollback.sql
-    │   ├── 004_review_deletions.sql
-    │   ├── 005_review_scheduling_and_replies.sql
-    │   ├── 005_venue_application_fields.sql
-    │   ├── 006_fuzzy_search_pg_trgm.sql
-    │   ├── 006_multi_venue_layouts.sql
-    │   ├── 007_review_reports.sql
-    │   ├── 007_verified_events_venues.sql
-    │   ├── 008_dynamic_seat_pricing.sql
-    │   ├── unified_schema.sql
-    │   └── README.md
-    │
-    ├── frontend/                     # Next.js 14 (App Router) application
-    │   ├── app/
-    │   │   ├── admin/                # Admin dashboard & venue/organizer review
-    │   │   ├── auth/                 # Login, register, forgot password
-    │   │   ├── bookings/             # My bookings, cancellation
-    │   │   ├── browse/               # Browse & search shows
-    │   │   ├── events/               # Event pages & reviews
-    │   │   ├── help/                 # Help Centre (FAQs)
-    │   │   ├── manager/              # Manager dashboard
-    │   │   ├── payment/              # Razorpay checkout
-    │   │   ├── profile/              # User profile
-    │   │   ├── shows/                # Seat selection
-    │   │   ├── support/              # Customer Care requests
-    │   │   ├── venue-verification/   # Venue verification form
-    │   │   ├── verification/         # Organizer verification
-    │   │   ├── globals.css
-    │   │   ├── layout.tsx
-    │   │   └── page.tsx
-    │   ├── components/               # Reusable UI components
-    │   ├── contexts/                 # React contexts (AuthContext)
-    │   ├── lib/                      # API clients & helpers
-    │   ├── tests/                    # Playwright tests
-    │   ├── next.config.mjs
-    │   ├── package.json
-    │   ├── playwright.config.ts
-    │   ├── postcss.config.mjs
-    │   ├── tailwind.config.ts
-    │   ├── tsconfig.json
-    │   └── REVIEWS_INTEGRATION.md
-    │
-    ├── create_issues.sh
-    ├── docker-compose.yml
-    ├── INTEGRATION_NOTES.md
-    ├── pytest.ini
-    └── start-dev.sh
+├── backend/        # FastAPI app (routers, services, schemas, tests)
+├── frontend/       # Next.js 14 app (App Router, Tailwind, Playwright tests)
+├── database/       # Ordered SQL migrations, rollbacks, seeds
+├── infra/          # Terraform for Azure (planned)
+├── docs/           # Requirements PDFs and historical notes
+├── scripts/        # Developer scripts (dev.sh)
+├── docker-compose.yml
+└── .github/        # CI workflows
 ```
 
 ---
 
-> **Database setup:** The base migrations are in [`sprint1/database/migrations/`](sprint1/database/migrations/). The integrated snapshots carry their own SQL additions. Review the setup notes for the selected sprint before applying changes to a database.
+> **Database setup:** see [database/README.md](database/README.md).
 
 ---
 
