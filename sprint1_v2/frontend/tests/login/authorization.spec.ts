@@ -16,7 +16,7 @@ async function login(page: Page, email: string | undefined, password: string | u
 
   await page.goto(loginUrl);
   await page.getByLabel('Email').fill(email!);
-  await page.getByLabel('Password').fill(password!);
+  await page.getByLabel('Password', { exact: true }).fill(password!);
   await page.getByRole('button', { name: 'Log in' }).click();
   await expect(page).toHaveURL(/\/browse(?:\/)?$/, { timeout: 15_000 });
 }
