@@ -1,32 +1,46 @@
 # TicketFlow - Show Ticket Booking System
 
-> **IT314 Software Engineering** · **DA-IICT** · **Batch 2024** · **Sprint 1 & Sprint 2 (Under Active Development)**
+> **IT314 Software Engineering** · **DA-IICT** · **Batch 2024** · **Sprint 1 & Sprint 2 snapshots · Sprint 3 active**
 
 TicketFlow is a modern, full-stack event ticketing platform developed as a university software engineering project. It provides an end-to-end event management and ticketing solution where users can discover upcoming events, select and lock seats in real time, make secure online payments via Razorpay, and receive instant e-tickets with scannable QR codes.
 
 Venue managers can list and schedule events, while administrators manage access control and platform operations.
 
-> **Status:** Sprint 1 is complete. Sprint 2 is currently under active development.
+> **Status:** Sprint 1 and Sprint 2 are preserved as runnable snapshots. Continue development in `sprint3/`.
 
 ---
 
-## 🚧 Active Development Branch
+## Run a Sprint Locally
 
-> **All current development and active code integration are happening on the [`integration/feature-merging`](../../tree/integration/feature-merging) branch.**
+| Sprint | Application directory | Baseline |
+|--------|-----------------------|----------|
+| Sprint 1 | [`sprint1/integrated/`](sprint1/integrated/) | Original Sprint 1 integration, `c0a3d7a`. The original standalone modules and database files are also in `sprint1/`. |
+| Sprint 2 | [`sprint2/`](sprint2/) | Completed integrated snapshot with fixes through `7ff0f85`. |
+| Sprint 3 | [`sprint3/`](sprint3/) | Active application, starting from the same merged baseline as Sprint 2. |
 
-This `main` branch serves as the initial project skeleton. The complete working, integrated codebase — featuring all Sprint 1 modules, the Sprint 2 additions, the unified FastAPI backend, and the Next.js frontend — lives on:
+From the selected application directory, run these commands in two terminals. Set up your local backend and frontend environment files for the team's test services before starting. Use the original setup notes for each snapshot. [Sprint 1 setup](sprint1/integrated/INTEGRATION_NOTES.md) · [Sprint 2 setup](sprint2/INTEGRATION_NOTES.md) · [Sprint 3 setup](sprint3/INTEGRATION_NOTES.md)
 
-```bash
-integration/feature-merging
+**Backend**
+
+```sh
+cd backend
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-To view, test, or run the application locally, switch to the active development branch:
+For the original Sprint 1 snapshot, run `python -m pip install 'setuptools==80.9.0'` before starting the backend. Its original Razorpay dependency uses `pkg_resources`.
 
-```bash
-git checkout integration/feature-merging
+**Frontend**
+
+```sh
+cd frontend
+npm ci
+npm run dev
 ```
 
-The complete project documentation, including setup instructions, environment variables, database schema, API endpoints, and known issues, is available in the [README on the active development branch](../../blob/integration/feature-merging/README.md).
+Open [TicketFlow locally](http://localhost:3000). The frontend and backend commands use ports 3000 and 8000, so stop one sprint's servers before starting the next.
 
 ---
 
@@ -55,7 +69,7 @@ The complete project documentation, including setup instructions, environment va
 | **F05** | **Payment Gateway** | `feature/05-payment-gateway` | Secure payment processing through Razorpay test integration. |
 | **F06** | **Ticket Generation & Email** | `ticket-generation-hari` | Automated PDF e-ticket generation with QR codes and email delivery via SMTP. |
 
-> All 6 features are merged and fully integrated on the `integration/feature-merging` branch.
+> All six features are included in the [Sprint 1 integrated snapshot](sprint1/integrated/).
 
 ---
 
@@ -63,7 +77,7 @@ The complete project documentation, including setup instructions, environment va
 
 | **#** | **Feature** | **Description** |
 |-------|-------------|-----------------|
-| **S2-F01** | **Critics & Reviews** | Dedicated reviews page per event: write, edit and delete reviews, comments, "Helpful" votes, spoiler flag, critic vs audience separation.  |
+| **S2-F01** | **Critics & Reviews** | Dedicated reviews page per event: write, edit and delete reviews, comments, "Helpful" votes, spoiler flag, critic vs audience separation, and AI review summaries. |
 | **S2-F02** | **Browse Enhancements** | Improved search bar, new sorting options and sections on the browse page, different sections for different type of events, Change in UI, a placeholder for not loaded images in the browsing page. |
 | **S2-F03** | **Venue Verification & Admin Review** | Managers submit venue details (licence, NOC, capacity) with photos and seating plans. Admins review the documents and approve or reject, with a mandatory rejection reason. |
 | **S2-F04** | **Registration Security** | Birthdate field with future-date validation, confirm-password field, strong password rules, birthdate stored in Supabase, and a forgot-password fix. |
@@ -71,7 +85,17 @@ The complete project documentation, including setup instructions, environment va
 | **S2-F06** | **Show Details & Flexible Venue Layouts** | Show-specific details for movies, concerts, theatre and other events. Supports cinema seats, concert stages, fan pits, standing zones and stadium layouts, with zoom, pan and hover info. Adds a Terms & Conditions tab before payment. |
 | **S2-F07** | **Customer Care** | Help Centre with searchable FAQs, contact support form, My Requests with status filters, conversation threads, and an admin reply dashboard with email notifications. |
 | **S2-F08** | **Ticket Cancellation & Refund** | Cancel endpoint with a 2-hour cutoff rule and Razorpay refund support. |
+| **S2-F09** | **Edit Customer Profile** | Edit name, phone number, birthdate and bio, and upload or remove a profile photo. |
 
+
+---
+
+## Sprint 3 Scope
+
+- **Dynamic pricing** — Verify the existing per-show rules and preserve the price locked when a customer holds a seat.
+- **Support chatbot** — Help customers find FAQ answers and reach Customer Care.
+- **Deployment** — Set up staging and document release checks.
+- **Debugging and regression testing** — Fix issues and verify the end-to-end booking flow.
 
 ---
 
@@ -124,16 +148,20 @@ Show-Ticket-Booking-System/
 │
 ├── Documentation/                    # Architecture, UML diagrams, design specs
 │
-├── sprint1/                          # Individual feature modules (pre-integration)
+├── sprint1/                          # Sprint 1 snapshot and original modules
+│   ├── integrated/                  # Runnable Sprint 1 app
+│   ├── database/                    # Original database schema and migrations
 │   └── features/
 │       ├── 01-authentication/
 │       ├── 02-manager-show-listing/
-│       ├── 03-browse-shows/
+│       ├── 03-browse-nearby-shows/
 │       ├── 04-seat-allocation/
 │       ├── 05-payment/
 │       └── 06-ticket-generation/
 │
-└── sprint1_v2/                       # Unified integrated codebase (primary target)
+├── sprint2/                          # Runnable Sprint 2 snapshot
+│
+└── sprint3/                          # Active integrated application
     │
     ├── backend/                      # FastAPI backend
     │   ├── fixtures/                 # Seed / test data
@@ -151,7 +179,7 @@ Show-Ticket-Booking-System/
     │   ├── requirements.txt
     │   └── Dockerfile
     │
-    ├── database/                     # SQL migrations (run in order)
+    ├── database/                     # SQL migrations and rollback scripts
     │   ├── seeds/
     │   ├── 001_ai_review_summaries.sql
     │   ├── 003_customer_care.sql
@@ -211,7 +239,7 @@ Show-Ticket-Booking-System/
 
 ---
 
-> **Note:** For complete setup instructions, environment configuration, database schema, API documentation, and known issues, refer to the [full project README on `integration/feature-merging`](../../blob/integration/feature-merging/README.md).
+> **Database setup:** The base migrations are in [`sprint1/database/migrations/`](sprint1/database/migrations/). The integrated snapshots carry their own SQL additions. Review the setup notes for the selected sprint before applying changes to a database.
 
 ---
 
