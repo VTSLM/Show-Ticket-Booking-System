@@ -1,11 +1,39 @@
 "use client";
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Script from "next/script";
 import toast from "react-hot-toast";
 import { bookingsApi, paymentsApi, ticketsApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
-declare global { interface Window { Razorpay: any; } }
+interface PaymentVerification {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
+interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  prefill: { name?: string; email?: string; contact: string };
+  theme: { color: string };
+  retry: { enabled: boolean };
+  handler: (response: PaymentVerification) => Promise<void>;
+  modal: { ondismiss: () => void };
+}
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayOptions) => {
+      open: () => void;
+      on: (event: "payment.failed", handler: () => void) => void;
+    };
+  }
+}
 
 function PaymentForm() {
   const params = useSearchParams();
@@ -15,57 +43,84 @@ function PaymentForm() {
   const [booking, setBooking] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [checkoutReady, setCheckoutReady] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
+  const [verification, setVerification] = useState<PaymentVerification | null>(null);
+  const [phone, setPhone] = useState<string | null>(null);
+  const contact = phone ?? profile?.phone ?? "";
 
   useEffect(() => {
-    if (!bookingId || authLoading) return;
-    bookingsApi.get(bookingId).then(setBooking).catch(() => toast.error("Booking not found")).finally(() => setLoading(false));
-    // Load Razorpay script
-    const script = document.createElement("script");
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.async = true;
-    document.body.appendChild(script);
-    return () => { document.body.removeChild(script); };
-  }, [bookingId, authLoading]);
+    if (!bookingId || authLoading || !user) return;
+    let active = true;
+    setLoading(true);
+    setVerification(null);
+    setCheckoutError("");
+    bookingsApi.get(bookingId)
+      .then((result) => { if (active) setBooking(result); })
+      .catch(() => { if (active) setBooking(null); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [bookingId, authLoading, user]);
+
+  const verifyCheckout = async (response: PaymentVerification) => {
+    setVerification(response);
+    setVerifying(true);
+    setCheckoutError("");
+    try {
+      await paymentsApi.verify(bookingId, response);
+    } catch {
+      setCheckoutError("We could not confirm your payment. Retry verification before trying to pay again.");
+      setVerifying(false);
+      return;
+    }
+    try {
+      await ticketsApi.confirm(bookingId);
+      toast.success("Payment confirmed. Your ticket is available in My Bookings.");
+    } catch {
+      toast.error("Payment confirmed. Open My Bookings to try downloading your ticket.");
+    }
+    router.push(`/bookings/${bookingId}`);
+  };
 
   const handlePay = async () => {
-    if (!booking) return;
+    const Razorpay = window.Razorpay;
+    if (!Razorpay || !booking || booking.status !== "pending" || paying || verification) return;
+
+    const digits = contact.trim().replace(/[\s()-]/g, "");
+    const paymentContact = /^\d{10}$/.test(digits) ? `+91${digits}` : digits;
+    if (!/^\+[1-9]\d{7,14}$/.test(paymentContact)) {
+      setCheckoutError("Enter a valid mobile number with its country code for Razorpay.");
+      return;
+    }
+
+    setCheckoutError("");
     setPaying(true);
     try {
-      const order = await paymentsApi.createOrder(bookingId) as any;
-      const options = {
+      const order = await paymentsApi.createOrder(bookingId);
+      const checkout = new Razorpay({
         key: order.key_id,
         amount: order.amount,
         currency: order.currency,
         name: "TicketFlow",
-        description: `Booking #${bookingId.slice(0, 8)}`,
+        description: `Booking ${bookingId.slice(0, 8)}`,
         order_id: order.razorpay_order_id,
-        prefill: { name: profile?.name, email: profile?.email },
+        prefill: { name: profile?.name, email: profile?.email, contact: paymentContact },
         theme: { color: "#e94560" },
-        handler: async (response: any) => {
-          try {
-            await paymentsApi.verify(bookingId, {
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-            });
-            // Generate ticket
-            try {
-              await ticketsApi.confirm(bookingId);
-            } catch {}
-            toast.success("Payment successful! Ticket emailed to you.");
-            router.push(`/bookings/${bookingId}`);
-          } catch (e: any) {
-            toast.error(e.message || "Payment verification failed");
-          }
-        },
+        retry: { enabled: false },
+        handler: verifyCheckout,
         modal: { ondismiss: () => setPaying(false) },
-      };
-      new window.Razorpay(options).open();
-    } catch (e: any) {
-      toast.error(e.message || "Could not initiate payment");
+      });
+      checkout.on("payment.failed", () => {
+        setCheckoutError("Razorpay could not complete the payment. You can retry with the same booking.");
+      });
+      checkout.open();
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : "Could not open Razorpay checkout. Please try again.");
       setPaying(false);
     }
   };
+
   const handleDownloadPdf = async () => {
     try {
       const token = await user?.getIdToken();
@@ -125,6 +180,8 @@ function PaymentForm() {
   if (!booking) return <div className="text-center py-20 text-red-400">Booking not found.</div>;
 
   const seats = booking.seats_info || [];
+  const total = Number(booking.total_amount);
+  const canPay = booking.status === "pending" && total > 0;
 
   return (
     <div className="max-w-lg mx-auto px-4 py-10">
@@ -161,11 +218,38 @@ function PaymentForm() {
               Download Ticket PDF
             </button>
           </div>
-        ) : (
-          <button onClick={handlePay} disabled={paying} className="btn-primary w-full text-lg py-3">
-            {paying ? "Opening Razorpay..." : `Pay ₹${parseFloat(booking.total_amount).toFixed(2)}`}
+        ) : verification ? (
+          <button onClick={() => verifyCheckout(verification)} disabled={verifying} className="btn-primary w-full py-3">
+            {verifying ? "Verifying payment…" : "Retry payment verification"}
           </button>
+        ) : canPay ? (
+          <>
+            <Script
+              src="https://checkout.razorpay.com/v1/checkout.js"
+              onReady={() => setCheckoutReady(true)}
+              onError={() => setCheckoutError("Razorpay could not load. Refresh this page to try again.")}
+            />
+            <label htmlFor="payment-contact" className="block text-sm mb-1">Mobile number for Razorpay</label>
+            <input
+              id="payment-contact"
+              type="tel"
+              autoComplete="tel"
+              placeholder="+91 90000 90000"
+              className="input w-full mb-3"
+              value={contact}
+              onChange={(event) => setPhone(event.target.value)}
+              disabled={paying}
+            />
+            <button onClick={handlePay} disabled={!checkoutReady || paying} className="btn-primary w-full text-lg py-3">
+              {paying ? "Opening Razorpay…" : `Pay ₹${total.toFixed(2)}`}
+            </button>
+          </>
+        ) : (
+          <p>{booking.status === "pending"
+            ? "Online payment requires a booking total greater than ₹0."
+            : "This booking is no longer available for payment."}</p>
         )}
+        {checkoutError && <p role="alert" className="mt-3 text-sm text-red-400">{checkoutError}</p>}
       </div>
     </div>
   );
