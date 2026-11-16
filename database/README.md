@@ -51,19 +51,29 @@ Before v0.3.0 the migrations were spread over sprint folders with clashing numbe
 | 0004 | `003_customer_care.sql` |
 | 0005 | `004_organizer_verification.sql` |
 | 0006 | `004_admin_verification_person_b.sql` |
-| 0007 | `005_venue_application_fields.sql` |
-| 0008 | `004_cancellation_refund.sql` |
-| 0009 | `003_reviews_module.sql` |
-| 0010 | `004_review_deletions.sql` |
-| 0011 | `006_multi_venue_layouts.sql` |
-| 0012 | `004_critics_and_reviews.sql` |
-| 0013 | `005_review_scheduling_and_replies.sql` |
-| 0014 | `007_verified_events_venues.sql` |
-| 0015 | `006_fuzzy_search_pg_trgm.sql` |
-| 0016 | `007_review_reports.sql` |
-| 0017 | `008_dynamic_seat_pricing.sql` |
-| 0018 | `008_show_details_layout_and_terms.sql` |
-| 0019 | `001_ai_review_summaries.sql` |
-| 0020 | `009_wishlist.sql` |
+| 0007 | *new:* `venue_verification_cases` and `venue_verification_audit`, which existed only in Supabase |
+| 0008 | `005_venue_application_fields.sql` |
+| 0009 | `004_cancellation_refund.sql` |
+| 0010 | `003_reviews_module.sql` |
+| 0011 | `004_review_deletions.sql` |
+| 0012 | `006_multi_venue_layouts.sql` |
+| 0013 | `004_critics_and_reviews.sql` |
+| 0014 | `005_review_scheduling_and_replies.sql` |
+| 0015 | `007_verified_events_venues.sql` |
+| 0016 | `006_fuzzy_search_pg_trgm.sql` |
+| 0017 | `007_review_reports.sql` |
+| 0018 | `008_dynamic_seat_pricing.sql` |
+| 0019 | `008_show_details_layout_and_terms.sql` |
+| 0020 | `001_ai_review_summaries.sql` |
+| 0021 | `009_wishlist.sql` |
+| 0022 | *new:* aligns fresh databases with Supabase (`shows.base_price`, venue status column, row level security) |
 
-Databases that already have these applied (the shared Supabase project) do not need to re-run anything. Only the file names changed.
+Databases that already have these applied (the shared Supabase project) do not need to re-run anything. Only the file names changed. `0007` and `0022` were reconstructed from a schema-only dump of Supabase and change nothing when run there.
+
+## Known differences from the shared Supabase database
+
+A schema dump of Supabase (2026-11-16) compared with a fresh database built from these migrations:
+
+- **Only in Supabase, not used by the code:** tables `layouts` and `layout_seats`, functions `create_pending_booking`, `confirm_booking_payment`, `cancel_pending_booking`, `release_booking_seats`, and the Firebase wrapper foreign table `public."user"` (Supabase-specific). Left out on purpose.
+- **Only in the migrations:** `0006` (`verification_cases`, `audit_log`, `listing_reviews`, `listing_reports`, `venue_compliance`, `checklist_templates`), the trigram search indexes from `0016` and several indexes and constraints on `payments`, `payment_orders` and `tickets` were never applied to Supabase. Code that uses them (organizer verification admin, fuzzy search) works on a fresh database but not fully on Supabase until they are applied there.
+- Column types differ in places (`text` in Supabase where the migrations say `varchar`). The app does not depend on the difference.

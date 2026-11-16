@@ -44,37 +44,37 @@ ON CONFLICT DO NOTHING;
 INSERT INTO organizer_profiles (user_id, legal_name, business_type, state, pan_masked, gstin_masked, verification_status, trust_tier)
 SELECT u.id, 'Rahul Sharma', 'INDIVIDUAL', 'Maharashtra', 'ABCDE****R', NULL, 'DRAFT', 'TIER_1'
 FROM users u WHERE u.email = 'rahul.individual@fixture.example.com'
-ON CONFLICT (user_id) DO NOTHING;
+  AND NOT EXISTS (SELECT 1 FROM organizer_profiles p WHERE p.user_id = u.id);
 
 -- Persona 2: Sole Proprietor
 INSERT INTO organizer_profiles (user_id, legal_name, business_type, state, pan_masked, gstin_masked, verification_status, trust_tier)
 SELECT u.id, 'Priya Patel Events', 'SOLE_PROPRIETOR', 'Gujarat', 'ABCPD****P', '24ABCPD****1Z3', 'APPROVED', 'TIER_1'
 FROM users u WHERE u.email = 'priya.soleprop@fixture.example.com'
-ON CONFLICT (user_id) DO NOTHING;
+  AND NOT EXISTS (SELECT 1 FROM organizer_profiles p WHERE p.user_id = u.id);
 
 -- Persona 3: Company
 INSERT INTO organizer_profiles (user_id, legal_name, business_type, state, pan_masked, gstin_masked, verification_status, trust_tier)
 SELECT u.id, 'Skyline Entertainment Private Limited', 'COMPANY', 'Karnataka', 'AAACS****C', '29AAACS****2Z8', 'APPROVED', 'TIER_3'
 FROM users u WHERE u.email = 'admin@skyline-events.fixture.com'
-ON CONFLICT (user_id) DO NOTHING;
+  AND NOT EXISTS (SELECT 1 FROM organizer_profiles p WHERE p.user_id = u.id);
 
 -- Persona 4: Organizer Awaiting Verification
 INSERT INTO organizer_profiles (user_id, legal_name, business_type, state, pan_masked, gstin_masked, verification_status, trust_tier)
 SELECT u.id, 'Aarav Mehta Productions', 'INDIVIDUAL', 'Delhi', 'ABCPM****M', NULL, 'PENDING', 'TIER_1'
 FROM users u WHERE u.email = 'aarav.pending@fixture.example.com'
-ON CONFLICT (user_id) DO NOTHING;
+  AND NOT EXISTS (SELECT 1 FROM organizer_profiles p WHERE p.user_id = u.id);
 
 -- Persona 5: Approved Organizer (LLP)
 INSERT INTO organizer_profiles (user_id, legal_name, business_type, state, pan_masked, gstin_masked, verification_status, trust_tier)
 SELECT u.id, 'Apex Live Events LLP', 'LLP', 'Maharashtra', 'AAACL****L', '27AAACL****1Z4', 'APPROVED', 'TIER_2'
 FROM users u WHERE u.email = 'director@apex-shows.fixture.com'
-ON CONFLICT (user_id) DO NOTHING;
+  AND NOT EXISTS (SELECT 1 FROM organizer_profiles p WHERE p.user_id = u.id);
 
 -- Persona 6: Organizer Whose Application Needs Changes
 INSERT INTO organizer_profiles (user_id, legal_name, business_type, state, pan_masked, gstin_masked, verification_status, trust_tier)
 SELECT u.id, 'Kavita Art Foundation Trust', 'TRUST', 'Rajasthan', 'AAATK****T', NULL, 'CHANGES_REQUESTED', 'TIER_1'
 FROM users u WHERE u.email = 'secretary@kavita-arts.fixture.org'
-ON CONFLICT (user_id) DO NOTHING;
+  AND NOT EXISTS (SELECT 1 FROM organizer_profiles p WHERE p.user_id = u.id);
 
 
 -- 3. Insert Bank Accounts (Masked + SHA-256 salted account hash)

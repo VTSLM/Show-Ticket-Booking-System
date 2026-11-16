@@ -1,7 +1,7 @@
 """
 Wishlist (Sprint 2) — logged-in users can save events to watch later.
 
-Table: wishlists (database/migrations/0020_wishlist.sql)
+Table: wishlists (database/migrations/0021_wishlist.sql)
   GET    /api/wishlist            my saved events (with their next upcoming show)
   GET    /api/wishlist/ids        just the saved event ids (used to fill the hearts on Browse)
   POST   /api/wishlist/{event_id} save an event
