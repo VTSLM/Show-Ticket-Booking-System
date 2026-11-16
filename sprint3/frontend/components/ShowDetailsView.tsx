@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { useWishlist } from "@/components/useWishlist";
 
 interface ShowDetailsProps {
   showData: any;
@@ -24,6 +25,7 @@ export default function ShowDetailsView({
   const [selectedFormat, setSelectedFormat] = useState<string>("all");
   const [isFormatModalOpen, setIsFormatModalOpen] = useState<boolean>(false);
   const [copied, setCopied] = useState(false);
+  const wishlist = useWishlist();
 
   // Upcoming shows and distinct cities
   const upcomingShows: any[] = Array.isArray(showData?.upcoming_shows) ? showData.upcoming_shows : [];
@@ -42,6 +44,8 @@ export default function ShowDetailsView({
   const backdrop = showData.backdrop_url || showData.poster_url;
   const poster = showData.poster_url;
   const eventId = showData.event_id || showData.id;
+  // Wishlist works on events: use the real event id (never a show id)
+  const wishEventId: string | null = showData.event_id || (isEventMode ? showData.id : null) || null;
 
   // Format date helper
   const formatDate = (isoString?: string) => {
@@ -330,6 +334,20 @@ export default function ShowDetailsView({
                   >
                     <span>{copied ? "✓ Copied" : "↗ Share"}</span>
                   </button>
+
+                  {wishEventId && (
+                    <button
+                      type="button"
+                      onClick={() => wishlist.toggle(wishEventId)}
+                      className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-medium transition ${
+                        wishlist.has(wishEventId)
+                          ? "border-red-500/50 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                          : "border-slate-700 bg-slate-800/70 text-slate-200 hover:border-slate-500 hover:text-white"
+                      }`}
+                    >
+                      <span>{wishlist.has(wishEventId) ? "❤️ Saved" : "🤍 Add to Wishlist"}</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Metadata Pills: Language, Duration, Formats */}
