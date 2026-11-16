@@ -91,6 +91,7 @@ flowchart LR
 - Python 3.12
 - Node.js 20
 - Access to the team's test Supabase, Firebase and Razorpay projects (ask a maintainer), or Docker for a local Postgres
+> **Status:** One app at the repo root. Earlier sprints are tagged: [v0.1.0 (Sprint 1)](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.1.0), [v0.2.0 (Sprint 2)](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.2.0).
 
 ### 1. Configure
 
@@ -102,6 +103,9 @@ cp frontend/.env.example frontend/.env.local
 Fill in both files. Put the Firebase service account JSON at `backend/ticketflow-firebase.json` (gitignored) or paste it into `FIREBASE_SERVICE_ACCOUNT_JSON`.
 
 ### 2. Database
+## Run Locally
+
+Copy `backend/.env.example` to `backend/.env` and `frontend/.env.example` to `frontend/.env.local`, fill in the team's test values, then run these in two terminals from the repo root (or use `./scripts/dev.sh`).
 
 Using the shared Supabase database, nothing to do. For a local database:
 
@@ -112,12 +116,45 @@ docker compose --profile localdb up -d db
 This applies every migration in [`database/migrations`](database/migrations). See [database/README.md](database/README.md).
 
 ### 3. Run
+**Frontend**
 
 ```bash
 ./scripts/dev.sh
 ```
 
 Or run each side yourself:
+Open [TicketFlow locally](http://localhost:3000). The API docs are at http://localhost:8000/docs.
+
+---
+
+## 🛠️ Tech Stack
+
+| **Layer** | **Technology** |
+|-----------|----------------|
+| **Frontend** | Next.js 14.2 (App Router, TypeScript, Tailwind CSS) |
+| **Backend** | FastAPI (Python 3.9) + asyncpg |
+| **Database** | PostgreSQL via Supabase (Session Pooler) |
+| **Authentication** | Firebase Authentication (Email / Password) |
+| **Payments** | Razorpay Payment Gateway (Test Mode) |
+| **Email Delivery** | Gmail SMTP (App Password) |
+| **PDF & QR Engine** | ReportLab + qrcode + Pillow |
+
+---
+
+## ✨ Features (Sprint 1)
+
+| **#** | **Feature** | **Branch Name** | **Description** |
+|-------|-------------|-----------------|-----------------|
+| **F01** | **User Authentication** | `login` | Secure multi-role authentication (User, Manager, Admin) powered by Firebase. |
+| **F02** | **Manager Show Listing** | `managers-can-list` | Dashboard for listing, scheduling, and configuring events and venues. |
+| **F03** | **Browse & Search Shows** | `browse-nearby-shows` | Interactive event discovery with search and filtering capabilities. |
+| **F04** | **Seat Selection & Locking** | `seat-allocation-vatsal` | Interactive seat grid with real-time selection and temporary seat locking. |
+| **F05** | **Payment Gateway** | `feature/05-payment-gateway` | Secure payment processing through Razorpay test integration. |
+| **F06** | **Ticket Generation & Email** | `ticket-generation-hari` | Automated PDF e-ticket generation with QR codes and email delivery via SMTP. |
+
+> All six features are included in [v0.1.0](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.1.0).
+
+---
 
 ```bash
 cd backend
@@ -175,6 +212,17 @@ All work starts from an issue and lands through a reviewed pull request. Read [C
 Found a security problem? Follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
 
 ## Team
+```text
+Show-Ticket-Booking-System/
+├── backend/        # FastAPI app (routers, services, schemas, tests)
+├── frontend/       # Next.js 14 app (App Router, Tailwind, Playwright tests)
+├── database/       # Ordered SQL migrations, rollbacks, seeds
+├── infra/          # Terraform for Azure (planned)
+├── docs/           # Requirements PDFs and historical notes
+├── scripts/        # Developer scripts (dev.sh)
+├── docker-compose.yml
+└── .github/        # CI workflows
+```
 
 | Member | GitHub | Sprint 1 | Sprint 2 |
 |--------|--------|----------|----------|
@@ -190,6 +238,7 @@ Found a security problem? Follow [SECURITY.md](SECURITY.md) instead of opening a
 | Tirth Patel | [@mordekeiser](https://github.com/mordekeiser) | Payment gateway | Customer care, dynamic pricing, profile editing |
 
 Who did what in each sprint is tracked on the [project board](https://github.com/VTSLM/Show-Ticket-Booking-System/projects) and in the release notes.
+> **Database setup:** see [database/README.md](database/README.md).
 
 ## License
 
