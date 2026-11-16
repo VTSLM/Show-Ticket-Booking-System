@@ -50,9 +50,14 @@ export default function Navbar() {
               </>
             )}
             {isManager && (
-              <Link href="/manager" className="hover:text-red-300">
-                Manager
-              </Link>
+              <>
+                <Link href="/manager" className="hover:text-red-300">
+                  Manager
+                </Link>
+                <Link href="/manager/analytics" className="hover:text-red-300">
+                  Analytics
+                </Link>
+              </>
             )}
 
             {isAdmin && (
