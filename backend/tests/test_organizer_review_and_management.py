@@ -23,15 +23,12 @@ import uuid
 import pytest
 from fastapi import HTTPException
 
-from models.verification import BusinessType, CaseType, DocumentType, ReviewStatus, VerificationStatus
+from models.verification import CaseType, ReviewStatus, VerificationStatus
 from routers.organizer_admin import (
     AccountActionRequest,
     DocumentReviewRequest,
     VerificationDecisionRequest,
     claim_organizer_case,
-    get_organizer_review_workspace,
-    get_review_queue,
-    list_organizers,
     make_verification_decision,
     reactivate_organizer,
     release_organizer_case,
@@ -41,7 +38,7 @@ from routers.organizer_admin import (
 from services.bank_verification import verify_mock_bank_account
 from services.duplicate_detection import check_duplicate_collisions, register_case_fingerprints
 from services.risk_assessment import assess_organizer_risk
-from services.trust_tier_service import evaluate_payout_eligibility, get_trust_tier_rules
+from services.trust_tier_service import evaluate_payout_eligibility
 
 
 # ==============================================================================

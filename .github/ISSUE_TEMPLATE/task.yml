@@ -1,0 +1,22 @@
+name: Task
+description: Chores, docs, tests, infra or other planned work
+labels: []
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+    validations:
+      required: true
+  - type: textarea
+    id: plan
+    attributes:
+      label: Plan
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true

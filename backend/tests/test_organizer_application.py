@@ -19,7 +19,7 @@ import uuid
 import pytest
 from fastapi import HTTPException
 
-from models.verification import BusinessType, VerificationStatus
+from models.verification import BusinessType
 from routers.organizer_verification import (
     ApplicationDraftRequest,
     get_document_checklist,
@@ -107,8 +107,10 @@ class FakeDbConnection:
                     p["legal_name"] = legal_name
                     p["business_type"] = business_type
                     p["state"] = state
-                    if pan_masked: p["pan_masked"] = pan_masked
-                    if gstin_masked: p["gstin_masked"] = gstin_masked
+                    if pan_masked:
+                        p["pan_masked"] = pan_masked
+                    if gstin_masked:
+                        p["gstin_masked"] = gstin_masked
                     p["updated_at"] = datetime.now(timezone.utc)
                     return p
             return None

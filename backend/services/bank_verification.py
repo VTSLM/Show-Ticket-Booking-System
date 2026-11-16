@@ -8,7 +8,6 @@ Can be cleanly swapped with a real payment/banking provider (e.g., Razorpay Fund
 """
 
 from datetime import datetime, timezone
-import re
 from typing import Any, Dict, Optional
 from services.identity_validators import validate_ifsc
 

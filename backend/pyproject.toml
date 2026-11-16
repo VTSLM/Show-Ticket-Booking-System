@@ -7,3 +7,11 @@ requires-python = ">=3.12"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+# Start with rules that catch real bugs. Widen the set in small PRs.
+select = ["E4", "E7", "E9", "F", "B006"]

@@ -1,0 +1,11 @@
+# Maps the different names and emails each person has committed with to one identity.
+# Used by `git shortlog -sne` and GitHub's contributor views.
+Hari Sharma <202401195@dau.ac.in> https-hari <202401195@dau.ac.in>
+Hari Sharma <202401195@dau.ac.in> hari sharma <202401195@dau.ac.in>
+Hari Sharma <202401195@dau.ac.in> <hs9998706@gmail.com>
+Khushi Shah <202401471@dau.ac.in> Khushi <202401471@dau.ac.in>
+Khushi Shah <202401471@dau.ac.in> <202401471@daiict.ac.in>
+Vatsal Mori <vatsalmori2005@gmail.com> <vatsalmori@Vatsals-MacBook-Air.local>
+Kavya <thkrjanak@gmail.com> Dev-KavyT <thkrjanak@gmail.com>
+Dwij Rikin Patel <202401418@dau.ac.in> DwijRikinPatel <202401418@dau.ac.in>
+Rishi <202401077@dau.ac.in> 202401077 <202401077@dau.ac.in>

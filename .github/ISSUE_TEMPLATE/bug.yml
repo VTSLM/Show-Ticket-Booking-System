@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in TicketFlow is broken
+title: "fix: "
+labels: ["type: bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Log in as a customer
+        2. Open /browse and pick a show
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Backend, Frontend, Database, Infra / CI, Not sure]
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Which role were you using?
+      options: [Customer, Manager / organizer, Admin, Not logged in, Not applicable]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots or error messages
+      description: Remove tokens, passwords and personal data before pasting.
+      render: text

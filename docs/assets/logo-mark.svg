@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="TicketFlow">
+  <title>TicketFlow</title>
+  <defs>
+    <linearGradient id="tf-body" x1="24" y1="64" x2="232" y2="192" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#287CFF"/>
+      <stop offset="1" stop-color="#7C4DFF"/>
+    </linearGradient>
+  </defs>
+  <g transform="rotate(-8 128 128)">
+    <path fill="url(#tf-body)" d="M44 64H212a20 20 0 0 1 20 20V112a16 16 0 0 0 0 32V172a20 20 0 0 1-20 20H44a20 20 0 0 1-20-20V144a16 16 0 0 0 0-32V84a20 20 0 0 1 20-20Z"/>
+    <line x1="84" y1="80" x2="84" y2="176" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 12"/>
+    <path d="M104 112C118 112 124 96 138 96S158 112 172 112S192 96 206 96" fill="none" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="8" stroke-linecap="round"/>
+    <path d="M104 152C120 152 127 128 143 128S166 152 182 152S202 136 210 136" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round"/>
+    <circle cx="54" cy="128" r="10" fill="#FFFFFF" fill-opacity="0.92"/>
+  </g>
+</svg>

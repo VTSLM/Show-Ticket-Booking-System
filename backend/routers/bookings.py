@@ -6,10 +6,10 @@ from typing import List, Optional
 import asyncpg
 from database import get_conn
 from dependencies import get_current_user
+from services.terms_service import record_terms_acceptance, resolve_show_terms
 
 router = APIRouter(prefix="/api/bookings", tags=["bookings"])
 
-from services.terms_service import record_terms_acceptance, resolve_show_terms
 
 class CreateBookingRequest(BaseModel):
     show_id: str

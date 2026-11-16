@@ -14,8 +14,8 @@ All data is strictly fictional and demonstrates proper masking, hashing,
 and compliance with Person A contracts.
 """
 
-from uuid import UUID, uuid4
-from datetime import date, datetime, timezone
+from uuid import UUID
+from datetime import datetime, timezone
 from models.verification import (
     BusinessType,
     CaseType,

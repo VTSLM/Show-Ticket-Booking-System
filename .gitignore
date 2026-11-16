@@ -52,3 +52,6 @@ Thumbs.db
 *.swp
 *.swo
 *.bak
+
+# Runtime uploads written by the backend
+backend/private_uploads/
