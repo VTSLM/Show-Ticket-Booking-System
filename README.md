@@ -189,7 +189,7 @@ Found a security problem? Follow [SECURITY.md](SECURITY.md) instead of opening a
 | Darshan Tita | [@darshnn007](https://github.com/darshnn007) | Payment gateway | Cancellation and refunds |
 | Tirth Patel | [@mordekeiser](https://github.com/mordekeiser) | Payment gateway | Customer care, dynamic pricing, profile editing |
 
-Who did what in each sprint is tracked on the [project board](https://github.com/users/https-hari/projects) and in the release notes.
+Who did what in each sprint is tracked on the [project board](https://github.com/VTSLM/Show-Ticket-Booking-System/projects) and in the release notes.
 
 ## License
 
