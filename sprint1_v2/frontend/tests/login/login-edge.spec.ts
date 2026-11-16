@@ -19,7 +19,7 @@ test.describe('Login - edge cases and session behavior', () => {
     await page.goto(loginUrl);
 
     await page.getByLabel('Email').fill(testEmail!);
-    await page.getByLabel('Password').fill(testPassword!);
+    await page.getByLabel('Password', { exact: true }).fill(testPassword!);
 
     await page.getByRole('button', { name: 'Log in' }).click();
 
@@ -56,7 +56,7 @@ test.describe('Login - edge cases and session behavior', () => {
     await page.goto(loginUrl);
 
     await page.getByLabel('Email').fill(testEmail!);
-    await page.getByLabel('Password').fill(testPassword!);
+    await page.getByLabel('Password', { exact: true }).fill(testPassword!);
 
     await page.getByRole('button', { name: 'Log in' }).click();
 
@@ -87,7 +87,7 @@ test.describe('Login - edge cases and session behavior', () => {
     const loginButton = page.getByRole('button', { name: 'Log in' });
 
     await page.getByLabel('Email').fill(testEmail!);
-    await page.getByLabel('Password').fill(testPassword!);
+    await page.getByLabel('Password', { exact: true }).fill(testPassword!);
 
     await loginButton.click();
 
@@ -120,7 +120,7 @@ test.describe('Login - edge cases and session behavior', () => {
     const loginButton = page.getByRole('button', { name: 'Log in' });
 
     await page.getByLabel('Email').fill(testEmail!);
-    await page.getByLabel('Password').fill(testPassword!);
+    await page.getByLabel('Password', { exact: true }).fill(testPassword!);
 
     await loginButton.click();
 
