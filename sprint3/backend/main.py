@@ -22,6 +22,7 @@ from routers.organizer_admin import router as organizer_admin_router
 from routers.support_admin import router as support_admin_router
 from routers.venue_verification import router as venue_verification_router
 from routers.wishlist import router as wishlist_router
+from routers.manager_analytics import router as manager_analytics_router
 
 
 async def _cleanup_expired_locks():
@@ -88,6 +89,7 @@ app.include_router(organizer_admin_router)
 app.include_router(support_admin_router)
 app.include_router(venue_verification_router)
 app.include_router(wishlist_router)
+app.include_router(manager_analytics_router)
 
 @app.get("/")
 def root():
