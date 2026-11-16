@@ -479,7 +479,7 @@ export default function BookingDetailPage() {
                 </div>
               )}
               <div className="info-row" style={{ borderBottom: "none" }}>
-                <span className="info-label" style={{ fontWeight: 700, color: "var(--foreground)" }}>Total Paid</span>
+                <span className="info-label" style={{ fontWeight: 700, color: "var(--foreground)" }}>{isConfirmed ? "Total Paid" : booking.status === "pending" ? "Amount Due" : "Booking Total"}</span>
                 <span style={{ fontSize: 20, fontWeight: 800, color: "var(--blue)" }}>
                   ₹{parseFloat(booking.total_amount).toFixed(2)}
                 </span>
