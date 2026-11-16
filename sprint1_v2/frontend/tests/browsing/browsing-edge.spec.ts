@@ -78,9 +78,9 @@ test.describe("Browsing - Edge Cases", () => {
 
     await page.goto("/browse");
 
-    await expect(page.getByText("No shows found")).toBeVisible();
+    await expect(page.getByText("No shows matched your search")).toBeVisible();
     await expect(
-      page.getByText("Try a different search or filter.")
+      page.getByText("Try clearing some filters or searching for another title, city, or venue.")
     ).toBeVisible();
   });
 
@@ -131,7 +131,7 @@ test.describe("Browsing - Edge Cases", () => {
     });
 
     await expect(showCard).toBeVisible();
-    await expect(showCard).toContainText("Language not listed");
+    await expect(showCard).toContainText("Language N/A");
   });
 
   test("BROWSE-EDGE-04 missing available seats displays fallback", async ({
@@ -194,7 +194,7 @@ test.describe("Browsing - Edge Cases", () => {
     await page.goto("/browse");
 
     const searchInput = page.getByRole("textbox", {
-      name: "Search shows or venues",
+      name: "Search movies, venues, genres, or cities",
     });
 
     await expect(searchInput).toBeVisible();
@@ -203,6 +203,7 @@ test.describe("Browsing - Edge Cases", () => {
 
     await page.getByRole("button", {
       name: "Search",
+      exact: true,
     }).click();
 
     await expect(

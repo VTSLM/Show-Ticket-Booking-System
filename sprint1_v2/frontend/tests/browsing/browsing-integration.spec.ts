@@ -12,7 +12,7 @@ test.describe("Browsing - Integration Tests", () => {
 
     await expect(page.getByText("Now showing")).toBeVisible();
 
-    await expect(page.getByText(/\d+ shows/)).toBeVisible();
+    await expect(page.getByText(/\d+ shows?/)).toBeVisible();
   });
 
   test("BROWSE-INT-02 real shows are displayed from backend", async ({
@@ -49,7 +49,7 @@ test.describe("Browsing - Integration Tests", () => {
       await expect(
         page
           .getByRole("link", {
-            name: new RegExp(firstShow.title, "i"),
+            name: firstShow.title,
           })
           .first()
       ).toBeVisible();
@@ -59,6 +59,9 @@ test.describe("Browsing - Integration Tests", () => {
   test("BROWSE-INT-03 real city filter reaches backend", async ({
     page,
   }) => {
+    const citiesResponsePromise = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/browse/cities"
+    );
     await page.goto("/browse");
 
     const citySelect = page.getByRole("combobox", {
@@ -67,13 +70,10 @@ test.describe("Browsing - Integration Tests", () => {
 
     await expect(citySelect).toBeVisible();
 
-    const options = await citySelect.locator("option").allTextContents();
-
-    const availableCity = options.find(
-      (city) =>
-        city.trim() !== "" &&
-        city.trim() !== "All cities"
-    );
+    const citiesResponse = await citiesResponsePromise;
+    expect(citiesResponse.ok()).toBe(true);
+    const cities: string[] = await citiesResponse.json();
+    const availableCity = cities[0];
 
     test.skip(
       !availableCity,
@@ -95,13 +95,7 @@ test.describe("Browsing - Integration Tests", () => {
       }
     );
 
-    await citySelect.selectOption({
-      label: availableCity!,
-    });
-
-    await page.getByRole("button", {
-      name: "Search",
-    }).click();
+    await citySelect.selectOption(availableCity!);
 
     const response = await responsePromise;
 
@@ -120,7 +114,7 @@ test.describe("Browsing - Integration Tests", () => {
     await page.goto("/browse");
 
     const searchInput = page.getByRole("textbox", {
-      name: "Search shows or venues",
+      name: "Search movies, venues, genres, or cities",
     });
 
     await expect(searchInput).toBeVisible();
@@ -146,6 +140,7 @@ test.describe("Browsing - Integration Tests", () => {
 
     await page.getByRole("button", {
       name: "Search",
+      exact: true,
     }).click();
 
     const response = await responsePromise;
@@ -164,28 +159,9 @@ test.describe("Browsing - Integration Tests", () => {
   }) => {
     await page.goto("/browse");
 
-    const eventTypeSelect = page.getByRole("combobox", {
-      name: "Filter by show type",
-    });
-
-    await expect(eventTypeSelect).toBeVisible();
-
-    const options = await eventTypeSelect
-      .locator("option")
-      .allTextContents();
-
-    const eventType = options.find(
-      (value) =>
-        value.trim() !== "" &&
-        value.trim() !== "All types"
-    );
-
-    test.skip(
-      !eventType,
-      "No event type available in database"
-    );
-
-    const expectedEventType = eventType!.toLowerCase();
+    const movies = page.getByRole("button", { name: /Movies/ });
+    await expect(movies).toBeVisible();
+    const expectedEventType = "movie";
 
     const responsePromise = page.waitForResponse(
       (response) => {
@@ -205,13 +181,7 @@ test.describe("Browsing - Integration Tests", () => {
       }
     );
 
-    await eventTypeSelect.selectOption({
-      label: eventType!,
-    });
-
-    await page.getByRole("button", {
-      name: "Search",
-    }).click();
+    await movies.click();
 
     const response = await responsePromise;
 
@@ -224,7 +194,7 @@ test.describe("Browsing - Integration Tests", () => {
     ).toBe(expectedEventType);
   });
 
-  test("BROWSE-INT-06 real show links to seat selection", async ({
+  test("BROWSE-INT-06 real show links to event details", async ({
     page,
   }) => {
     const responsePromise = page.waitForResponse(
@@ -250,7 +220,7 @@ test.describe("Browsing - Integration Tests", () => {
 
     const showLink = page
       .getByRole("link", {
-        name: new RegExp(firstShow.title, "i"),
+        name: firstShow.title,
       })
       .first();
 
@@ -258,7 +228,7 @@ test.describe("Browsing - Integration Tests", () => {
 
     await expect(showLink).toHaveAttribute(
       "href",
-      `/shows/${firstShow.show_id}/seats`
+      `/events/${firstShow.event_id}`
     );
   });
 
@@ -285,12 +255,8 @@ test.describe("Browsing - Integration Tests", () => {
       name: "Filter by city",
     });
 
-    const options = await citySelect
-      .locator("option")
-      .allTextContents();
-
-    for (const city of cities) {
-      expect(options).toContain(city);
-    }
+    await expect.poll(() => citySelect.locator("option").evaluateAll(
+      (options) => options.map((option) => (option as HTMLOptionElement).value).filter(Boolean)
+    )).toEqual(cities);
   });
 });

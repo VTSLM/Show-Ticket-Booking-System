@@ -22,7 +22,7 @@ const shows = [
     language: "English",
     poster_url: null,
     venue_name: "Narendra Modi Stadium",
-    city: "Ahmedabad",
+    city: "Mumbai",
     available_seats: 250,
   },
 ];
@@ -82,48 +82,54 @@ test.describe("Browsing - Filters", () => {
 
   test("BROWSE-FILTER-01 search by show title", async ({ page }) => {
     const search = page.getByRole("textbox", {
-      name: "Search shows or venues",
+      name: "Search movies, venues, genres, or cities",
     });
 
     await search.fill("Interstellar");
-    await page.getByRole("button", { name: "Search" }).click();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+
+    await expect(page.getByRole("heading", { name: 'Results for "Interstellar"' })).toBeVisible();
 
     await expect(
-      page.getByRole("heading", { name: "Interstellar" })
+      page.getByRole("heading", { name: "Interstellar", exact: true })
     ).toBeVisible();
 
     await expect(
-      page.getByRole("heading", { name: "Coldplay Live" })
+      page.getByRole("heading", { name: "Coldplay Live", exact: true })
     ).not.toBeVisible();
   });
 
   test("BROWSE-FILTER-02 search by venue", async ({ page }) => {
     const search = page.getByRole("textbox", {
-      name: "Search shows or venues",
+      name: "Search movies, venues, genres, or cities",
     });
 
     await search.fill("Narendra Modi Stadium");
-    await page.getByRole("button", { name: "Search" }).click();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+
+    await expect(page.getByRole("heading", { name: 'Results for "Narendra Modi Stadium"' })).toBeVisible();
 
     await expect(
-      page.getByRole("heading", { name: "Coldplay Live" })
+      page.getByRole("heading", { name: "Coldplay Live", exact: true })
     ).toBeVisible();
 
     await expect(
-      page.getByRole("heading", { name: "Interstellar" })
+      page.getByRole("heading", { name: "Interstellar", exact: true })
     ).not.toBeVisible();
   });
 
   test("BROWSE-FILTER-03 search is case insensitive", async ({ page }) => {
     const search = page.getByRole("textbox", {
-      name: "Search shows or venues",
+      name: "Search movies, venues, genres, or cities",
     });
 
     await search.fill("INTERSTELLAR");
-    await page.getByRole("button", { name: "Search" }).click();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+
+    await expect(page.getByRole("heading", { name: 'Results for "INTERSTELLAR"' })).toBeVisible();
 
     await expect(
-      page.getByRole("heading", { name: "Interstellar" })
+      page.getByRole("heading", { name: "Interstellar", exact: true })
     ).toBeVisible();
   });
 
@@ -132,63 +138,70 @@ test.describe("Browsing - Filters", () => {
       .getByRole("combobox", { name: "Filter by city" })
       .selectOption("Ahmedabad");
 
-    await page.getByRole("button", { name: "Search" }).click();
-
     await expect(
-      page.getByRole("heading", { name: "Interstellar" })
+      page.getByRole("heading", { name: "Interstellar", exact: true })
     ).toBeVisible();
 
     await expect(
-      page.getByRole("heading", { name: "Coldplay Live" })
-    ).toBeVisible();
+      page.getByRole("heading", { name: "Coldplay Live", exact: true })
+    ).not.toBeVisible();
   });
 
   test("BROWSE-FILTER-05 filter by event type", async ({ page }) => {
     await page
-      .getByRole("combobox", { name: "Filter by show type" })
-      .selectOption("movie");
+      .getByRole("button", { name: /Movies/ })
+      .click();
 
-    await page.getByRole("button", { name: "Search" }).click();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
 
     await expect(
-      page.getByRole("heading", { name: "Interstellar" })
+      page.getByRole("heading", { name: "Interstellar", exact: true })
     ).toBeVisible();
 
     await expect(
-      page.getByRole("heading", { name: "Coldplay Live" })
+      page.getByRole("heading", { name: "Coldplay Live", exact: true })
     ).not.toBeVisible();
   });
 
   test("BROWSE-FILTER-06 combine search and event type", async ({ page }) => {
-    await page
-      .getByRole("textbox", { name: "Search shows or venues" })
-      .fill("Interstellar");
+    await page.getByRole("button", { name: /Movies/ }).click();
 
-    await page
-      .getByRole("combobox", { name: "Filter by show type" })
-      .selectOption("movie");
+    const search = page.getByRole("textbox", {
+      name: "Search movies, venues, genres, or cities",
+    });
+    await search.fill("Interstellar");
+    const filteredResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/browse/shows"
+        && url.searchParams.get("event_type") === "movie"
+        && url.searchParams.get("search") === "Interstellar";
+    });
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    expect((await filteredResponse).ok()).toBe(true);
 
-    await page.getByRole("button", { name: "Search" }).click();
+    await expect(page.getByRole("heading", { name: 'Results for "Interstellar"' })).toBeVisible();
 
     await expect(
-      page.getByRole("heading", { name: "Interstellar" })
+      page.getByRole("heading", { name: "Interstellar", exact: true })
     ).toBeVisible();
 
     await expect(
-      page.getByRole("heading", { name: "Coldplay Live" })
+      page.getByRole("heading", { name: "Coldplay Live", exact: true })
     ).not.toBeVisible();
   });
 
   test("BROWSE-FILTER-07 pressing Enter performs search", async ({ page }) => {
     const search = page.getByRole("textbox", {
-      name: "Search shows or venues",
+      name: "Search movies, venues, genres, or cities",
     });
 
     await search.fill("Interstellar");
     await search.press("Enter");
 
+    await expect(page.getByRole("heading", { name: 'Results for "Interstellar"' })).toBeVisible();
+
     await expect(
-      page.getByRole("heading", { name: "Interstellar" })
+      page.getByRole("heading", { name: "Interstellar", exact: true })
     ).toBeVisible();
   });
 });

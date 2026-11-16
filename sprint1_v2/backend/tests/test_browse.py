@@ -1,6 +1,7 @@
-import pytest
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import HTTPException
 
 from routers.browse import (
@@ -43,14 +44,23 @@ async def test_browse_shows_returns_scheduled_published_future_shows():
         conn=conn,
     )
 
-    assert result == rows
+    assert result == [
+        {
+            **rows[0],
+            "current_price": None,
+            "price_change_pct": 0,
+            "pricing_reasons": [],
+            "avg_rating": None,
+            "review_count": 0,
+        }
+    ]
 
     query = conn.fetch.call_args.args[0]
 
     assert "s.status='scheduled'" in query
     assert "e.status='published'" in query
     assert "s.start_time > now()" in query
-    assert "ORDER BY s.start_time ASC" in query
+    assert "ORDER BY MIN(s.start_time) ASC" in query
     assert "LIMIT 100" in query
 
 
@@ -88,7 +98,7 @@ async def test_browse_shows_event_type_filter():
 
     query, *params = conn.fetch.call_args.args
 
-    assert "e.event_type = $1" in query
+    assert "lower(e.event_type::text) = lower($1)" in query
     assert params == ["movie"]
 
 
@@ -112,22 +122,27 @@ async def test_browse_shows_language_filter_is_case_insensitive():
 
 
 @pytest.mark.asyncio
-async def test_browse_shows_search_matches_title_or_venue():
-    conn = make_conn()
+async def test_browse_shows_search_matches_title_typos_or_venue():
+    start_time = datetime(2026, 11, 20, 18, tzinfo=timezone.utc)
+    conn = make_conn(fetch_rows=[
+        {"show_id": "movie-1", "title": "Interstellar", "venue_name": "Cinema", "start_time": start_time},
+        {"show_id": "movie-2", "title": "Drama", "venue_name": "Interstelar Cinema", "start_time": start_time},
+        {"show_id": "movie-3", "title": "Oppenheimer", "venue_name": "Auditorium", "start_time": start_time},
+    ])
 
-    await browse_shows(
+    result = await browse_shows(
         city=None,
         event_type=None,
         language=None,
-        search="imax",
+        search="Interstelar",
         date=None,
+        sort_by="time_asc",
         conn=conn,
     )
 
-    query, *params = conn.fetch.call_args.args
-
-    assert "(lower(e.title) LIKE lower($1) OR lower(v.name) LIKE lower($1))" in query
-    assert params == ["%imax%"]
+    assert [show["show_id"] for show in result] == ["movie-2", "movie-1"]
+    assert result[0]["relevance"] == 1
+    assert 0 < result[1]["relevance"] < 1
 
 
 @pytest.mark.asyncio
@@ -145,8 +160,8 @@ async def test_browse_shows_date_filter():
 
     query, *params = conn.fetch.call_args.args
 
-    assert "date(s.start_time) = $1::date" in query
-    assert params == ["2026-11-15"]
+    assert "date(s.start_time) = $1" in query
+    assert params == [date(2026, 11, 15)]
 
 
 @pytest.mark.asyncio
@@ -165,17 +180,15 @@ async def test_browse_shows_combines_multiple_filters_in_order():
     query, *params = conn.fetch.call_args.args
 
     assert "lower(v.city) = lower($1)" in query
-    assert "e.event_type = $2" in query
+    assert "lower(e.event_type::text) = lower($2)" in query
     assert "lower(e.language) = lower($3)" in query
-    assert "(lower(e.title) LIKE lower($4) OR lower(v.name) LIKE lower($4))" in query
-    assert "date(s.start_time) = $5::date" in query
+    assert "date(s.start_time) = $4" in query
 
     assert params == [
         "Ahmedabad",
         "movie",
         "English",
-        "%imax%",
-        "2026-11-15",
+        date(2026, 11, 15),
     ]
 
 
@@ -211,7 +224,14 @@ async def test_get_show_details_returns_show():
 
     result = await get_show_details("show-1", conn=conn)
 
-    assert result == row
+    assert {key: result[key] for key in row} == row
+    assert result["is_default_terms"]
+    assert result["terms_and_conditions"]
+    assert result["terms_hash"]
+    assert result["avg_rating"] is None
+    assert result["review_count"] == 0
+    assert result["zones"] == []
+    assert result["upcoming_shows"] == []
     conn.fetchrow.assert_awaited_once()
     assert conn.fetchrow.call_args.args[1] == "show-1"
 
