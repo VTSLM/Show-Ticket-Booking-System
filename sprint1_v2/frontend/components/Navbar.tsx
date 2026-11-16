@@ -66,6 +66,9 @@ export default function Navbar() {
                 <Link href="/admin/organizers" className="hover:text-red-300">
                   Organizers
                 </Link>
+                <Link href="/admin/support" className="hover:text-red-300">
+                  Support Dashboard
+                </Link>
               </>
             )}
 
