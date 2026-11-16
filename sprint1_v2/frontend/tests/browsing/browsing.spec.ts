@@ -78,13 +78,13 @@ test.describe("Browsing - Basic UI", () => {
     ).toBeVisible();
 
     await expect(
-      page.getByText("Discover what’s playing near you.")
+      page.getByText("Search by movie, venue, genre, language, or city.")
     ).toBeVisible();
   });
 
   test("BROWSE-UI-02 search controls are visible", async ({ page }) => {
     await expect(
-      page.getByRole("textbox", { name: "Search shows or venues" })
+      page.getByRole("textbox", { name: "Search movies, venues, genres, or cities" })
     ).toBeVisible();
 
     await expect(
@@ -92,11 +92,11 @@ test.describe("Browsing - Basic UI", () => {
     ).toBeVisible();
 
     await expect(
-      page.getByRole("combobox", { name: "Filter by show type" })
+      page.getByRole("button", { name: /Movies/ })
     ).toBeVisible();
 
     await expect(
-      page.getByRole("button", { name: "Search" })
+      page.getByRole("button", { name: "Search", exact: true })
     ).toBeVisible();
   });
 
@@ -134,17 +134,13 @@ test.describe("Browsing - Basic UI", () => {
     await expect(citySelect).toContainText("Delhi");
   });
 
-  test("BROWSE-UI-06 clicking a show opens seat selection", async ({
+  test("BROWSE-UI-06 clicking a show opens event details", async ({
     page,
   }) => {
-    const showLink = page
-      .getByRole("heading", { name: "Interstellar" })
-      .locator("..")
-      .locator("..")
-      .locator("..");
+    const showLink = page.getByRole("link", { name: /Interstellar movie English/i });
 
     await showLink.click();
 
-    await expect(page).toHaveURL(/\/shows\/show-101\/seats$/);
+    await expect(page).toHaveURL(/\/events\/event-101$/);
   });
 });
