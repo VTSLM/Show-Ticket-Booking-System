@@ -331,7 +331,7 @@ export default function OrganizerVerificationPage() {
                 {currentApp?.reviewer_comments || "Reviewer has requested corrections to your application details or attached documents."}
               </p>
               <p className="text-[11px] text-amber-400/80">
-                Please upload replacement document versions or modify required fields, then click 'Submit for review' to resubmit.
+                Please upload replacement document versions or modify required fields, then click &apos;Submit for review&apos; to resubmit.
               </p>
             </div>
           )}

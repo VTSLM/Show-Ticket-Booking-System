@@ -6,7 +6,7 @@ from datetime import date
 import asyncpg
 
 from database import get_conn
-from dependencies import get_current_firebase_uid, get_current_user, require_role
+from dependencies import get_current_user, require_role
 from firebase_admin_setup import verify_firebase_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])

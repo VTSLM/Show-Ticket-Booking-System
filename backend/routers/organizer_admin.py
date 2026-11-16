@@ -15,10 +15,10 @@ Exposes:
 
 from datetime import datetime, timezone
 import json
-from typing import Any, Dict, List, Optional
+from typing import Optional
 import uuid
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from database import get_conn
@@ -28,7 +28,7 @@ from services.bank_verification import verify_mock_bank_account
 from services.document_vault import get_view_url
 from services.duplicate_detection import check_duplicate_collisions, register_case_fingerprints
 from services.risk_assessment import assess_organizer_risk
-from services.trust_tier_service import evaluate_payout_eligibility, get_trust_tier_rules
+from services.trust_tier_service import evaluate_payout_eligibility
 
 router = APIRouter(prefix="/api/admin/organizers", tags=["Admin Organizer Management"])
 
@@ -576,7 +576,7 @@ async def make_verification_decision(
 @router.get("", summary="Admin Organizer Directory with search and filtering")
 async def list_organizers(
     q: Optional[str] = Query(None, description="Search query by name, state, or email"),
-    status: Optional[str] = Query(None, description="Filter by verification status"),
+    status: Optional[str] = Query(None, description="Filter by verification status"),  # noqa: F811 (public query param name)
     tier: Optional[str] = Query(None, description="Filter by trust tier"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),

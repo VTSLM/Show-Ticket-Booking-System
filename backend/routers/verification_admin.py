@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from database import get_conn
-from dependencies import get_current_user, require_role
+from dependencies import require_role
 from services.verification import claim_case, log_action, transition_case
 
 

@@ -78,7 +78,6 @@ def assess_organizer_risk(
         risk_score += 15
 
     # 3. PAN and GSTIN Entity Alignment
-    pan_masked = profile.get("pan_masked") or ""
     gstin_masked = profile.get("gstin_masked") or ""
     business_type = profile.get("business_type")
 

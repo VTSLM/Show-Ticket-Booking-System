@@ -13,9 +13,8 @@ Core Responsibilities:
 8. Record audit notifications upon submission.
 """
 
-from datetime import datetime, timezone
 import json
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 import uuid
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -23,9 +22,9 @@ from pydantic import BaseModel, Field
 
 from database import get_conn
 from dependencies import get_current_user
-from models.verification import BusinessType, CaseType, DocumentType, VerificationStatus
+from models.verification import BusinessType, CaseType, DocumentType
 from services.bank_verification import verify_mock_bank_account
-from services.duplicate_detection import check_duplicate_collisions, register_case_fingerprints
+from services.duplicate_detection import register_case_fingerprints
 from services.identity_validators import validate_pan, validate_gstin, validate_ifsc
 from services.trust_tier_service import evaluate_payout_eligibility
 from services.verification_security import (

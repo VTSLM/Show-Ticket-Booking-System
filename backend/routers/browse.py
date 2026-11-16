@@ -5,6 +5,8 @@ from difflib import SequenceMatcher
 import asyncpg
 from database import get_conn
 from services.dynamic_pricing import pricing_summary, apply_multiplier
+import json
+from services.terms_service import resolve_show_terms
 
 router = APIRouter(prefix="/api/browse", tags=["browse"])
 
@@ -206,8 +208,6 @@ async def browse_shows(
     return results[:100]
 
 
-import json
-from services.terms_service import resolve_show_terms
 
 @router.get("/shows/{show_id}")
 async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):

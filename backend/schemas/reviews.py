@@ -1,7 +1,7 @@
 """
 TicketFlow — Pydantic Schemas for Critics & Reviews Module
 """
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 import uuid as uuid_module

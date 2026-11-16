@@ -12,7 +12,7 @@ Covers:
 """
 
 import os
-from uuid import UUID, uuid4
+from uuid import uuid4
 from datetime import date, datetime, timezone
 import pytest
 from pydantic import ValidationError
@@ -23,18 +23,14 @@ from models.verification import (
     DocumentType,
     VerificationStatus,
     ReviewStatus,
-    TrustTierCode,
     TrustTierRuleModel,
     OrganizerProfileCreate,
     OrganizerProfileModel,
-    BankAccountCreate,
     BankAccountModel,
     VerificationDocumentCreate,
     VerificationDocumentModel,
     DuplicateFingerprintCreate,
-    DuplicateFingerprintModel,
     NotificationCreate,
-    NotificationModel,
 )
 from services.verification_security import (
     mask_pan,

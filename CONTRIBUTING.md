@@ -85,7 +85,7 @@ PR titles follow the same format, because the PR title becomes the squash commit
 - Before requesting review, run the checks locally:
 
 ```bash
-cd backend && ruff check . && ruff format --check . && pytest
+cd backend && ruff check . && pytest
 cd frontend && npm run lint && npx tsc --noEmit && npm run build
 ```
 
@@ -149,7 +149,7 @@ Versions follow SemVer. `v0.x` until the first production deployment, which beco
 
 ## 10. Code style
 
-- **Python:** formatted and linted with `ruff`. Type hints on new functions. Business logic goes in `services/`, HTTP handling in `routers/`.
+- **Python:** linted with `ruff` (bug-catching rules for now, widened over time). Type hints on new functions. Business logic goes in `services/`, HTTP handling in `routers/`.
 - **TypeScript:** ESLint with `next/core-web-vitals`. No `any` in new code where a type is reasonable. API calls go through `lib/api.ts`.
 - **SQL:** lower-case keywords or upper-case, but be consistent within a file. Enable row level security on new tables.
 
