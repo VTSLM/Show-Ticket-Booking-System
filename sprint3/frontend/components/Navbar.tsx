@@ -32,6 +32,9 @@ export default function Navbar() {
             <Link href="/bookings" className="hover:text-red-300">
               My Bookings
             </Link>
+            <Link href="/wishlist" className="hover:text-red-300">
+              ❤️ Wishlist
+            </Link>
             <Link href="/support" className="hover:text-red-300">
               Support
             </Link>
@@ -65,9 +68,6 @@ export default function Navbar() {
                 </Link>
                 <Link href="/admin/organizers" className="hover:text-red-300">
                   Organizers
-                </Link>
-                <Link href="/admin/support" className="hover:text-red-300">
-                  Support Dashboard
                 </Link>
               </>
             )}

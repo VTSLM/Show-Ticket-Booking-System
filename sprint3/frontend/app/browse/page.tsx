@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { browseApi } from "@/lib/api";
+import { useWishlist } from "@/components/useWishlist";
 
 const EVENT_TYPES = [
   { label: "All", value: "" },
@@ -100,6 +101,7 @@ function sortShows(list: any[], sortBy: string): any[] {
 }
 
 export default function BrowsePage() {
+  const wishlist = useWishlist();
   const [shows, setShows] = useState<any[]>([]);
   const [allShowsCache, setAllShowsCache] = useState<any[]>([]);
   const [cities, setCities] = useState<string[]>([]);
@@ -669,7 +671,18 @@ export default function BrowsePage() {
       ) : (
         <div className={gridClasses}>
           {shows.map((show) => (
-            <div key={show.event_id || show.show_id} className="flex flex-col">
+            <div key={show.event_id || show.show_id} className="relative flex flex-col">
+              {show.event_id && (
+                <button
+                  type="button"
+                  onClick={() => wishlist.toggle(show.event_id)}
+                  aria-label={wishlist.has(show.event_id) ? "Remove from wishlist" : "Add to wishlist"}
+                  title={wishlist.has(show.event_id) ? "Remove from wishlist" : "Add to wishlist"}
+                  className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-lg backdrop-blur transition hover:scale-110 hover:bg-black/80"
+                >
+                  {wishlist.has(show.event_id) ? "❤️" : "🤍"}
+                </button>
+              )}
               <Link
                 href={show.event_id ? `/events/${show.event_id}` : `/shows/${show.show_id}`}
                 className="group flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-950/30"

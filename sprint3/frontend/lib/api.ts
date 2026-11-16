@@ -63,6 +63,13 @@ export const browseApi = {
   cities: () => api.get<string[]>("/api/browse/cities", false),
 };
 
+export const wishlistApi = {
+  list: () => api.get<any[]>("/api/wishlist"),
+  ids: () => api.get<{ event_ids: string[] }>("/api/wishlist/ids"),
+  add: (eventId: string) => api.post<{ wishlisted: boolean }>(`/api/wishlist/${eventId}`),
+  remove: (eventId: string) => api.delete<{ wishlisted: boolean }>(`/api/wishlist/${eventId}`),
+};
+
 export const seatsApi = {
   map: (showId: string) => api.get<any>(`/api/seats/${showId}/map`, false),
   terms: (showId: string) => api.get<any>(`/api/seats/${showId}/terms`, false),
