@@ -1,0 +1,9 @@
+[project]
+name = "ticketflow-backend"
+version = "0.2.0"
+description = "TicketFlow FastAPI backend"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

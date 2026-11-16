@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, integration/feature-merging]
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -15,24 +15,24 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: pip install -r sprint3/backend/requirements.txt ruff
+        run: pip install -r backend/requirements.txt ruff
       - name: Lint
-        run: ruff check sprint3/backend --ignore E501 || true
+        run: ruff check backend --ignore E501 || true
       - name: Syntax check
-        run: python -m py_compile sprint3/backend/main.py sprint3/backend/config.py sprint3/backend/database.py
+        run: python -m py_compile backend/main.py backend/config.py backend/database.py
 
   frontend-build:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: sprint3/frontend
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: sprint3/frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
       - run: npm install
       - name: Type check
         run: npx tsc --noEmit || true

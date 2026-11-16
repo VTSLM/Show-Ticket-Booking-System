@@ -1,0 +1,47 @@
+# Local development stack. Fill in backend/.env and frontend/.env.local first
+# (copy the .env.example files). See README.md for details.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ticketflow
+      POSTGRES_PASSWORD: ticketflow
+      POSTGRES_DB: ticketflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketflow"]
+      interval: 5s
+      retries: 10
+    profiles: ["localdb"]
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./ticketflow-firebase.json:/app/ticketflow-firebase.json:ro
+    restart: unless-stopped
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm ci && npm run dev"
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+volumes:
+  db-data:
