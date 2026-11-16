@@ -10,7 +10,7 @@ test.describe('Login page - validation and UI', () => {
 
     await expect(page.getByRole('heading', { name: 'Log in' })).toBeVisible();
     await expect(page.getByLabel('Email')).toBeVisible();
-    await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Log in' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Sign up' })).toHaveAttribute('href', '/auth/register');
@@ -20,7 +20,7 @@ test.describe('Login page - validation and UI', () => {
     await page.goto(loginUrl);
 
     const email = page.getByLabel('Email');
-    const password = page.getByLabel('Password');
+    const password = page.getByLabel('Password', { exact: true });
 
     await expect(email).toHaveAttribute('required', '');
     await expect(password).toHaveAttribute('required', '');
@@ -37,7 +37,7 @@ test.describe('Login page - validation and UI', () => {
 
     const email = page.getByLabel('Email');
     await email.fill('not-an-email');
-    await page.getByLabel('Password').fill('SomePassword123');
+    await page.getByLabel('Password', { exact: true }).fill('SomePassword123');
 
     expect(await email.evaluate((el: HTMLInputElement) => el.validity.typeMismatch)).toBe(true);
   });
@@ -45,19 +45,18 @@ test.describe('Login page - validation and UI', () => {
   test('LOGIN-UI-04: password input masks the password', async ({ page }) => {
     await page.goto(loginUrl);
 
-    await expect(page.getByLabel('Password')).toHaveAttribute('type', 'password');
+    await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute('type', 'password');
   });
 
-  test('LOGIN-UI-05: forgot-password control is currently non-functional', async ({ page }) => {
+  test('LOGIN-UI-05: forgot password prompts for an email', async ({ page }) => {
     await page.goto(loginUrl);
 
     const forgot = page.getByRole('button', { name: 'Forgot password?' });
     await expect(forgot).toBeVisible();
     await expect(forgot).toHaveAttribute('type', 'button');
 
-    // There is currently no click handler/navigation attached in the supplied page.tsx.
-    // This test intentionally documents the existing behavior rather than expecting
-    // a password-reset flow that is not implemented.
+    await forgot.click();
+    await expect(page.getByText('Enter your email address first.')).toBeVisible();
   });
 });
 
@@ -67,7 +66,7 @@ test.describe('Login page - real Firebase account', () => {
   test('LOGIN-01: valid credentials redirect to /browse', async ({ page }) => {
     await page.goto(loginUrl);
     await page.getByLabel('Email').fill(testEmail!);
-    await page.getByLabel('Password').fill(testPassword!);
+    await page.getByLabel('Password', { exact: true }).fill(testPassword!);
     await page.getByRole('button', { name: 'Log in' }).click();
 
     await expect(page).toHaveURL(/\/browse(?:$|\/)/, { timeout: 15000 });
@@ -76,7 +75,7 @@ test.describe('Login page - real Firebase account', () => {
   test('LOGIN-02: wrong password does not redirect to /browse', async ({ page }) => {
     await page.goto(loginUrl);
     await page.getByLabel('Email').fill(testEmail!);
-    await page.getByLabel('Password').fill(`${testPassword!}-wrong`);
+    await page.getByLabel('Password', { exact: true }).fill(`${testPassword!}-wrong`);
     await page.getByRole('button', { name: 'Log in' }).click();
 
     await page.waitForTimeout(1500);
