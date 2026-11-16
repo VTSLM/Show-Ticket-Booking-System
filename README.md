@@ -1,152 +1,196 @@
-# TicketFlow - Show Ticket Booking System
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo-light.svg" alt="TicketFlow" width="420">
+  </picture>
+</p>
 
-> **IT314 Software Engineering** · **DA-IICT** · **Batch 2024** · **Sprint 1 & Sprint 2 snapshots · Sprint 3 active**
+<p align="center">
+  <strong>Discover shows, pick your seats, pay and get your ticket. All in one flow.</strong>
+</p>
 
-TicketFlow is a modern, full-stack event ticketing platform developed as a university software engineering project. It provides an end-to-end event management and ticketing solution where users can discover upcoming events, select and lock seats in real time, make secure online payments via Razorpay, and receive instant e-tickets with scannable QR codes.
+<p align="center">
+  <a href="https://github.com/VTSLM/Show-Ticket-Booking-System/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/VTSLM/Show-Ticket-Booking-System/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/VTSLM/Show-Ticket-Booking-System/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/VTSLM/Show-Ticket-Booking-System?sort=semver"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white">
+  <img alt="Next.js 14" src="https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white">
+</p>
 
-Venue managers can list and schedule events, while administrators manage access control and platform operations.
+TicketFlow is a full-stack ticket booking platform for movies, concerts, theatre and other live events. Customers browse shows, lock seats in real time, pay through Razorpay and receive a PDF e-ticket with a QR code by email. Organizers get verified, list venues and shows with flexible seating layouts, and admins review organizers, venues and support requests.
 
-> **Status:** One app at the repo root. Earlier sprints are tagged: [v0.1.0 (Sprint 1)](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.1.0), [v0.2.0 (Sprint 2)](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.2.0).
+Built by a team of ten for **IT314 Software Engineering** at **DA-IICT** (Batch 2024).
 
----
+## Contents
 
-## Run Locally
+- [Features](#features)
+- [Architecture](#architecture)
+- [Getting started](#getting-started)
+- [Running tests](#running-tests)
+- [Project structure](#project-structure)
+- [Versions and releases](#versions-and-releases)
+- [Contributing](#contributing)
+- [Team](#team)
+- [License](#license)
 
-Copy `backend/.env.example` to `backend/.env` and `frontend/.env.example` to `frontend/.env.local`, fill in the team's test values, then run these in two terminals from the repo root (or use `./scripts/dev.sh`).
+## Features
 
-**Backend**
+**Customers**
+- Browse and fuzzy-search shows, filter by type, sort by price or rating, and save shows to a wishlist
+- Show details with cast, multiple theatres, formats and showtimes
+- Interactive seat maps for cinemas, theatres, concert stages, fan pits and standing zones, with temporary seat locks
+- Razorpay checkout (test mode) with retry handling and dynamic seat pricing
+- PDF e-tickets with QR codes, emailed on confirmation
+- Booking history, cancellation with a 2-hour cutoff and refunds
+- Reviews with spoiler flags, helpful votes, threaded comments, critic and audience sections, and AI summaries
+- Help centre with FAQs and support requests with conversation threads
+- Profile editing with photo upload
 
-```sh
-cd backend
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
+**Organizers (managers)**
+- Multi-step organizer verification with PAN, GSTIN and IFSC validation and a private document vault
+- Venue verification (licence, NOC, capacity, seating plans)
+- Show listing with layout templates, premium rows, zones and per-show dynamic pricing
+- Review moderation
+
+**Admins**
+- Organizer and venue review with mandatory rejection reasons
+- Support dashboard with email replies
+- Invite-code based admin registration
+
+See the [releases](https://github.com/VTSLM/Show-Ticket-Booking-System/releases) for what shipped in each sprint.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  U[Browser] --> FE[Next.js 14 frontend]
+  FE -- Firebase ID token --> BE[FastAPI backend]
+  FE -- sign in --> FA[Firebase Auth]
+  BE -- verify token --> FA
+  BE -- asyncpg --> DB[(PostgreSQL)]
+  BE --> ST[Supabase Storage<br/>documents, photos]
+  BE --> RZ[Razorpay]
+  BE --> SMTP[Gmail SMTP<br/>tickets, support mail]
+  BE --> AI[OpenAI<br/>review summaries]
 ```
 
-**Frontend**
+| Layer | Technology |
+|-------|------------|
+| Frontend | Next.js 14 (App Router), TypeScript, Tailwind CSS, Playwright |
+| Backend | FastAPI, Python 3.12, asyncpg, Pydantic 2, pytest |
+| Database | PostgreSQL (Supabase today, Azure Database for PostgreSQL planned) |
+| Auth | Firebase Authentication |
+| Payments | Razorpay (test mode) |
+| Tickets | ReportLab, qrcode, Pillow, Gmail SMTP |
+| Infrastructure | Docker, Terraform for Azure (planned), GitHub Actions |
 
-```sh
+## Getting started
+
+### Prerequisites
+
+- Python 3.12
+- Node.js 20
+- Access to the team's test Supabase, Firebase and Razorpay projects (ask a maintainer), or Docker for a local Postgres
+
+### 1. Configure
+
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
+```
+
+Fill in both files. Put the Firebase service account JSON at `backend/ticketflow-firebase.json` (gitignored) or paste it into `FIREBASE_SERVICE_ACCOUNT_JSON`.
+
+### 2. Database
+
+Using the shared Supabase database, nothing to do. For a local database:
+
+```bash
+docker compose --profile localdb up -d db
+```
+
+This applies every migration in [`database/migrations`](database/migrations). See [database/README.md](database/README.md).
+
+### 3. Run
+
+```bash
+./scripts/dev.sh
+```
+
+Or run each side yourself:
+
+```bash
+cd backend
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+```bash
 cd frontend
 npm ci
 npm run dev
 ```
 
-Open [TicketFlow locally](http://localhost:3000). The API docs are at http://localhost:8000/docs.
+Open http://localhost:3000. API docs are at http://localhost:8000/docs.
 
----
+## Running tests
 
-## 🛠️ Tech Stack
-
-| **Layer** | **Technology** |
-|-----------|----------------|
-| **Frontend** | Next.js 14.2 (App Router, TypeScript, Tailwind CSS) |
-| **Backend** | FastAPI (Python 3.9) + asyncpg |
-| **Database** | PostgreSQL via Supabase (Session Pooler) |
-| **Authentication** | Firebase Authentication (Email / Password) |
-| **Payments** | Razorpay Payment Gateway (Test Mode) |
-| **Email Delivery** | Gmail SMTP (App Password) |
-| **PDF & QR Engine** | ReportLab + qrcode + Pillow |
-
----
-
-## ✨ Features (Sprint 1)
-
-| **#** | **Feature** | **Branch Name** | **Description** |
-|-------|-------------|-----------------|-----------------|
-| **F01** | **User Authentication** | `login` | Secure multi-role authentication (User, Manager, Admin) powered by Firebase. |
-| **F02** | **Manager Show Listing** | `managers-can-list` | Dashboard for listing, scheduling, and configuring events and venues. |
-| **F03** | **Browse & Search Shows** | `browse-nearby-shows` | Interactive event discovery with search and filtering capabilities. |
-| **F04** | **Seat Selection & Locking** | `seat-allocation-vatsal` | Interactive seat grid with real-time selection and temporary seat locking. |
-| **F05** | **Payment Gateway** | `feature/05-payment-gateway` | Secure payment processing through Razorpay test integration. |
-| **F06** | **Ticket Generation & Email** | `ticket-generation-hari` | Automated PDF e-ticket generation with QR codes and email delivery via SMTP. |
-
-> All six features are included in [v0.1.0](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.1.0).
-
----
-
-## ✨ Features (Sprint 2)
-
-| **#** | **Feature** | **Description** |
-|-------|-------------|-----------------|
-| **S2-F01** | **Critics & Reviews** | Dedicated reviews page per event: write, edit and delete reviews, comments, "Helpful" votes, spoiler flag, critic vs audience separation, and AI review summaries. |
-| **S2-F02** | **Browse Enhancements** | Improved search bar, new sorting options and sections on the browse page, different sections for different type of events, Change in UI, a placeholder for not loaded images in the browsing page. |
-| **S2-F03** | **Venue Verification & Admin Review** | Managers submit venue details (licence, NOC, capacity) with photos and seating plans. Admins review the documents and approve or reject, with a mandatory rejection reason. |
-| **S2-F04** | **Registration Security** | Birthdate field with future-date validation, confirm-password field, strong password rules, birthdate stored in Supabase, and a forgot-password fix. |
-| **S2-F05** | **Organizer Verification** | Multi-step organizer application with draft saving, PAN / GSTIN / IFSC validation, and secure document uploads (private storage, versioning, signed URLs). Venue listing is now blocked until verification passes. |
-| **S2-F06** | **Show Details & Flexible Venue Layouts** | Show-specific details for movies, concerts, theatre and other events. Supports cinema seats, concert stages, fan pits, standing zones and stadium layouts, with zoom, pan and hover info. Adds a Terms & Conditions tab before payment. |
-| **S2-F07** | **Customer Care** | Help Centre with searchable FAQs, contact support form, My Requests with status filters, conversation threads, and an admin reply dashboard with email notifications. |
-| **S2-F08** | **Ticket Cancellation & Refund** | Cancel endpoint with a 2-hour cutoff rule and Razorpay refund support. |
-| **S2-F09** | **Edit Customer Profile** | Edit name, phone number, birthdate and bio, and upload or remove a profile photo. |
-
-
----
-
-## Sprint 3 Scope
-
-- **Dynamic pricing** — Verify the existing per-show rules and preserve the price locked when a customer holds a seat.
-- **Support chatbot** — Help customers find FAQ answers and reach Customer Care.
-- **Deployment** — Set up staging and document release checks.
-- **Debugging and regression testing** — Fix issues and verify the end-to-end booking flow.
-
----
-
-## 👥 Team & Responsibilities
-
-### Feature Developers (Sprint 1)
-
-| **Module / Feature** | **Responsible Members** |
-|----------------------|-------------------------|
-| **F01 — Authentication** | Dwij Patel · Aditya |
-| **F02 — Manager Show Listing** | Rishi |
-| **F03 — Browse & Search Shows** | Kavya Halani · Arpit |
-| **F04 — Seat Allocation** | Khushi · Vatsal Mori |
-| **F05 — Payment Gateway** | Darshan · Tirth |
-| **F06 — Ticket Generation** | Hari Sharma |
-
-### Feature Developers (Sprint 2)
-
-| **Module / Feature** | **Responsible Members** |
-|----------------------|-------------------------|
-| **S2-F01 — Critics & Reviews** | Kavya · Arpit |
-| **S2-F02 — Browse Enhancements** | Kavya |
-| **S2-F03 — Venue Verification & Admin Review** | Dwij |
-| **S2-F04 — Registration Security** | Dwij |
-| **S2-F05 — Organizer Verification** | Khushi |
-| **S2-F06 — Show Details & Flexible Venue Layouts** | Khushi |
-| **S2-F07 — Customer Care** | Tirth · Hari |
-| **S2-F08 — Ticket Cancellation & Refund** | Hari · Darshan |
-| **Testing & QA** | Rishi · Vatsal |
-| **Debugging & Issue Resolution** | Hari Sharma · Aditya |
-
-
-### Quality Assurance & Support
-
-| **Core Role** | **Assigned Team Members** |
-|---------------|---------------------------|
-| **Testing & Quality Assurance** | Vatsal Mori · Rishi |
-| **Debugging & Issue Resolution** | Hari Sharma · Aditya |
-
----
-
-## 📁 Repository Structure
-
-```text
-Show-Ticket-Booking-System/
-├── backend/        # FastAPI app (routers, services, schemas, tests)
-├── frontend/       # Next.js 14 app (App Router, Tailwind, Playwright tests)
-├── database/       # Ordered SQL migrations, rollbacks, seeds
-├── infra/          # Terraform for Azure (planned)
-├── docs/           # Requirements PDFs and historical notes
-├── scripts/        # Developer scripts (dev.sh)
-├── docker-compose.yml
-└── .github/        # CI workflows
+```bash
+cd backend && pytest                 # unit and API tests, no external services needed
+cd frontend && npx tsc --noEmit      # type check
+cd frontend && npx playwright test   # end-to-end, needs the app running and test accounts in .env.local
 ```
 
----
+## Project structure
 
-> **Database setup:** see [database/README.md](database/README.md).
+```text
+├── backend/         FastAPI app: routers/, services/, schemas/, models/, tests/
+├── frontend/        Next.js app: app/ (routes), components/, contexts/, lib/, tests/ (Playwright)
+├── database/        migrations/ (ordered SQL), rollbacks/, seeds/
+├── infra/           Terraform for Azure (planned)
+├── docs/            requirements/, history/, assets/ (logo)
+├── scripts/         dev.sh
+├── .github/         CI workflows, issue and PR templates
+└── docker-compose.yml
+```
 
----
+## Versions and releases
 
-*TicketFlow — Making event discovery and ticket booking seamless.*
+TicketFlow follows [Semantic Versioning](https://semver.org). Each sprint ends with a tagged release:
+
+| Version | Sprint | Dates |
+|---------|--------|-------|
+| [v0.1.0](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.1.0) | Sprint 1 | 25 Sep to 6 Nov 2026 |
+| [v0.2.0](https://github.com/VTSLM/Show-Ticket-Booking-System/releases/tag/v0.2.0) | Sprint 2 | 7 Nov to 16 Nov 2026 |
+| v0.3.0 | Sprint 3 | in progress |
+| v1.0.0 | First production deployment on Azure | planned |
+
+To look at the code as it was at the end of a sprint, check out its tag, for example `git checkout v0.1.0`. See [CHANGELOG.md](CHANGELOG.md) for a summary of each version.
+
+## Contributing
+
+All work starts from an issue and lands through a reviewed pull request. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening your first PR. AI coding tools should read [AGENTS.md](AGENTS.md).
+
+Found a security problem? Follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
+
+## Team
+
+| Member | GitHub | Sprint 1 | Sprint 2 |
+|--------|--------|----------|----------|
+| Vatsal Mori | [@VTSLM](https://github.com/VTSLM) | Seat allocation, integration, testing | AI review summaries, testing and QA |
+| Hari Sharma | [@https-hari](https://github.com/https-hari) | Ticket generation and email, integration | Customer care, cancellation and refunds, debugging |
+| Khushi Shah | [@khushishahs02](https://github.com/khushishahs02) | Seat allocation | Organizer verification, show details and venue layouts |
+| Kavya | [@Dev-KavyT](https://github.com/Dev-KavyT) | Browse and search | Critics and reviews, browse enhancements |
+| Arpit Payasi | [@Arpit-Payasi](https://github.com/Arpit-Payasi) | Browse and search | Critics and reviews |
+| Dwij Rikin Patel | [@DwijRikinPatel](https://github.com/DwijRikinPatel) | Authentication | Venue verification, registration security |
+| Aditya Rathod | [@AdityaDRathod](https://github.com/AdityaDRathod) | Authentication | Debugging and issue resolution |
+| Rishi | [@rishijoshi06](https://github.com/rishijoshi06) | Manager show listing | Testing and QA |
+| Darshan Tita | [@darshnn007](https://github.com/darshnn007) | Payment gateway | Cancellation and refunds |
+| Tirth Patel | [@mordekeiser](https://github.com/mordekeiser) | Payment gateway | Customer care, dynamic pricing, profile editing |
+
+Who did what in each sprint is tracked on the [project board](https://github.com/users/https-hari/projects) and in the release notes.
+
+## License
+
+[MIT](LICENSE)
