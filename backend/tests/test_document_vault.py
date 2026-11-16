@@ -14,7 +14,6 @@ Covers all 10 requirements:
 10. Supabase Storage upload failure handling.
 """
 
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import uuid
 import pytest
@@ -27,7 +26,7 @@ from services.document_vault import (
     validate_file_payload,
     mask_document_identifier,
 )
-from services.supabase_storage import StorageUploadError, StorageSignedUrlError
+from services.supabase_storage import StorageUploadError
 
 
 # Fake valid documents

@@ -12,10 +12,9 @@ Validates:
 import pytest
 import uuid
 from unittest.mock import AsyncMock, MagicMock
-from fastapi import HTTPException
 from routers.seats import get_seat_map, lock_zone, release_zone, ZoneLockRequest
 from routers.bookings import create_booking, CreateBookingRequest
-from routers.manager import create_screen, ScreenCreate, create_show, ShowCreate, ZoneInput
+from routers.manager import create_screen, ScreenCreate
 
 
 @pytest.mark.asyncio

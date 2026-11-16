@@ -12,10 +12,10 @@ Core Responsibilities:
 6. Temporary short-lived signed URL generation (5-minute expiry).
 """
 
-from datetime import date, datetime, timezone
+from datetime import date
 import os
 import re
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Union
 import uuid
 import asyncpg
 from fastapi import HTTPException, status
@@ -25,7 +25,7 @@ from config import (
     ALLOWED_DOCUMENT_MIME_TYPES,
     SIGNED_URL_EXPIRY_SECONDS,
 )
-from models.verification import CaseType, DocumentType, ReviewStatus
+from models.verification import CaseType, DocumentType
 from services.supabase_storage import upload_file_to_storage, create_signed_url
 from services.verification_security import mask_pan, mask_gstin
 

@@ -717,7 +717,7 @@ export default function ManagerPage() {
                       </p>
                       {ev.status === "draft" && (
                         <p style={{ fontSize: 11, color: C.amber, margin: 0 }}>
-                          ⚠ Shows for this event won't appear on Browse until published.
+                          ⚠ Shows for this event won&apos;t appear on Browse until published.
                         </p>
                       )}
                     </div>
@@ -853,7 +853,7 @@ export default function ManagerPage() {
               {selectedVenue && selectedVenue.verification_status !== "approved" && (
                 <div style={{ padding: "12px 16px", borderRadius: 10, background: `${C.amber}14`, border: `1px solid ${C.amber}44`, marginBottom: 18 }}>
                   <p style={{ margin: 0, fontSize: 12, color: C.amber, fontWeight: 600 }}>
-                    ⚠ Venue "{selectedVenue.name}" is pending safety compliance verification. Layouts can be configured, but public shows cannot be scheduled until admin approves venue safety documents.
+                    ⚠ Venue &quot;{selectedVenue.name}&quot; is pending safety compliance verification. Layouts can be configured, but public shows cannot be scheduled until admin approves venue safety documents.
                   </p>
                 </div>
               )}

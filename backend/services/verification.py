@@ -87,7 +87,6 @@ async def transition_case(
         if not row:
             raise HTTPException(status_code=404, detail="Verification case not found")
 
-        before = dict(row)
         if expected_version is not None and row["row_version"] != expected_version:
             raise HTTPException(
                 status_code=409,

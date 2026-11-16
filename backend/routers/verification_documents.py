@@ -7,7 +7,7 @@ under the agreed '/api/verification/...' applicant and shared namespace.
 """
 
 from datetime import date
-from typing import List, Optional
+from typing import Optional
 import uuid
 import asyncpg
 from fastapi import (

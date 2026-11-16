@@ -9,7 +9,7 @@ Enforces trust tier limits and payout settlement eligibility based on:
 4. Configured trust tier parameters from `trust_tier_rules`.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 import uuid
 import asyncpg
 from models.verification import VerificationStatus

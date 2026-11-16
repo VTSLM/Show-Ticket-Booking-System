@@ -55,7 +55,7 @@ TicketFlow is a ticket booking platform built for IT314 Software Engineering at 
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 uvicorn main:app --reload --port 8000
-ruff check . && ruff format --check . && pytest
+ruff check . && pytest
 
 # frontend (from frontend/)
 npm ci

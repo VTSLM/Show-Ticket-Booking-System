@@ -1,14 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import List, Optional
-import asyncio
+from typing import List
 import asyncpg
 import json
-import uuid
 from datetime import datetime, timezone
-from database import get_conn, get_pool
+from database import get_conn
 from dependencies import get_current_user
 from services.dynamic_pricing import get_show_pricing, apply_multiplier
+from services.terms_service import resolve_show_terms
 
 router = APIRouter(prefix="/api/seats", tags=["seats"])
 
@@ -38,7 +37,6 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-from services.terms_service import resolve_show_terms
 
 LOCK_DURATION_MINUTES = 10
 
@@ -328,7 +326,7 @@ async def seat_ws(show_id: str, websocket: WebSocket):
     await manager.connect(show_id, websocket)
     try:
         while True:
-            data = await websocket.receive_text()
+            await websocket.receive_text()
             # Client can send pings or requests
     except WebSocketDisconnect:
         manager.disconnect(show_id, websocket)

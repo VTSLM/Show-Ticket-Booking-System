@@ -12,7 +12,6 @@ import uuid
 from unittest.mock import AsyncMock
 from fastapi import HTTPException
 from routers.manager import create_event, EventCreate, create_show, ShowCreate
-from routers.organizer_verification import save_application_draft, ApplicationDraftRequest, BusinessType
 
 
 @pytest.mark.asyncio

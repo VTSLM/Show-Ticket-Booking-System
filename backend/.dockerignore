@@ -1,0 +1,14 @@
+# Keep secrets, local environments and test artefacts out of the image
+.env
+.env.*
+!.env.example
+*-firebase.json
+*serviceAccount*.json
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+tests/
+private_uploads/
