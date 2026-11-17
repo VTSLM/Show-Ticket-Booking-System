@@ -10,7 +10,6 @@ from dependencies import get_current_user
 from services.ticket_service import build_ticket_pdf
 from services.qr_service import generate_qr_bytes
 from services.email_service import send_ticket_email
-from config import GMAIL_USER
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
