@@ -121,6 +121,12 @@ Reviewing is part of the job, not a favour. Aim to review within one working day
 
 See [database/README.md](database/README.md).
 
+### Dependencies
+
+- Dependabot PRs are switched off (`.github/dependabot.yml`). Don't merge one if it appears; close it.
+- To upgrade a package, open an issue and a `chore/` branch, change `requirements.txt` or `package.json` + `package-lock.json` yourself, and say in the PR why the upgrade is needed and how you tested it.
+- Major-version upgrades (Next.js, React, Tailwind, Python) need their own issue and agreement from the team first.
+
 ## 7. Secrets
 
 - Never commit `.env`, `.env.local`, service account JSON, keys or tokens. They are gitignored; keep it that way.

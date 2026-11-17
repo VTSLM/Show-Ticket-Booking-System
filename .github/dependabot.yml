@@ -1,27 +1,30 @@
+# Dependabot version-update PRs are switched off for this project.
+#
+# open-pull-requests-limit: 0 tells Dependabot to open no version-update PRs
+# for that ecosystem. We keep the entries (instead of deleting this file) so
+# turning updates back on later is a one-line change per ecosystem.
+#
+# Dependency upgrades are done by hand, on a normal branch with an issue,
+# like any other change. See CONTRIBUTING.md.
+#
+# Vulnerabilities still show up under the repo's Security tab as Dependabot
+# alerts. To keep Dependabot from opening security-fix PRs as well, leave
+# "Dependabot security updates" off in Settings > Code security.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: /backend
-    schedule: { interval: weekly, day: monday }
-    open-pull-requests-limit: 5
-    labels: ["type: chore", "area: backend"]
-    commit-message: { prefix: "chore(deps)" }
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 0
   - package-ecosystem: npm
     directory: /frontend
-    schedule: { interval: weekly, day: monday }
-    open-pull-requests-limit: 5
-    labels: ["type: chore", "area: frontend"]
-    commit-message: { prefix: "chore(deps)" }
-    groups:
-      minor-and-patch:
-        update-types: [minor, patch]
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 0
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly, day: monday }
-    labels: ["type: chore", "area: ci"]
-    commit-message: { prefix: "ci(deps)" }
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 0
   - package-ecosystem: docker
     directory: /backend
     schedule: { interval: monthly }
-    labels: ["type: chore", "area: backend"]
-    commit-message: { prefix: "chore(deps)" }
+    open-pull-requests-limit: 0
