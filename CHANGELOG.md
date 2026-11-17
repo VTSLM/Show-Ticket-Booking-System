@@ -14,6 +14,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Unexpected server errors now return a JSON 500 with CORS headers, so the browser shows the real error instead of a CORS failure
 - Cancelling a booking answers immediately; the Razorpay refund is requested in the background (30 s timeout) and its id stored when Razorpay confirms
 - Support emails (new request, admin reply) are sent after the response, so customers and admins no longer wait several seconds; SMTP calls now time out after 20 s
+- My Bookings shows expired bookings as "Expired" instead of "Pending"
 
 ### Removed
 - Duplicated `sprint1/`, `sprint2/` and `sprint3/` folders. Earlier sprints are available as the `v0.1.0` and `v0.2.0` tags.
