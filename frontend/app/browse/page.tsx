@@ -65,13 +65,16 @@ function Poster({
 
 const hasRating = (s: any) => Number(s.review_count ?? 0) > 0 && s.avg_rating != null;
 
+// The price the card shows: the current (dynamic) price, else the base price.
+const shownPrice = (s: any): number | null => {
+  const v = s.current_price ?? s.base_price;
+  return v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v);
+};
+
 // Sorts the shows on the page itself so the chosen sort always applies,
 // whatever order the API returned them in.
 function sortShows(list: any[], sortBy: string): any[] {
-  const price = (s: any) =>
-    s.base_price === null || s.base_price === undefined || Number.isNaN(Number(s.base_price))
-      ? null
-      : Number(s.base_price);
+  const price = shownPrice; // sort by the price customers see on the card
   const time = (s: any) => new Date(s.start_time).getTime() || 0;
   const seats = (s: any) => Number(s.available_seats ?? 0);
 
@@ -191,8 +194,14 @@ export default function BrowsePage() {
           if (item.city && !existing.cities_list.includes(item.city)) {
             existing.cities_list.push(item.city);
           }
-          if (item.base_price && (!existing.base_price || Number(item.base_price) < Number(existing.base_price))) {
+          // Show the cheapest showtime's price, with that showtime's own pricing details
+          const itemPrice = shownPrice(item);
+          const shown = shownPrice(existing);
+          if (itemPrice !== null && (shown === null || itemPrice < shown)) {
+            existing.current_price = item.current_price;
             existing.base_price = item.base_price;
+            existing.price_change_pct = item.price_change_pct;
+            existing.pricing_reasons = item.pricing_reasons;
           }
           existing.available_seats = (existing.available_seats || 0) + (item.available_seats || 0);
           existing.theatres_count = existing.theatres_list.length;
