@@ -7,7 +7,7 @@ import uuid as _uuid
 import io
 from database import get_conn
 from dependencies import get_current_user
-from services.ticket_service import build_ticket_pdf
+from services.ticket_service import build_ticket_pdf, format_show_datetime
 from services.qr_service import generate_qr_bytes
 from services.email_service import send_ticket_email
 
@@ -98,7 +98,7 @@ async def _scan_and_consume_ticket(booking_id: str, conn: asyncpg.Connection) ->
             "title": row["event_title"],
             "venue": row["venue_name"],
             "screen": row["screen_name"],
-            "start_time": str(row["start_time"]),
+            "start_time": format_show_datetime(row["start_time"]),
         }
     }
 
@@ -169,7 +169,7 @@ async def confirm_and_generate_ticket(
         "venue_name": booking["venue_name"],
         "venue_city": booking["city"],
         "screen_name": booking["screen_name"],
-        "start_time": str(booking["start_time"]),
+        "start_time": format_show_datetime(booking["start_time"]),
         "seats": seats,
         "total_amount": float(booking["total_amount"]),
         "user_name": booking["user_name"],
@@ -207,7 +207,7 @@ async def download_ticket_pdf(
         "event_title": booking["event_title"],
         "venue_name": booking["venue_name"],
         "screen_name": booking["screen_name"],
-        "start_time": str(booking["start_time"]),
+        "start_time": format_show_datetime(booking["start_time"]),
         "seats": seats,
         "total_amount": float(booking["total_amount"]),
         "user_name": booking["user_name"],
