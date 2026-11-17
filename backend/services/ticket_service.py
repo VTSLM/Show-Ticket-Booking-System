@@ -18,7 +18,7 @@ def build_ticket_pdf(ticket_data: dict) -> bytes:
     title_style = ParagraphStyle("title", parent=styles["Title"],
                                   fontSize=22, textColor=colors.HexColor("#1a1a2e"),
                                   alignment=TA_CENTER, spaceAfter=0.3*cm)
-    elements.append(Paragraph("🎫 TicketFlow", title_style))
+    elements.append(Paragraph("TicketFlow", title_style))
     elements.append(Paragraph("Your E-Ticket", ParagraphStyle("sub", parent=styles["Normal"],
                                 fontSize=12, textColor=colors.grey, alignment=TA_CENTER)))
     elements.append(Spacer(1, 0.5*cm))
@@ -54,9 +54,9 @@ def build_ticket_pdf(ticket_data: dict) -> bytes:
             s.get("row_label", ""),
             str(s.get("seat_number", "")),
             s.get("seat_type", "standard").capitalize(),
-            f"₹{float(s.get('price', 0)):.2f}"
+            f"Rs. {float(s.get('price', 0)):.2f}"
         ])
-    seat_rows.append(["", "", "Total", f"₹{float(ticket_data.get('total_amount', 0)):.2f}"])
+    seat_rows.append(["", "", "Total", f"Rs. {float(ticket_data.get('total_amount', 0)):.2f}"])
     seat_table = Table(seat_rows, colWidths=[3*cm, 3*cm, 5*cm, 4*cm])
     seat_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e94560")),
