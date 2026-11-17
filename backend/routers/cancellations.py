@@ -7,11 +7,11 @@ POST  /api/bookings/{booking_id}/cancel              — cancel + trigger refund
 from datetime import datetime, timezone, timedelta
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from database import get_conn
 from dependencies import get_current_user
-from services.refund_service import initiate_razorpay_refund
+from services.refund_service import refund_and_record
 
 router = APIRouter(prefix="/api/bookings", tags=["cancellations"])
 
@@ -96,6 +96,7 @@ async def check_cancel_eligibility(
 @router.post("/{booking_id}/cancel")
 async def cancel_booking(
     booking_id: str,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
@@ -108,10 +109,10 @@ async def cancel_booking(
        - ticket   → cancelled
        - seats    → available
        - payment  → refunded (status + amounts)
-    3. Outside the transaction (best-effort): calls Razorpay refund API
-       and stores the rfnd_... ID.  A Razorpay failure does NOT roll back
-       the cancellation — the refund can be retried manually from the
-       Razorpay dashboard.
+    3. After the response is sent (background task, best-effort): calls the
+       Razorpay refund API and stores the rfnd_... ID. A Razorpay failure does
+       NOT roll back the cancellation; it is logged and the refund can be
+       retried manually from the Razorpay dashboard.
     """
     booking = await _fetch_booking_for_cancel(
         booking_id, str(current_user["id"]), conn
@@ -151,30 +152,24 @@ async def cancel_booking(
                 booking["payment_id"],
             )
 
-    # ── Razorpay refund (best-effort, outside transaction) ────────────────
-    refund_id = None
-    rz_payment_id = booking["transaction_id"]
-
-    if booking["payment_id"] and rz_payment_id:
-        try:
-            amount_paise = round(float(booking["paid_amount"]) * 100)
-            refund_id = await initiate_razorpay_refund(rz_payment_id, amount_paise)
-            await conn.execute(
-                "UPDATE payments SET razorpay_refund_id = $1 WHERE id = $2",
-                refund_id,
-                booking["payment_id"],
-            )
-        except Exception as exc:
-            print(f"[cancel] Razorpay refund call failed (manual follow-up needed): {exc}")
+    # ── Razorpay refund: requested after the response (best-effort) ──────
+    refund_requested = bool(booking["payment_id"] and booking["transaction_id"])
+    if refund_requested:
+        background_tasks.add_task(
+            refund_and_record,
+            booking["payment_id"],
+            booking["transaction_id"],
+            round(float(booking["paid_amount"]) * 100),
+        )
 
     return {
         "status": "cancelled",
-        "refund_initiated": refund_id is not None,
+        "refund_initiated": refund_requested,
         "refund_amount": float(booking["total_amount"]) if booking["payment_id"] else 0.0,
-        "razorpay_refund_id": refund_id,
+        "razorpay_refund_id": None,  # stored on the payment once Razorpay confirms
         "note": (
-            "Refund initiated via Razorpay. Allow 5–7 business days."
-            if refund_id
+            "Refund requested from Razorpay. Allow 5–7 business days."
+            if refund_requested
             else "No payment on record — booking cancelled with no charge."
             if not booking["payment_id"]
             else "Booking cancelled. Refund could not be auto-initiated — contact support."
