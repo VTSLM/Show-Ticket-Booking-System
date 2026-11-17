@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
@@ -27,7 +26,6 @@ async def test_verify_ticket_valid_unused():
         "id": SAMPLE_TICKET_ID,
         "status": "valid",
         "is_used": False,
-        "used_at": None,
     })
 
     result = await verify_ticket(booking_id=SAMPLE_BOOKING_ID, consume=False, conn=conn)
@@ -59,12 +57,10 @@ async def test_verify_ticket_not_found():
 
 @pytest.mark.asyncio
 async def test_verify_ticket_already_used():
-    used_time = datetime(2026, 11, 17, 18, 30, tzinfo=timezone.utc)
     conn = make_conn(fetchrow_result={
         "id": SAMPLE_TICKET_ID,
         "status": "used",
         "is_used": True,
-        "used_at": used_time,
     })
 
     result = await verify_ticket(booking_id=SAMPLE_BOOKING_ID, consume=False, conn=conn)
@@ -72,7 +68,7 @@ async def test_verify_ticket_already_used():
     assert result["valid"] is False
     assert result["used"] is True
     assert result["status"] == "used"
-    assert "already used" in result["message"]
+    assert "already" in result["message"].lower()
 
 
 @pytest.mark.asyncio
@@ -81,7 +77,6 @@ async def test_verify_ticket_cancelled():
         "id": SAMPLE_TICKET_ID,
         "status": "cancelled",
         "is_used": False,
-        "used_at": None,
     })
 
     result = await verify_ticket(booking_id=SAMPLE_BOOKING_ID, consume=False, conn=conn)
@@ -93,30 +88,24 @@ async def test_verify_ticket_cancelled():
 
 @pytest.mark.asyncio
 async def test_scan_ticket_success_first_time():
-    used_time = datetime(2026, 11, 17, 19, 0, tzinfo=timezone.utc)
-
-    # First fetchrow: detail query
     ticket_detail = {
         "id": SAMPLE_TICKET_ID,
         "booking_id": SAMPLE_BOOKING_ID,
         "status": "valid",
         "is_used": False,
-        "used_at": None,
         "event_title": "Inception (Re-release)",
-        "start_time": datetime(2026, 11, 17, 20, 0, tzinfo=timezone.utc),
+        "start_time": "2026-11-17 20:00:00+00",
         "venue_name": "PVR Icon",
         "screen_name": "Audi 1",
         "user_name": "Rahul Sharma",
         "user_email": "rahul@example.com",
     }
 
-    # Second fetchrow: atomic UPDATE returning consumed ticket
     consumed_row = {
         "id": SAMPLE_TICKET_ID,
         "booking_id": SAMPLE_BOOKING_ID,
         "status": "used",
         "is_used": True,
-        "used_at": used_time,
     }
 
     conn = AsyncMock()
@@ -136,16 +125,13 @@ async def test_scan_ticket_success_first_time():
 
 @pytest.mark.asyncio
 async def test_scan_ticket_rejects_already_used_reusable_attempt():
-    used_time = datetime(2026, 11, 17, 18, 0, tzinfo=timezone.utc)
-
     ticket_detail = {
         "id": SAMPLE_TICKET_ID,
         "booking_id": SAMPLE_BOOKING_ID,
         "status": "used",
         "is_used": True,
-        "used_at": used_time,
         "event_title": "Inception (Re-release)",
-        "start_time": datetime(2026, 11, 17, 20, 0, tzinfo=timezone.utc),
+        "start_time": "2026-11-17 20:00:00+00",
         "venue_name": "PVR Icon",
         "screen_name": "Audi 1",
         "user_name": "Rahul Sharma",
@@ -171,9 +157,8 @@ async def test_scan_ticket_rejects_cancelled_ticket():
         "booking_id": SAMPLE_BOOKING_ID,
         "status": "cancelled",
         "is_used": False,
-        "used_at": None,
         "event_title": "Inception (Re-release)",
-        "start_time": datetime(2026, 11, 17, 20, 0, tzinfo=timezone.utc),
+        "start_time": "2026-11-17 20:00:00+00",
         "venue_name": "PVR Icon",
         "screen_name": "Audi 1",
         "user_name": "Rahul Sharma",
@@ -193,16 +178,13 @@ async def test_scan_ticket_rejects_cancelled_ticket():
 
 @pytest.mark.asyncio
 async def test_scan_ticket_by_booking_id_endpoint():
-    used_time = datetime(2026, 11, 17, 19, 0, tzinfo=timezone.utc)
-
     ticket_detail = {
         "id": SAMPLE_TICKET_ID,
         "booking_id": SAMPLE_BOOKING_ID,
         "status": "valid",
         "is_used": False,
-        "used_at": None,
         "event_title": "Interstellar",
-        "start_time": datetime(2026, 11, 17, 21, 0, tzinfo=timezone.utc),
+        "start_time": "2026-11-17 21:00:00+00",
         "venue_name": "PVR Grand",
         "screen_name": "Audi 2",
         "user_name": "Pooja Patel",
@@ -213,7 +195,6 @@ async def test_scan_ticket_by_booking_id_endpoint():
         "booking_id": SAMPLE_BOOKING_ID,
         "status": "used",
         "is_used": True,
-        "used_at": used_time,
     }
 
     conn = AsyncMock()
@@ -227,16 +208,13 @@ async def test_scan_ticket_by_booking_id_endpoint():
 
 @pytest.mark.asyncio
 async def test_verify_with_consume_flag_marks_used():
-    used_time = datetime(2026, 11, 17, 19, 0, tzinfo=timezone.utc)
-
     ticket_detail = {
         "id": SAMPLE_TICKET_ID,
         "booking_id": SAMPLE_BOOKING_ID,
         "status": "valid",
         "is_used": False,
-        "used_at": None,
         "event_title": "Interstellar",
-        "start_time": datetime(2026, 11, 17, 21, 0, tzinfo=timezone.utc),
+        "start_time": "2026-11-17 21:00:00+00",
         "venue_name": "PVR Grand",
         "screen_name": "Audi 2",
         "user_name": "Pooja Patel",
@@ -247,7 +225,6 @@ async def test_verify_with_consume_flag_marks_used():
         "booking_id": SAMPLE_BOOKING_ID,
         "status": "used",
         "is_used": True,
-        "used_at": used_time,
     }
 
     conn = AsyncMock()

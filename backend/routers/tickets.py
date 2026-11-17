@@ -39,7 +39,7 @@ def _parse_booking_id(qr_data: Optional[str], booking_id: Optional[str]) -> str:
 
 async def _scan_and_consume_ticket(booking_id: str, conn: asyncpg.Connection) -> dict:
     row = await conn.fetchrow(
-        """SELECT t.id, t.booking_id, t.status, t.is_used, t.used_at,
+        """SELECT t.id, t.booking_id, t.status, t.is_used,
                   e.title as event_title, s.start_time, v.name as venue_name,
                   sc.name as screen_name, u.name as user_name, u.email as user_email
            FROM tickets t
@@ -63,18 +63,17 @@ async def _scan_and_consume_ticket(booking_id: str, conn: asyncpg.Connection) ->
         )
 
     if row["is_used"] or row["status"] == "used":
-        used_at_str = row["used_at"].isoformat() if row["used_at"] else "earlier"
         raise HTTPException(
             status_code=409,
-            detail=f"Ticket has already been scanned and used at {used_at_str}. Duplicate entry is not permitted."
+            detail="Ticket has already been scanned and used. Duplicate entry is not permitted."
         )
 
     # Atomically mark the ticket as used (prevents concurrent double-scanning)
     updated = await conn.fetchrow(
         """UPDATE tickets
-           SET is_used = true, used_at = now(), status = 'used'
+           SET is_used = true, status = 'used'
            WHERE booking_id = $1::uuid AND is_used = false AND status = 'valid'
-           RETURNING id, booking_id, status, is_used, used_at""",
+           RETURNING id, booking_id, status, is_used""",
         booking_id
     )
 
@@ -92,7 +91,6 @@ async def _scan_and_consume_ticket(booking_id: str, conn: asyncpg.Connection) ->
         "booking_id": str(updated["booking_id"]),
         "status": updated["status"],
         "used": updated["is_used"],
-        "used_at": updated["used_at"].isoformat() if updated["used_at"] else None,
         "attendee": {
             "name": row["user_name"],
             "email": row["user_email"]
@@ -243,15 +241,15 @@ async def verify_ticket(
         return await _scan_and_consume_ticket(booking_id, conn)
 
     row = await conn.fetchrow(
-        """SELECT id, status, is_used, used_at FROM tickets WHERE booking_id=$1::uuid""",
+        """SELECT id, status, is_used FROM tickets WHERE booking_id=$1::uuid""",
         booking_id
     )
     if not row:
         return {"valid": False, "message": "Ticket not found"}
 
     is_valid = row["status"] == "valid" and not row["is_used"]
-    if row["is_used"]:
-        msg = f"Ticket already used at {row['used_at'].isoformat() if row['used_at'] else 'earlier'}"
+    if row["is_used"] or row["status"] == "used":
+        msg = "Ticket has already been scanned and used"
     elif row["status"] == "cancelled":
         msg = "Ticket has been cancelled"
     else:
@@ -262,7 +260,6 @@ async def verify_ticket(
         "status": row["status"],
         "ticket_id": str(row["id"]),
         "used": row["is_used"],
-        "used_at": row["used_at"].isoformat() if row["used_at"] else None,
         "message": msg
     }
 
