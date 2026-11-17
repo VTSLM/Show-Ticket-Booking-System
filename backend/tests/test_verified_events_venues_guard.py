@@ -88,6 +88,7 @@ async def test_create_show_blocked_when_organizer_unapproved():
     conn.fetchrow.return_value = {
         "event_title": "Untrusted Rock Night",
         "organizer_id": str(uuid.uuid4()),
+        "org_user_id": manager_user["id"],
         "org_name": "Unverified Organizer",
         "org_status": "PENDING",
         "venue_name": "Narendra Modi Stadium",
@@ -120,6 +121,7 @@ async def test_create_show_blocked_when_venue_unverified():
     conn.fetchrow.return_value = {
         "event_title": "Grand Concert",
         "organizer_id": str(uuid.uuid4()),
+        "org_user_id": manager_user["id"],
         "org_name": "Verified Live India",
         "org_status": "APPROVED",
         "venue_name": "Unregistered Basement Club",
@@ -155,6 +157,7 @@ async def test_create_show_succeeds_when_both_verified():
         {
             "event_title": "Coldplay Live",
             "organizer_id": str(uuid.uuid4()),
+            "org_user_id": manager_user["id"],
             "org_name": "Live Nation India",
             "org_status": "APPROVED",
             "venue_name": "Narendra Modi Stadium",
