@@ -11,6 +11,12 @@ import json
 
 router = APIRouter(prefix="/api/manager", tags=["manager"])
 
+
+def _is_admin(user: dict) -> bool:
+    """get_current_user puts roles in a list; there is no single "role" key."""
+    return "admin" in (user.get("roles") or [])
+
+
 # ---- Venues ----
 class VenueCreate(BaseModel):
     name: str
@@ -30,9 +36,9 @@ async def create_venue(
     user: dict = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    is_admin = user.get("role") == "admin"
+    is_admin = _is_admin(user)
     v_status = "approved" if is_admin else "unverified"
-    
+
     async with conn.transaction():
         row = await conn.fetchrow(
             """INSERT INTO venues (name, address, city, state, pincode, verification_status)
@@ -41,8 +47,8 @@ async def create_venue(
         )
         if not is_admin:
             await conn.execute(
-                """INSERT INTO venue_verification_cases (venue_id, applicant_id, status)
-                   VALUES ($1, $2, 'DRAFT') ON CONFLICT DO NOTHING""",
+                """INSERT INTO venue_verification_cases (venue_id, applicant_id)
+                   VALUES ($1, $2) ON CONFLICT DO NOTHING""",
                 row["id"], user["id"]
             )
     return dict(row)
@@ -172,7 +178,7 @@ async def create_event(
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     organizer_id = body.organizer_id
-    is_admin = user.get("role") == "admin"
+    is_admin = _is_admin(user)
 
     if not is_admin:
         if not organizer_id:
@@ -295,7 +301,7 @@ async def create_show(
     user: dict = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    is_admin = user.get("role") == "admin"
+    is_admin = _is_admin(user)
 
     # Double-Lock Verification Guard: Both Event Organizer AND Venue must be verified
     if not is_admin:

@@ -18,7 +18,7 @@ from routers.manager import create_event, EventCreate, create_show, ShowCreate
 async def test_manager_cannot_create_event_without_approved_org():
     conn = AsyncMock()
     user_id = str(uuid.uuid4())
-    manager_user = {"id": user_id, "role": "manager"}
+    manager_user = {"id": user_id, "roles": ["manager"]}
 
     # Mock no approved organizations found
     conn.fetch.return_value = []
@@ -37,7 +37,7 @@ async def test_manager_cannot_create_event_with_unapproved_org():
     conn = AsyncMock()
     user_id = str(uuid.uuid4())
     org_id = str(uuid.uuid4())
-    manager_user = {"id": user_id, "role": "manager"}
+    manager_user = {"id": user_id, "roles": ["manager"]}
 
     # Mock organization is currently PENDING review
     conn.fetchrow.return_value = {
@@ -61,7 +61,7 @@ async def test_manager_create_event_with_approved_org():
     user_id = str(uuid.uuid4())
     org_id = str(uuid.uuid4())
     event_id = str(uuid.uuid4())
-    manager_user = {"id": user_id, "role": "manager"}
+    manager_user = {"id": user_id, "roles": ["manager"]}
 
     conn.fetchrow.side_effect = [
         # Check org
@@ -80,7 +80,7 @@ async def test_manager_create_event_with_approved_org():
 @pytest.mark.asyncio
 async def test_create_show_blocked_when_organizer_unapproved():
     conn = AsyncMock()
-    manager_user = {"id": str(uuid.uuid4()), "role": "manager"}
+    manager_user = {"id": str(uuid.uuid4()), "roles": ["manager"]}
     screen_id = str(uuid.uuid4())
     event_id = str(uuid.uuid4())
 
@@ -112,7 +112,7 @@ async def test_create_show_blocked_when_organizer_unapproved():
 @pytest.mark.asyncio
 async def test_create_show_blocked_when_venue_unverified():
     conn = AsyncMock()
-    manager_user = {"id": str(uuid.uuid4()), "role": "manager"}
+    manager_user = {"id": str(uuid.uuid4()), "roles": ["manager"]}
     screen_id = str(uuid.uuid4())
     event_id = str(uuid.uuid4())
 
@@ -144,7 +144,7 @@ async def test_create_show_blocked_when_venue_unverified():
 @pytest.mark.asyncio
 async def test_create_show_succeeds_when_both_verified():
     conn = AsyncMock()
-    manager_user = {"id": str(uuid.uuid4()), "role": "manager"}
+    manager_user = {"id": str(uuid.uuid4()), "roles": ["manager"]}
     screen_id = str(uuid.uuid4())
     event_id = str(uuid.uuid4())
     show_id = str(uuid.uuid4())
@@ -185,7 +185,7 @@ async def test_create_show_succeeds_when_both_verified():
 @pytest.mark.asyncio
 async def test_admin_bypasses_verification_guards():
     conn = AsyncMock()
-    admin_user = {"id": str(uuid.uuid4()), "role": "admin"}
+    admin_user = {"id": str(uuid.uuid4()), "roles": ["admin"]}
     screen_id = str(uuid.uuid4())
     event_id = str(uuid.uuid4())
     show_id = str(uuid.uuid4())
