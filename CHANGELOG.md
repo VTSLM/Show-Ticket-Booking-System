@@ -10,6 +10,9 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Project documentation, logo, MIT license, contribution workflow, issue and PR templates (#84)
 - Stricter CI with tests, linting, migration checks, secret scanning, CodeQL and Dependabot (#85)
 
+### Fixed
+- Unexpected server errors now return a JSON 500 with CORS headers, so the browser shows the real error instead of a CORS failure
+
 ### Removed
 - Duplicated `sprint1/`, `sprint2/` and `sprint3/` folders. Earlier sprints are available as the `v0.1.0` and `v0.2.0` tags.
 

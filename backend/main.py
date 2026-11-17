@@ -4,6 +4,7 @@ import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import get_pool, close_pool
+from error_handling import CatchUnhandledErrors
 from firebase_admin_setup import init_firebase
 from rate_limit import RateLimitMiddleware
 from routers.auth import router as auth_router, admin_router
@@ -59,6 +60,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Added before CORS so it sits inside it: error responses keep their CORS headers.
+app.add_middleware(CatchUnhandledErrors)
 
 # Rate limiting. Added BEFORE CORS on purpose: the last middleware added is the
 # outermost, so CORS headers are also put on 429 responses and the browser can
