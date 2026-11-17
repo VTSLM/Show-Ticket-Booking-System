@@ -11,7 +11,7 @@
 
 from typing import Literal, Optional
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from database import get_conn
@@ -59,6 +59,14 @@ async def _get_request_or_404(request_id: str, conn: asyncpg.Connection) -> dict
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+
+async def _email_customer_safely(**kwargs) -> None:
+    """Background task: a failed email must never affect the admin's reply."""
+    try:
+        await send_admin_reply_notification(**kwargs)
+    except Exception as exc:
+        print(f"[support_admin] email to customer failed: {exc}")
 
 @router.get("/requests")
 async def list_all_requests(
@@ -147,6 +155,7 @@ async def get_request_detail(
 async def admin_reply(
     request_id: str,
     body: AdminReplyBody,
+    background_tasks: BackgroundTasks,
     admin: dict = Depends(ADMIN_ONLY),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
@@ -185,18 +194,16 @@ async def admin_reply(
             new_status, request_id,
         )
 
-    # Email customer (fire-and-forget — never block the response)
-    try:
-        await send_admin_reply_notification(
-            user_email=request["user_email"],
-            user_name=request["user_name"],
-            subject=request["subject"],
-            request_number=request["request_number"],
-            admin_message=body.message.strip(),
-            new_status=new_status,
-        )
-    except Exception as exc:
-        print(f"[support_admin] email to customer failed: {exc}")
+    # Email the customer after the response is sent (never blocks or fails the reply)
+    background_tasks.add_task(
+        _email_customer_safely,
+        user_email=request["user_email"],
+        user_name=request["user_name"],
+        subject=request["subject"],
+        request_number=request["request_number"],
+        admin_message=body.message.strip(),
+        new_status=new_status,
+    )
 
     return {
         "id": str(msg_row["id"]),

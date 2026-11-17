@@ -2,7 +2,7 @@ import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
 
 from routers.support_admin import (
@@ -285,12 +285,16 @@ async def test_admin_can_reply_to_open_request():
         new=AsyncMock(),
     ) as email_mock:
 
+        tasks = BackgroundTasks()
         result = await admin_reply(
+            background_tasks=tasks,
             request_id=REQUEST_ID,
             body=body,
             admin=make_admin(),
             conn=conn,
         )
+        email_mock.assert_not_awaited()  # not sent before the response
+        await tasks()  # FastAPI runs these after sending the response
 
     assert result["message"] == "We have checked your payment."
     assert result["is_admin"] is True
@@ -325,6 +329,7 @@ async def test_admin_reply_can_change_status_to_in_progress():
         new=AsyncMock(),
     ):
         result = await admin_reply(
+            background_tasks=BackgroundTasks(),
             request_id=REQUEST_ID,
             body=body,
             admin=make_admin(),
@@ -358,6 +363,7 @@ async def test_admin_reply_can_resolve_request():
         new=AsyncMock(),
     ):
         result = await admin_reply(
+            background_tasks=BackgroundTasks(),
             request_id=REQUEST_ID,
             body=body,
             admin=make_admin(),
@@ -386,6 +392,7 @@ async def test_admin_cannot_reply_to_closed_request():
 
     with pytest.raises(HTTPException) as exc:
         await admin_reply(
+            background_tasks=BackgroundTasks(),
             request_id=REQUEST_ID,
             body=body,
             admin=make_admin(),
@@ -422,12 +429,15 @@ async def test_admin_reply_email_failure_does_not_fail_request():
             side_effect=Exception("Email service unavailable")
         ),
     ):
+        tasks = BackgroundTasks()
         result = await admin_reply(
+            background_tasks=tasks,
             request_id=REQUEST_ID,
             body=body,
             admin=make_admin(),
             conn=conn,
         )
+        await tasks()  # the failing email runs here and must not raise
 
     # Email failure must not cause the API request itself to fail.
     assert result["message"] == "We have checked your issue."
