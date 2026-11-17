@@ -14,6 +14,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Duplicated `sprint1/`, `sprint2/` and `sprint3/` folders. Earlier sprints are available as the `v0.1.0` and `v0.2.0` tags.
 
 ### Security
+- The backend now trusts only Firebase ID tokens that the Firebase Admin SDK verifies
 - Removed a committed virtual environment, a committed `.env` file and leaked credentials from git history.
 
 ## [0.2.0] - 2026-11-16 (Sprint 2)
