@@ -39,6 +39,11 @@ async def get_current_user(
         raise HTTPException(status_code=404, detail="User profile not found. Please register first.")
     user = dict(row)
     user["roles"] = list(user["roles"]) if user["roles"] else []
+    # Only active accounts may use the API. Pending managers and blocked users are
+    # turned away here, not just on the login screen.
+    if user["status"] != "active":
+        detail = "Account pending admin approval" if user["status"] == "inactive" else "Account blocked"
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
     return user
 
 def require_role(*roles: str):

@@ -15,6 +15,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 
 ### Security
 - The backend now trusts only Firebase ID tokens that the Firebase Admin SDK verifies
+- Only active accounts can use the API; pending and blocked accounts are refused on every request, not only at login
 - Removed a committed virtual environment, a committed `.env` file and leaked credentials from git history.
 
 ## [0.2.0] - 2026-11-16 (Sprint 2)
