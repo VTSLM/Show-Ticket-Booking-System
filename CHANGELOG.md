@@ -11,6 +11,12 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Project documentation, logo, MIT license, contribution workflow, issue and PR templates (#84)
 - Stricter CI with tests, linting, migration checks, secret scanning, CodeQL and Dependabot (#85)
 
+### Fixed
+- Unexpected server errors now return a JSON 500 with CORS headers, so the browser shows the real error instead of a CORS failure
+- Cancelling a booking answers immediately; the Razorpay refund is requested in the background (30 s timeout) and its id stored when Razorpay confirms
+- Support emails (new request, admin reply) are sent after the response, so customers and admins no longer wait several seconds; SMTP calls now time out after 20 s
+- My Bookings shows expired bookings as "Expired" instead of "Pending"
+- Browse price sorting follows the price shown on each card (the current dynamic price), and grouped events show their cheapest showtime's price
 ### Changed
 - Sign-up: Confirm Password must be typed (copy, cut, paste and drag-and-drop are blocked in that field only) and shows whether the passwords match while typing (#136)
 
@@ -18,6 +24,12 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Duplicated `sprint1/`, `sprint2/` and `sprint3/` folders. Earlier sprints are available as the `v0.1.0` and `v0.2.0` tags.
 
 ### Security
+- The backend now trusts only Firebase ID tokens that the Firebase Admin SDK verifies
+- Only active accounts can use the API; pending and blocked accounts are refused on every request, not only at login
+- The support inbox is limited to admins
+- Upgraded Next.js to 14.2.35
+- Upgraded FastAPI (Starlette 1.x), Pillow, python-multipart and python-dotenv for security fixes; pinned `openai`
+- Production settings: `APP_ENV=production` checks required settings at startup, hides the API docs and verifies the database certificate; CORS origins come from `CORS_ORIGINS`; the rate limiter reads the client IP the proxy added
 - Removed a committed virtual environment, a committed `.env` file and leaked credentials from git history.
 
 ## [0.2.0] - 2026-11-16 (Sprint 2)

@@ -94,8 +94,8 @@ async def get_optional_user(
             """,
             uid
         )
-        if not row:
-            return None
+        if not row or row["status"] != "active":
+            return None  # unknown, pending or blocked accounts are treated as anonymous
         user = dict(row)
         user["roles"] = list(user["roles"]) if user["roles"] else []
         return user

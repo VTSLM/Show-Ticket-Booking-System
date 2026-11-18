@@ -19,7 +19,7 @@ Settings (environment variables, all optional)
   RATE_LIMIT_ENABLED          "true" (default) / "false" to switch it off
   RATE_LIMIT_TRUST_PROXY      "true" when the API runs behind a proxy / load balancer
                               (Azure, Vercel, Nginx ...): the client IP is then read
-                              from X-Forwarded-For. Keep "false" when the API is
+                              from the last X-Forwarded-For entry. Keep "false" when the API is
                               reached directly, otherwise the header can be faked.
   RATE_LIMIT_GLOBAL_PER_MIN   requests per minute for every endpoint: per logged-in user,
                               or per IP when logged out (default 600)
@@ -158,9 +158,11 @@ class RateLimitMiddleware:
     def _client_ip(self, scope: Scope, headers: Dict[bytes, bytes]) -> str:
         if self.trust_proxy:
             forwarded = headers.get(b"x-forwarded-for", b"").decode("latin-1")
-            first = forwarded.split(",")[0].strip()
-            if first:
-                return first
+            # The proxy appends the address it saw, so the last entry is the real
+            # client. Earlier entries come from the client and can be faked.
+            last = forwarded.split(",")[-1].strip()
+            if last:
+                return last
         client = scope.get("client")
         return client[0] if client else "unknown"
 

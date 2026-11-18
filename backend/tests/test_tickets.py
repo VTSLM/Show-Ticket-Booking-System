@@ -86,15 +86,15 @@ def test_scan_endpoints_require_scanner_roles_dependency():
     assert found == 2
 
 
-def test_scan_without_token_returns_403():
-    """Unauthenticated requests without Authorization header must be rejected with 403."""
+def test_scan_without_token_returns_401():
+    """Requests without an Authorization header are rejected with 401."""
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_conn] = lambda: None
     client = TestClient(app)
 
     res = client.post("/api/tickets/scan", json={"booking_id": SAMPLE_BOOKING_ID})
-    assert res.status_code == 403
+    assert res.status_code == 401
     assert res.json()["detail"] == "Not authenticated"
 
 
