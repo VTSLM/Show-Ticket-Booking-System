@@ -1,6 +1,7 @@
 """TicketFlow assistant: tools, OpenAI loop and /api/chat (OpenAI is always mocked)."""
 import json
 import uuid
+from urllib.parse import urlparse
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -19,7 +20,7 @@ def default_provider_settings(monkeypatch):
     for name in ("CHAT_PROVIDER", "CHAT_MODEL", "CHAT_BASE_URL", "CHAT_TIMEOUT_SECONDS",
                  "CHAT_REASONING_EFFORT", "OPENAI_CHAT_MODEL"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(chatbot, "_client", None)
+    monkeypatch.setattr(chatbot, "_clients", {})
 
 
 USER = {"id": "11111111-1111-1111-1111-111111111111", "name": "Asha Patel", "status": "active", "roles": ["customer"]}
@@ -247,7 +248,7 @@ async def test_openai_errors_become_assistant_unavailable(fake_openai):
 
 def test_missing_api_key_means_unavailable(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setattr(chatbot, "_client", None)
+    monkeypatch.setattr(chatbot, "_clients", {})
     with pytest.raises(chatbot.AssistantUnavailable):
         chatbot._get_client()
 
@@ -398,7 +399,7 @@ def test_stream_endpoint_sends_server_sent_events(client, monkeypatch):
         yield {"type": "delta", "text": "नमस्ते"}
         yield {"type": "done"}
     monkeypatch.setattr(chatbot, "answer_stream", fake_stream)
-    monkeypatch.setattr(chatbot, "_get_client", lambda: object())
+    monkeypatch.setattr(chatbot, "_get_client", object)
     r = c.post("/api/chat/stream", json={"message": "hi"})
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
     lines = [json.loads(line[6:]) for line in r.text.split("\n\n") if line.startswith("data: ")]
@@ -440,7 +441,7 @@ def test_chat_endpoint_says_busy_when_rate_limited(client, monkeypatch):
         try:
             raise RuntimeError("Rate limit reached")
         except RuntimeError as exc:
-            raise chatbot.AssistantUnavailable("limited") from exc
+            raise chatbot.AssistantUnavailable("limited", busy=True) from exc
     monkeypatch.setattr(chatbot, "answer", limited)
     r = c.post("/api/chat", json={"message": "hi"})
     assert r.status_code == 503 and r.json()["detail"] == chatbot.BUSY_REPLY
@@ -521,14 +522,14 @@ def test_chat_tools_are_gemini_safe():
 
 
 def test_provider_settings(monkeypatch):
-    monkeypatch.setattr(chatbot, "_client", None)
+    monkeypatch.setattr(chatbot, "_clients", {})
     monkeypatch.setenv("CHAT_PROVIDER", "gemini")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with pytest.raises(chatbot.AssistantUnavailable, match="GEMINI_API_KEY"):
         chatbot._get_client()
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     client = chatbot._get_client()
-    assert "generativelanguage.googleapis.com" in str(client.base_url)
+    assert urlparse(str(client.base_url)).hostname == "generativelanguage.googleapis.com"
     monkeypatch.setenv("CHAT_MODEL", "gemini-pro-x")
     assert chatbot._model() == "gemini-pro-x"
     monkeypatch.setenv("CHAT_PROVIDER", "something-else")

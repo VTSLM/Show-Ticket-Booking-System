@@ -29,6 +29,10 @@ MAX_OUTPUT_TOKENS = 700
 class AssistantUnavailable(Exception):
     """The model service is not configured or did not answer."""
 
+    def __init__(self, message: str = "", busy: bool = False):
+        super().__init__(message)
+        self.busy = busy  # True when the model service is rate-limited or overloaded
+
 
 # Which model service answers. "openai" uses the Responses API; "gemini" and
 # "ollama" use the OpenAI-compatible Chat Completions API of those services.
@@ -82,12 +86,10 @@ def _model() -> str:
     return PROVIDERS[provider]["default_model"]
 
 
-_client: Optional[AsyncOpenAI] = None
-_client_provider: Optional[str] = None
+_clients: Dict[str, AsyncOpenAI] = {}  # one client per provider, reused across requests
 
 
 def _get_client() -> AsyncOpenAI:
-    global _client, _client_provider
     provider = _provider()
     conf = PROVIDERS[provider]
     if conf["key_env"]:
@@ -96,11 +98,11 @@ def _get_client() -> AsyncOpenAI:
             raise AssistantUnavailable(f"{conf['key_env']} is not configured")
     else:
         api_key = "local"  # Ollama ignores the key
-    if _client is None or _client_provider != provider:
+    if provider not in _clients:
         base_url = os.getenv("CHAT_BASE_URL") or conf["base_url"]
-        _client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=_timeout(provider), max_retries=1)
-        _client_provider = provider
-    return _client
+        _clients[provider] = AsyncOpenAI(api_key=api_key, base_url=base_url,
+                                         timeout=_timeout(provider), max_retries=1)
+    return _clients[provider]
 
 
 def _chat_tools() -> List[dict]:
@@ -229,7 +231,7 @@ async def answer(
         parts = []
         async for event in _chat_stream(client, message, history, context, user, pool):
             if event["type"] == "error":
-                raise AssistantUnavailable(event["message"]) from event.get("_exc")
+                raise AssistantUnavailable(event["message"], busy=event["reason"] == "rate_limited")
             if event["type"] == "delta":
                 parts.append(event["text"])
         return "".join(parts).strip() or FALLBACK_REPLY
@@ -252,7 +254,7 @@ async def answer(
         raise
     except Exception as exc:  # network, quota, bad model name ...
         logger.exception("OpenAI request for the assistant failed")
-        raise AssistantUnavailable(str(exc)) from exc
+        raise AssistantUnavailable(str(exc), busy=_is_rate_limited(exc)) from exc
 
     if _function_calls(response):
         return FALLBACK_REPLY
@@ -274,7 +276,6 @@ async def answer_stream(
     client = _get_client()
     if PROVIDERS[_provider()]["api"] == "chat":
         async for event in _chat_stream(client, message, history, context, user, pool):
-            event.pop("_exc", None)
             yield event
         return
     instructions, items = _prepare(message, history, context, user)
@@ -331,7 +332,7 @@ def _error_event(exc: Exception) -> dict:
     else:
         logger.exception("Assistant reply failed (%s / %s)", _provider(), _model())
     return {"type": "error", "message": BUSY_REPLY if busy else ERROR_REPLY,
-            "reason": "rate_limited" if busy else "failed", "_exc": exc}
+            "reason": "rate_limited" if busy else "failed"}
 
 
 async def _chat_stream(client, message, history, context, user, pool) -> AsyncIterator[dict]:

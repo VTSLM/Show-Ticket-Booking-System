@@ -7,6 +7,7 @@ only ever use the logged-in user's id from the verified login token; the model
 cannot pass a user id.
 """
 import json
+import logging
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -16,6 +17,8 @@ import asyncpg
 
 from routers.browse import _attach_ratings, _fuzzy_score, _with_dynamic_price
 from routers.cancellations import CANCEL_CUTOFF_HOURS
+
+logger = logging.getLogger(__name__)
 
 IST = timezone(timedelta(hours=5, minutes=30))
 MAX_EVENTS = 8
@@ -180,7 +183,7 @@ async def search_shows(conn, user, *, query=None, city=None, event_type=None,
             cap = float(max_price)
             shows = [s for s in shows if s.get("current_price") is not None and s["current_price"] <= cap]
         except (TypeError, ValueError):
-            pass
+            logger.info("search_shows ignored a non-numeric max_price: %r", max_price)
 
     events = _group_by_event(shows)
     await _with_ratings(conn, events)

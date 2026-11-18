@@ -35,6 +35,20 @@ function suggestionsFor(context: ChatContext, loggedIn: boolean): string[] {
     : ["What's on this weekend?", "Top rated movies", "How does booking work?", "How do refunds work?"];
 }
 
+// Pages the assistant may link to. Anything else is shown as plain text.
+const LINKABLE_PAGES = ["auth", "browse", "events", "shows", "bookings", "wishlist", "help", "support", "profile"] as const;
+
+/** Rebuilds a link from known pages and plain id segments, or returns null. */
+function safeAppPath(path: string): string | null {
+  const segments = path.split("/");
+  if (segments[0] !== "" || segments.length > 4) return null;
+  const page = LINKABLE_PAGES.find(p => p === segments[1]);
+  if (!page) return null;
+  const rest = segments.slice(2);
+  if (!rest.every(s => /^[A-Za-z0-9-]+$/.test(s))) return null;
+  return ["", page, ...rest.map(encodeURIComponent)].join("/");
+}
+
 /** Renders text with markdown-style [label](/path) links. Only in-app paths become links. */
 function RichText({ text, onNavigate }: { text: string; onNavigate: () => void }) {
   const parts = text.split(/(\[[^\]]+\]\([^)\s]+\))/g);
@@ -42,9 +56,10 @@ function RichText({ text, onNavigate }: { text: string; onNavigate: () => void }
     <>
       {parts.map((part, i) => {
         const m = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
-        if (m && m[2].startsWith("/") && !m[2].startsWith("//")) {
+        const href = m ? safeAppPath(m[2]) : null;
+        if (m && href) {
           return (
-            <Link key={i} href={m[2]} onClick={onNavigate}
+            <Link key={i} href={href} onClick={onNavigate}
                   className="font-semibold text-[#4a91ff] underline underline-offset-2 hover:text-white">
               {m[1]}
             </Link>
