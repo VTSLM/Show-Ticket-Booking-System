@@ -23,6 +23,9 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 ### Removed
 - Duplicated `sprint1/`, `sprint2/` and `sprint3/` folders. Earlier sprints are available as the `v0.1.0` and `v0.2.0` tags.
 
+### Fixed
+- Malformed ids in URLs return 404 instead of a server error, and the seat map of an unknown show returns 404 instead of an empty map (#140)
+
 ### Security
 - The backend now trusts only Firebase ID tokens that the Firebase Admin SDK verifies
 - Only active accounts can use the API; pending and blocked accounts are refused on every request, not only at login
