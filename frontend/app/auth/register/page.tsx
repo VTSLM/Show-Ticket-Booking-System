@@ -78,6 +78,17 @@ function RegisterForm() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [confirmPasteBlocked, setConfirmPasteBlocked] = useState(false);
+
+  // #136: the confirm field must be typed, so a mistyped password is caught.
+  // Autofill by browsers and password managers is not a paste and still works.
+  const blockConfirmClipboard = (
+    event: React.ClipboardEvent<HTMLInputElement> | React.DragEvent<HTMLInputElement>
+  ) => {
+    event.preventDefault();
+    setConfirmPasteBlocked(true);
+  };
+  const passwordsMatch = form.password === form.confirmPassword;
 
   const localToday = new Date();
   localToday.setMinutes(
@@ -323,7 +334,15 @@ function RegisterForm() {
                         autoComplete="new-password"
                         placeholder="Enter password again"
                         value={form.confirmPassword}
-                        onChange={handle("confirmPassword")}
+                        onChange={(event) => {
+                          setConfirmPasteBlocked(false);
+                          handle("confirmPassword")(event);
+                        }}
+                        onPaste={blockConfirmClipboard}
+                        onCopy={blockConfirmClipboard}
+                        onCut={blockConfirmClipboard}
+                        onDrop={blockConfirmClipboard}
+                        aria-describedby="confirmPasswordHelp"
                         required
                         minLength={8}
                       />
@@ -345,6 +364,23 @@ function RegisterForm() {
                         />
                       </button>
                     </div>
+                    <p
+                      id="confirmPasswordHelp"
+                      aria-live="polite"
+                      className={`mt-2 text-xs ${
+                        confirmPasteBlocked || (form.confirmPassword && !passwordsMatch)
+                          ? "text-red-400"
+                          : "text-emerald-400"
+                      }`}
+                    >
+                      {confirmPasteBlocked
+                        ? "Please type your password again"
+                        : form.confirmPassword
+                          ? passwordsMatch
+                            ? "Passwords match"
+                            : "Passwords don't match"
+                          : ""}
+                    </p>
                   </div>
                 </>
               )}
