@@ -7,7 +7,7 @@ firebase-admin==6.6.0
 razorpay==1.4.2
 # Razorpay (1.4.2 and 2.x) imports pkg_resources, which Setuptools 81+ no longer
 # provides, so Setuptools stays on 80.x until Razorpay drops it.
-setuptools==80.9.0
+setuptools==84.2.1
 reportlab==4.2.5
 qrcode[pil]==8.0
 Pillow==13.0.0
