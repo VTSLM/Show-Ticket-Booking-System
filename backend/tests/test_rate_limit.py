@@ -150,6 +150,8 @@ def test_x_forwarded_for_only_trusted_when_enabled():
     assert client.post("/api/things", headers={"X-Forwarded-For": "1.1.1.1"}).status_code == 200
     assert client.post("/api/things", headers={"X-Forwarded-For": "2.2.2.2"}).status_code == 200
     assert client.post("/api/things", headers={"X-Forwarded-For": "1.1.1.1"}).status_code == 429
+    # a client cannot dodge the limit by putting a fake address in front of the proxy's
+    assert client.post("/api/things", headers={"X-Forwarded-For": "9.9.9.9, 1.1.1.1"}).status_code == 429
 
 
 def test_disabled_switch_lets_everything_through():
