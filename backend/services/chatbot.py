@@ -10,7 +10,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import List, Optional
+from typing import AsyncIterator, List, Optional
 
 import asyncpg
 from openai import AsyncOpenAI
@@ -94,6 +94,43 @@ Rules:
 {HELP}"""
 
 
+TOOL_STATUS = {
+    "search_shows": "Searching shows…",
+    "get_event_details": "Looking up the event…",
+    "get_review_summary": "Reading the reviews…",
+    "recommend_events": "Finding recommendations…",
+    "get_my_bookings": "Checking your bookings…",
+    "get_booking_status": "Checking that booking…",
+    "get_my_wishlist": "Opening your wishlist…",
+}
+FALLBACK_REPLY = "Sorry, I couldn't work that out. Could you ask in a different way?"
+
+
+def _prepare(message: str, history: List[dict], context: dict, user: Optional[dict]):
+    items = [{"role": m["role"], "content": m["content"]} for m in history]
+    items.append({"role": "user", "content": message})
+    return _instructions(user, context), items
+
+
+async def _run_calls(calls, pool: asyncpg.Pool, user: Optional[dict]) -> List[dict]:
+    """Run the model's tool calls; each borrows a DB connection only while it runs."""
+    outputs = []
+    for call in calls:
+        try:
+            async with pool.acquire() as conn:
+                result = await run_tool(call.name, call.arguments, conn, user)
+        except Exception:
+            logger.exception("chat tool %s failed", call.name)
+            result = {"error": "tool_failed"}
+        outputs.append({"type": "function_call_output", "call_id": call.call_id,
+                        "output": json.dumps(result, default=str)})
+    return outputs
+
+
+def _function_calls(response) -> list:
+    return [o for o in (getattr(response, "output", None) or []) if getattr(o, "type", None) == "function_call"]
+
+
 async def answer(
     message: str,
     history: List[dict],
@@ -101,31 +138,19 @@ async def answer(
     user: Optional[dict],
     pool: asyncpg.Pool,
 ) -> str:
-    """Return the assistant's reply to `message`. Borrows a DB connection only per tool call."""
+    """Return the assistant's whole reply (non-streaming)."""
     client = _get_client()
-    instructions = _instructions(user, context)
-    items = [{"role": m["role"], "content": m["content"]} for m in history]
-    items.append({"role": "user", "content": message})
-
+    instructions, items = _prepare(message, history, context, user)
     try:
         response = await client.responses.create(
             model=_model(), instructions=instructions, input=items,
             tools=TOOL_SCHEMAS, max_output_tokens=MAX_OUTPUT_TOKENS,
         )
         for _ in range(MAX_TOOL_ROUNDS):
-            calls = [o for o in response.output if getattr(o, "type", None) == "function_call"]
+            calls = _function_calls(response)
             if not calls:
                 break
-            outputs = []
-            for call in calls:
-                try:
-                    async with pool.acquire() as conn:
-                        result = await run_tool(call.name, call.arguments, conn, user)
-                except Exception:
-                    logger.exception("chat tool %s failed", call.name)
-                    result = {"error": "tool_failed"}
-                outputs.append({"type": "function_call_output", "call_id": call.call_id,
-                                "output": json.dumps(result, default=str)})
+            outputs = await _run_calls(calls, pool, user)
             response = await client.responses.create(
                 model=_model(), instructions=instructions, previous_response_id=response.id,
                 input=outputs, tools=TOOL_SCHEMAS, max_output_tokens=MAX_OUTPUT_TOKENS,
@@ -136,5 +161,58 @@ async def answer(
         logger.exception("OpenAI request for the assistant failed")
         raise AssistantUnavailable(str(exc)) from exc
 
+    if _function_calls(response):
+        return FALLBACK_REPLY
     reply = (getattr(response, "output_text", "") or "").strip()
-    return reply or "Sorry, I couldn't work that out. Could you ask in a different way?"
+    return reply or FALLBACK_REPLY
+
+
+async def answer_stream(
+    message: str,
+    history: List[dict],
+    context: dict,
+    user: Optional[dict],
+    pool: asyncpg.Pool,
+) -> AsyncIterator[dict]:
+    """Yield events while answering: status (a tool is running), delta (reply text), done, error.
+
+    Call _get_client() first if the caller needs to fail with 503 before streaming starts.
+    """
+    client = _get_client()
+    instructions, items = _prepare(message, history, context, user)
+    kwargs = dict(model=_model(), instructions=instructions, input=items,
+                  tools=TOOL_SCHEMAS, max_output_tokens=MAX_OUTPUT_TOKENS)
+    wrote_text = False
+    try:
+        for round_no in range(MAX_TOOL_ROUNDS + 1):
+            final = None
+            stream = await client.responses.create(stream=True, **kwargs)
+            async for event in stream:
+                kind = getattr(event, "type", "")
+                if kind == "response.output_text.delta" and event.delta:
+                    wrote_text = True
+                    yield {"type": "delta", "text": event.delta}
+                elif kind == "response.completed":
+                    final = event.response
+                elif kind in ("response.failed", "error"):
+                    raise RuntimeError(f"OpenAI stream {kind}")
+            calls = _function_calls(final)
+            if not calls:
+                break
+            if round_no == MAX_TOOL_ROUNDS:
+                if not wrote_text:
+                    yield {"type": "delta", "text": FALLBACK_REPLY}
+                    wrote_text = True
+                break
+            for call in calls:
+                yield {"type": "status", "tool": call.name, "text": TOOL_STATUS.get(call.name, "Looking that up…")}
+            outputs = await _run_calls(calls, pool, user)
+            kwargs = dict(model=_model(), instructions=instructions, previous_response_id=final.id,
+                          input=outputs, tools=TOOL_SCHEMAS, max_output_tokens=MAX_OUTPUT_TOKENS)
+    except Exception:
+        logger.exception("Streaming assistant reply failed")
+        yield {"type": "error", "message": "The assistant had a problem answering. Please try again."}
+        return
+    if not wrote_text:
+        yield {"type": "delta", "text": FALLBACK_REPLY}
+    yield {"type": "done"}

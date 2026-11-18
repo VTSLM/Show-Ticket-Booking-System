@@ -64,6 +64,7 @@ export default function ChatWidget() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -92,15 +93,32 @@ export default function ChatWidget() {
     setInput("");
     setError(null);
     setSending(true);
+    let started = false;
+    // Updaters stay pure (React may run them twice in development)
+    const appendText = (text: string) => {
+      if (!started) {
+        started = true;
+        setMessages(m => [...m, { role: "assistant", content: text }]);
+      } else {
+        setMessages(m => {
+          const last = m[m.length - 1];
+          return [...m.slice(0, -1), { ...last, content: last.content + text }];
+        });
+      }
+    };
     try {
-      const { reply } = await chatApi.send(message, history, context);
-      setMessages(m => [...m, { role: "assistant", content: reply }]);
+      await chatApi.stream(message, history, context, event => {
+        if (event.type === "status") setStatus(event.text);
+        else if (event.type === "delta") { setStatus(null); appendText(event.text); }
+        else if (event.type === "error") setError(event.message);
+      });
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
       setError(detail.startsWith("Too many requests") || detail.includes("available")
         ? detail : "Something went wrong. Please try again.");
     } finally {
       setSending(false);
+      setStatus(null);
     }
   };
 
@@ -168,10 +186,10 @@ export default function ChatWidget() {
               </div>
             ))}
 
-            {sending && (
+            {sending && messages[messages.length - 1]?.role !== "assistant" && (
               <div className="flex justify-start">
                 <div className="rounded-2xl rounded-bl-sm border border-[var(--border)] bg-[var(--surface-raised)] px-3.5 py-2.5 text-sm text-[var(--muted)]">
-                  Thinking…
+                  {status || "Thinking…"}
                 </div>
               </div>
             )}

@@ -1,7 +1,9 @@
 """POST /api/chat: the TicketFlow assistant (services/chatbot.py)."""
+import json
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 
@@ -40,11 +42,8 @@ class ChatRequest(BaseModel):
         return value
 
 
-@router.post("")
-async def chat(
-    body: ChatRequest,
-    auth: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
-):
+async def _prepare_request(body: ChatRequest, auth: Optional[HTTPAuthorizationCredentials]):
+    """Resolve the user and the page context. Returns (user, context, history, pool)."""
     # No request-long database connection: a reply can take several seconds of
     # OpenAI time, so connections are borrowed only while a lookup runs.
     pool = await get_pool()
@@ -55,8 +54,40 @@ async def chat(
     context = {k: v for k, v in (body.context.model_dump() if body.context else {}).items()
                if v and is_uuid(v)}
     history = [m.model_dump() for m in body.history]
+    return user, context, history, pool
+
+
+UNAVAILABLE = "The assistant isn't available right now. Please try again later."
+
+
+@router.post("")
+async def chat(
+    body: ChatRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+):
+    user, context, history, pool = await _prepare_request(body, auth)
     try:
         reply = await chatbot.answer(body.message, history, context, user, pool)
     except chatbot.AssistantUnavailable:
-        raise HTTPException(status_code=503, detail="The assistant isn't available right now. Please try again later.")
+        raise HTTPException(status_code=503, detail=UNAVAILABLE)
     return {"reply": reply}
+
+
+@router.post("/stream")
+async def chat_stream(
+    body: ChatRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+):
+    """Server-sent events: `data: {"type": "status"|"delta"|"done"|"error", ...}`."""
+    user, context, history, pool = await _prepare_request(body, auth)
+    try:
+        chatbot._get_client()  # fail with 503 before the stream starts
+    except chatbot.AssistantUnavailable:
+        raise HTTPException(status_code=503, detail=UNAVAILABLE)
+
+    async def events():
+        async for event in chatbot.answer_stream(body.message, history, context, user, pool):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

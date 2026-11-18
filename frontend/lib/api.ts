@@ -322,8 +322,51 @@ export interface ChatContext {
   booking_id?: string;
 }
 
+export type ChatStreamEvent =
+  | { type: "status"; tool: string; text: string }
+  | { type: "delta"; text: string }
+  | { type: "done" }
+  | { type: "error"; message: string };
+
 export const chatApi = {
   // Sends the login token when there is one, so the assistant can see the user's own bookings
   send: (message: string, history: ChatMessage[], context: ChatContext) =>
     api.post<{ reply: string }>("/api/chat", { message, history, context }, "optional"),
+
+  /** Streams the reply as server-sent events; calls onEvent for each one. */
+  stream: async (
+    message: string,
+    history: ChatMessage[],
+    context: ChatContext,
+    onEvent: (event: ChatStreamEvent) => void,
+    signal?: AbortSignal
+  ): Promise<void> => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = await getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_URL}/api/chat/stream`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ message, history, context }),
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "Request failed");
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let end;
+      while ((end = buffer.indexOf("\n\n")) !== -1) {
+        const chunk = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        if (chunk.startsWith("data: ")) onEvent(JSON.parse(chunk.slice(6)) as ChatStreamEvent);
+      }
+    }
+  },
 };

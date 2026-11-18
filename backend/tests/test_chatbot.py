@@ -309,3 +309,108 @@ def test_chat_is_rate_limited():
     rule = next(r for r in DEFAULT_RULES if r.name == "chat")
     assert rule.method == "POST" and rule.pattern.match("/api/chat") and rule.limit <= 20
     assert chat_router.MAX_MESSAGE == 500
+
+
+# ── streaming ────────────────────────────────────────────────────────────────
+
+class FakeStream:
+    def __init__(self, events):
+        self.events = events
+
+    def __aiter__(self):
+        self._it = iter(self.events)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._it)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
+def _ev(kind, **kw):
+    return SimpleNamespace(type=kind, **kw)
+
+
+async def _collect(gen):
+    return [e async for e in gen]
+
+
+@pytest.mark.asyncio
+async def test_stream_reports_tool_status_then_streams_text(fake_openai, monkeypatch):
+    fake_openai.responses.create.side_effect = [
+        FakeStream([_ev("response.completed", response=_resp([_call("search_shows", {"city": "Ahmedabad"})]))]),
+        FakeStream([_ev("response.output_text.delta", delta="Two shows "), _ev("response.output_text.delta", delta="this weekend."),
+                    _ev("response.completed", response=_resp([], text="Two shows this weekend.", rid="resp_2"))]),
+    ]
+    monkeypatch.setattr(chatbot, "run_tool", AsyncMock(return_value={"events": []}))
+    events = await _collect(chatbot.answer_stream("weekend?", [], {}, None, FakePool()))
+    assert events == [
+        {"type": "status", "tool": "search_shows", "text": "Searching shows…"},
+        {"type": "delta", "text": "Two shows "},
+        {"type": "delta", "text": "this weekend."},
+        {"type": "done"},
+    ]
+    calls = fake_openai.responses.create.call_args_list
+    assert all(c.kwargs["stream"] is True for c in calls)
+    assert calls[1].kwargs["previous_response_id"] == "resp_1"
+
+
+@pytest.mark.asyncio
+async def test_stream_turns_openai_failure_into_error_event(fake_openai):
+    fake_openai.responses.create.side_effect = RuntimeError("quota exceeded")
+    events = await _collect(chatbot.answer_stream("hi", [], {}, None, FakePool()))
+    assert events == [{"type": "error", "message": "The assistant had a problem answering. Please try again."}]
+
+
+@pytest.mark.asyncio
+async def test_stream_gives_fallback_when_model_writes_nothing(fake_openai):
+    fake_openai.responses.create.return_value = FakeStream([_ev("response.completed", response=_resp([], text=""))])
+    events = await _collect(chatbot.answer_stream("hi", [], {}, None, FakePool()))
+    assert events == [{"type": "delta", "text": chatbot.FALLBACK_REPLY}, {"type": "done"}]
+
+
+@pytest.mark.asyncio
+async def test_stream_stops_after_max_tool_rounds(fake_openai, monkeypatch):
+    fake_openai.responses.create.side_effect = lambda **kw: FakeStream(
+        [_ev("response.completed", response=_resp([_call("search_shows", {})]))])
+    monkeypatch.setattr(chatbot, "run_tool", AsyncMock(return_value={}))
+    events = await _collect(chatbot.answer_stream("loop", [], {}, None, FakePool()))
+    assert fake_openai.responses.create.call_count == chatbot.MAX_TOOL_ROUNDS + 1
+    assert events[-2:] == [{"type": "delta", "text": chatbot.FALLBACK_REPLY}, {"type": "done"}]
+
+
+def test_stream_endpoint_sends_server_sent_events(client, monkeypatch):
+    c, captured = client
+
+    async def fake_stream(message, history, context, user, pool):
+        captured.update(message=message, user=user)
+        yield {"type": "status", "tool": "search_shows", "text": "Searching shows…"}
+        yield {"type": "delta", "text": "नमस्ते"}
+        yield {"type": "done"}
+    monkeypatch.setattr(chatbot, "answer_stream", fake_stream)
+    monkeypatch.setattr(chatbot, "_get_client", lambda: object())
+    r = c.post("/api/chat/stream", json={"message": "hi"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
+    lines = [json.loads(line[6:]) for line in r.text.split("\n\n") if line.startswith("data: ")]
+    assert [e["type"] for e in lines] == ["status", "delta", "done"] and lines[1]["text"] == "नमस्ते"
+
+
+def test_stream_endpoint_503_without_api_key(client, monkeypatch):
+    c, _ = client
+
+    def no_key():
+        raise chatbot.AssistantUnavailable("no key")
+    monkeypatch.setattr(chatbot, "_get_client", no_key)
+    r = c.post("/api/chat/stream", json={"message": "hi"})
+    assert r.status_code == 503
+
+
+def test_stream_endpoint_validates_input(client):
+    c, _ = client
+    assert c.post("/api/chat/stream", json={"message": "x" * 501}).status_code == 422
+
+
+def test_stream_endpoint_is_rate_limited():
+    rule = next(r for r in DEFAULT_RULES if r.name == "chat")
+    assert rule.pattern.match("/api/chat/stream") and rule.pattern.match("/api/chat")
