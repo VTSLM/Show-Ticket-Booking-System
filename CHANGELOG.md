@@ -10,6 +10,9 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Project documentation, logo, MIT license, contribution workflow, issue and PR templates (#84)
 - Stricter CI with tests, linting, migration checks, secret scanning, CodeQL and Dependabot (#85)
 
+### Changed
+- Sign-up: Confirm Password must be typed (copy, cut, paste and drag-and-drop are blocked in that field only) and shows whether the passwords match while typing (#136)
+
 ### Removed
 - Duplicated `sprint1/`, `sprint2/` and `sprint3/` folders. Earlier sprints are available as the `v0.1.0` and `v0.2.0` tags.
 
