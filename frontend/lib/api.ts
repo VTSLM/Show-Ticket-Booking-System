@@ -107,8 +107,8 @@ export const ticketsApi = {
   confirm: (booking_id: string) =>
     api.post<any>(`/api/tickets/bookings/${booking_id}/confirm`),
   pdfUrl: (booking_id: string) => `${API_URL}/api/tickets/bookings/${booking_id}/pdf`,
-  verify: (booking_id: string, consume?: boolean) =>
-    api.get<any>(`/api/tickets/bookings/${booking_id}/verify${consume ? "?consume=true" : ""}`, false),
+  verify: (booking_id: string) =>
+    api.get<any>(`/api/tickets/bookings/${booking_id}/verify`, false),
   scan: (data: { qr_data?: string; booking_id?: string }) =>
     api.post<any>("/api/tickets/scan", data),
 };

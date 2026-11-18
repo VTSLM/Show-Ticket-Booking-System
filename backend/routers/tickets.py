@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -6,12 +6,18 @@ import asyncpg
 import uuid as _uuid
 import io
 from database import get_conn
-from dependencies import get_current_user
+from dependencies import get_current_user, require_role
 from services.ticket_service import build_ticket_pdf, format_show_datetime
 from services.qr_service import generate_qr_bytes
 from services.email_service import send_ticket_email
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
+
+SCANNER_ROLES = require_role("manager", "admin")
+
+
+def _is_admin(user: dict) -> bool:
+    return "admin" in (user.get("roles") or [])
 
 
 class TicketScanRequest(BaseModel):
@@ -36,11 +42,15 @@ def _parse_booking_id(qr_data: Optional[str], booking_id: Optional[str]) -> str:
         raise HTTPException(status_code=400, detail="Invalid booking ID format in ticket QR code")
 
 
-async def _scan_and_consume_ticket(booking_id: str, conn: asyncpg.Connection) -> dict:
+async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Connection) -> dict:
     row = await conn.fetchrow(
         """SELECT t.id, t.booking_id, t.status, t.is_used,
                   e.title as event_title, s.start_time, v.name as venue_name,
-                  sc.name as screen_name, u.name as user_name, u.email as user_email
+                  sc.name as screen_name, u.name as user_name, u.email as user_email,
+                  EXISTS (
+                      SELECT 1 FROM organizer_profiles op
+                      WHERE op.id = e.organizer_id AND op.user_id = $2::uuid
+                  ) AS is_owner
            FROM tickets t
            JOIN bookings b ON b.id = t.booking_id
            JOIN shows s ON s.id = t.show_id
@@ -49,10 +59,13 @@ async def _scan_and_consume_ticket(booking_id: str, conn: asyncpg.Connection) ->
            JOIN venues v ON v.id = sc.venue_id
            JOIN users u ON u.id = t.user_id
            WHERE t.booking_id = $1::uuid""",
-        booking_id
+        booking_id, user["id"]
     )
 
     if not row:
+        raise HTTPException(status_code=404, detail="Ticket not found for this booking")
+
+    if not _is_admin(user) and not row["is_owner"]:
         raise HTTPException(status_code=404, detail="Ticket not found for this booking")
 
     if row["status"] == "cancelled":
@@ -228,16 +241,12 @@ async def download_ticket_pdf(
 @router.get("/bookings/{booking_id}/verify")
 async def verify_ticket(
     booking_id: str,
-    consume: bool = Query(False, description="Whether to mark the ticket as used upon verification"),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     try:
         _uuid.UUID(booking_id)
     except ValueError:
         return {"valid": False, "message": "Invalid ticket ID format"}
-
-    if consume:
-        return await _scan_and_consume_ticket(booking_id, conn)
 
     row = await conn.fetchrow(
         """SELECT id, status, is_used FROM tickets WHERE booking_id=$1::uuid""",
@@ -266,19 +275,21 @@ async def verify_ticket(
 @router.post("/scan")
 async def scan_ticket(
     body: TicketScanRequest,
+    current_user: dict = Depends(SCANNER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     booking_id = _parse_booking_id(body.qr_data, body.booking_id)
-    return await _scan_and_consume_ticket(booking_id, conn)
+    return await _scan_and_consume_ticket(booking_id, current_user, conn)
 
 
 @router.post("/bookings/{booking_id}/scan")
 async def scan_ticket_by_booking_id(
     booking_id: str,
+    current_user: dict = Depends(SCANNER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     try:
         _uuid.UUID(booking_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid booking ID format")
-    return await _scan_and_consume_ticket(booking_id, conn)
+    return await _scan_and_consume_ticket(booking_id, current_user, conn)
