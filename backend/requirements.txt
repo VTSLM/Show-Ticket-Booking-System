@@ -4,7 +4,7 @@ asyncpg==0.30.0
 python-dotenv==1.2.4
 pydantic[email]==2.10.3
 firebase-admin==6.6.0
-razorpay==1.4.2
+razorpay==2.0.1
 # Razorpay (1.4.2 and 2.x) imports pkg_resources, which Setuptools 81+ no longer
 # provides, so Setuptools stays on 80.x until Razorpay drops it.
 setuptools==80.9.0
