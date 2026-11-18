@@ -141,7 +141,7 @@ async def test_manager_create_screen_with_custom_tiers():
         premium_rows=["A", "B"]
     )
 
-    result = await create_screen(venue_id=venue_id, body=body, _={}, conn=conn)
+    result = await create_screen(venue_id=venue_id, body=body, user={"id": str(uuid.uuid4()), "roles": ["admin"]}, conn=conn)
     assert result["layout_type"] == "concert"
     assert result["stage_position"] == "front"
     # Verify executemany was called in batch for 3 rows * 4 cols = 12 seats
