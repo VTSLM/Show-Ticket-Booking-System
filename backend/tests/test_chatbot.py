@@ -491,7 +491,7 @@ async def test_gemini_assembles_streamed_tool_calls_and_sends_results_back(gemin
     assert ran == [("search_shows", {"city": "Ahmedabad"})]
     second = gemini.chat.completions.create.call_args_list[1].kwargs
     assert second["model"] == "gemini-3.8-flash" and second["stream"] is True
-    assert second["reasoning_effort"] == "low"
+    assert second["reasoning_effort"] == "minimal"
     msgs = second["messages"]
     assert msgs[0]["role"] == "system" and "TicketFlow" in msgs[0]["content"]
     assert msgs[-2]["tool_calls"][0] == {"id": "c1", "type": "function",
@@ -539,7 +539,7 @@ def test_timeout_and_reasoning_settings(monkeypatch):
     monkeypatch.delenv("CHAT_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("CHAT_REASONING_EFFORT", raising=False)
     assert chatbot._timeout("gemini") == 60.0 and chatbot._timeout("openai") == 25.0
-    assert chatbot._reasoning_effort("gemini") == "low" and chatbot._reasoning_effort("openai") is None
+    assert chatbot._reasoning_effort("gemini") == "minimal" and chatbot._reasoning_effort("openai") is None
     monkeypatch.setenv("CHAT_TIMEOUT_SECONDS", "90")
     monkeypatch.setenv("CHAT_REASONING_EFFORT", "")
     assert chatbot._timeout("gemini") == 90.0 and chatbot._reasoning_effort("gemini") is None
