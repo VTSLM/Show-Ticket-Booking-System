@@ -300,9 +300,9 @@ async def answer_stream(
     except Exception as exc:
         busy = _is_rate_limited(exc)
         if busy:
-            logger.warning("OpenAI rate limit reached for the assistant: %s", exc)
+            logger.warning("Assistant model busy or rate-limited (%s / %s): %s", _provider(), _model(), exc)
         else:
-            logger.exception("Streaming assistant reply failed")
+            logger.exception("Streaming assistant reply failed (%s / %s)", _provider(), _model())
         yield {"type": "error", "message": BUSY_REPLY if busy else ERROR_REPLY,
                "reason": "rate_limited" if busy else "failed"}
         return
@@ -314,9 +314,9 @@ async def answer_stream(
 def _error_event(exc: Exception) -> dict:
     busy = _is_rate_limited(exc)
     if busy:
-        logger.warning("Model rate limit reached for the assistant: %s", exc)
+        logger.warning("Assistant model busy or rate-limited (%s / %s): %s", _provider(), _model(), exc)
     else:
-        logger.exception("Assistant reply failed")
+        logger.exception("Assistant reply failed (%s / %s)", _provider(), _model())
     return {"type": "error", "message": BUSY_REPLY if busy else ERROR_REPLY,
             "reason": "rate_limited" if busy else "failed", "_exc": exc}
 
