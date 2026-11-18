@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import get_pool, close_pool
 from firebase_admin_setup import init_firebase
+from path_ids import validate_path_ids
 from routers.auth import router as auth_router, admin_router
 from routers.manager import router as manager_router
 from routers.browse import router as browse_router
@@ -57,6 +58,8 @@ app = FastAPI(
     description="Unified backend for the TicketFlow show booking system",
     version="1.0.0",
     lifespan=lifespan,
+    # Malformed ids in URLs -> 404 before any database query (#140)
+    dependencies=[Depends(validate_path_ids)],
 )
 
 app.add_middleware(
