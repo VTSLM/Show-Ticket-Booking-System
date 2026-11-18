@@ -47,9 +47,16 @@ async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Co
         """SELECT t.id, t.booking_id, t.status, t.is_used,
                   e.title as event_title, s.start_time, v.name as venue_name,
                   sc.name as screen_name, u.name as user_name, u.email as user_email,
-                  EXISTS (
-                      SELECT 1 FROM organizer_profiles op
-                      WHERE op.id = e.organizer_id AND op.user_id = $2::uuid
+                  (
+                      EXISTS (
+                          SELECT 1 FROM organizer_profiles op
+                          WHERE op.id = e.organizer_id AND op.user_id = $2::uuid
+                      )
+                      OR
+                      EXISTS (
+                          SELECT 1 FROM venue_verification_cases vc
+                          WHERE vc.venue_id = v.id AND vc.applicant_id = $2::uuid
+                      )
                   ) AS is_owner
            FROM tickets t
            JOIN bookings b ON b.id = t.booking_id

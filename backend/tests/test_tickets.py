@@ -116,8 +116,8 @@ def test_scan_with_customer_role_returns_403():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_manager_of_another_organization_gets_404():
-    """A manager from another organization must receive 404 (does not confirm ticket existence)."""
+async def test_manager_of_another_venue_or_organization_gets_404():
+    """A manager from another venue or organization must receive 404 (does not confirm ticket existence)."""
     ticket_row = _make_ticket_row(is_owner=False)
     conn = make_conn(fetchrow_result=ticket_row)
 
@@ -127,6 +127,33 @@ async def test_manager_of_another_organization_gets_404():
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "Ticket not found for this booking"
+
+
+@pytest.mark.asyncio
+async def test_venue_manager_can_scan_and_admit_200():
+    """The manager who owns the venue can scan and admit the ticket."""
+    ticket_row = _make_ticket_row(is_owner=True, is_used=False, status="valid")
+    consumed_row = {
+        "id": SAMPLE_TICKET_ID,
+        "booking_id": SAMPLE_BOOKING_ID,
+        "status": "used",
+        "is_used": True,
+    }
+
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(side_effect=[ticket_row, consumed_row])
+
+    req = TicketScanRequest(qr_data=f"TICKETFLOW:{SAMPLE_BOOKING_ID}")
+    result = await scan_ticket(body=req, current_user=OWNER_MANAGER, conn=conn)
+
+    assert result["success"] is True
+    assert result["valid"] is True
+    assert result["status"] == "used"
+    assert result["used"] is True
+    assert result["attendee"]["name"] == "Rahul Sharma"
+    assert result["attendee"]["email"] == "rahul@example.com"
+    assert result["event"]["title"] == "Inception (Re-release)"
+    assert "01:45 PM" in result["event"]["start_time"]
 
 
 @pytest.mark.asyncio
