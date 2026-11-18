@@ -228,6 +228,7 @@ async def list_my_bookings(
 ):
     rows = await conn.fetch(
         """SELECT b.id, b.status, b.total_amount, b.created_at,
+                  b.cancellation_reason, b.refund_amount, b.refund_status,
                   e.title as event_title, e.poster_url,
                   s.start_time, v.name as venue_name, v.city,
                   COUNT(bs.show_seat_id) as seat_count
