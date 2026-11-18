@@ -13,6 +13,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from config import GMAIL_USER, GMAIL_APP_PASSWORD
 
+SMTP_TIMEOUT_SECONDS = 20
+
 # ── Admin reply → customer ────────────────────────────────────────────────────
 
 async def send_admin_reply_notification(
@@ -82,7 +84,7 @@ def _reply_email_sync(user_email, user_name, subject, request_number, admin_mess
     msg["Subject"] = f"[{request_number}] Reply from support: {subject}"
     msg.attach(MIMEText(html, "html"))
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
         smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
         smtp.sendmail(GMAIL_USER, user_email, msg.as_string())
 
@@ -155,6 +157,6 @@ def _new_ticket_email_sync(admin_email, user_name, user_email, subject, request_
     msg["Subject"] = f"[New Ticket {request_number}] {subject}"
     msg.attach(MIMEText(html, "html"))
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
         smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
         smtp.sendmail(GMAIL_USER, admin_email, msg.as_string())
