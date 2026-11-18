@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { managerApi, organizerVerificationApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
@@ -345,9 +346,14 @@ export default function ManagerPage() {
           <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.18em", color: C.blue, textTransform: "uppercase", marginBottom: 8 }}>
             Manager Portal
           </p>
-          <h1 style={{ fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.02em", margin: "0 0 24px" }}>
-            Manager Dashboard
-          </h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "0 0 24px" }}>
+            <h1 style={{ fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.02em", margin: 0 }}>
+              Manager Dashboard
+            </h1>
+            <Link href="/manager/analytics" className="btn-primary" style={{ fontSize: 14 }}>
+              📊 Analytics
+            </Link>
+          </div>
 
           {/* Tab bar */}
           <div style={{ display: "flex", gap: 4 }}>
