@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from database import get_conn
@@ -16,12 +15,16 @@ PARAM = re.compile(r"{([^}:]+)(?::[^}]*)?}")
 
 
 def _id_routes():
-    """(method, path template) for every route with an ``*_id`` path parameter."""
+    """(method, path template) for every route with an ``*_id`` path parameter.
+
+    Read from the OpenAPI schema: newer FastAPI versions keep included routers
+    as nested objects, so ``app.routes`` no longer lists every route.
+    """
     out = []
-    for route in app.routes:
-        if isinstance(route, APIRoute) and any(p.endswith("_id") for p in PARAM.findall(route.path)):
-            for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
-                out.append((method, route.path))
+    for path, operations in app.openapi()["paths"].items():
+        if any(p.endswith("_id") for p in PARAM.findall(path)):
+            for method in sorted(operations):
+                out.append((method.upper(), path))
     return out
 
 
