@@ -41,6 +41,15 @@ PROVIDERS = {
     "ollama": {"key_env": None, "base_url": "http://localhost:11434/v1", "api": "chat",
                "default_model": "llama3.1", "timeout": 120.0},
 }
+# Gemini counts its thinking toward max_tokens, so it needs a bigger budget than OpenAI
+CHAT_API_MAX_TOKENS = 2048
+
+
+def _max_tokens() -> int:
+    try:
+        return int(os.getenv("CHAT_MAX_TOKENS") or CHAT_API_MAX_TOKENS)
+    except ValueError:
+        return CHAT_API_MAX_TOKENS
 
 
 def _timeout(provider: str) -> float:
@@ -271,6 +280,7 @@ async def answer_stream(
     kwargs = dict(model=_model(), instructions=instructions, input=items,
                   tools=TOOL_SCHEMAS, max_output_tokens=MAX_OUTPUT_TOKENS)
     wrote_text = False
+    truncated = False
     try:
         for round_no in range(MAX_TOOL_ROUNDS + 1):
             final = None
@@ -280,8 +290,10 @@ async def answer_stream(
                 if kind == "response.output_text.delta" and event.delta:
                     wrote_text = True
                     yield {"type": "delta", "text": event.delta}
-                elif kind == "response.completed":
+                elif kind in ("response.completed", "response.incomplete"):
                     final = event.response
+                    if kind == "response.incomplete":
+                        truncated = True
                 elif kind in ("response.failed", "error"):
                     raise RuntimeError(f"OpenAI stream {kind}")
             calls = _function_calls(final)
@@ -308,7 +320,7 @@ async def answer_stream(
         return
     if not wrote_text:
         yield {"type": "delta", "text": FALLBACK_REPLY}
-    yield {"type": "done"}
+    yield _done(truncated)
 
 
 def _error_event(exc: Exception) -> dict:
@@ -327,6 +339,7 @@ async def _chat_stream(client, message, history, context, user, pool) -> AsyncIt
     messages = [{"role": "system", "content": instructions}, *items]
     tools = _chat_tools()
     wrote_text = False
+    truncated = False
     try:
         for round_no in range(MAX_TOOL_ROUNDS + 1):
             extra = {}
@@ -335,13 +348,15 @@ async def _chat_stream(client, message, history, context, user, pool) -> AsyncIt
                 extra["reasoning_effort"] = effort
             stream = await client.chat.completions.create(
                 model=_model(), messages=messages, tools=tools, stream=True,
-                max_tokens=MAX_OUTPUT_TOKENS, **extra,
+                max_tokens=_max_tokens(), **extra,
             )
             calls: Dict[int, dict] = {}
             text = []
             async for chunk in stream:
                 if not getattr(chunk, "choices", None):
                     continue
+                if getattr(chunk.choices[0], "finish_reason", None) == "length":
+                    truncated = True
                 delta = chunk.choices[0].delta
                 if getattr(delta, "content", None):
                     wrote_text = True
@@ -388,4 +403,11 @@ async def _chat_stream(client, message, history, context, user, pool) -> AsyncIt
         return
     if not wrote_text:
         yield {"type": "delta", "text": FALLBACK_REPLY}
-    yield {"type": "done"}
+    yield _done(truncated)
+
+
+def _done(truncated: bool) -> dict:
+    if truncated:
+        logger.warning("Assistant reply was cut off by the output limit (%s / %s)", _provider(), _model())
+        return {"type": "done", "truncated": True}
+    return {"type": "done"}

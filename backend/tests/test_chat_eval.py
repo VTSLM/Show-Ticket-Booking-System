@@ -54,3 +54,14 @@ def test_score_catches_each_kind_of_failure():
 def test_parse_sse():
     raw = 'data: {"type": "delta", "text": "a"}\n\ndata: {"type": "done"}\n\n'
     assert parse_sse(raw) == [{"type": "delta", "text": "a"}, {"type": "done"}]
+
+
+def test_score_fails_a_cut_off_reply():
+    events = [{"type": "delta", "text": "Here are the screenings: -"}, {"type": "done", "truncated": True}]
+    r = score_case({}, events, 1)
+    assert r["checks"]["complete"] is False and r["passed"] is False
+
+
+def test_score_keeps_first_text_time():
+    r = score_case({}, [{"type": "delta", "text": "hi"}, {"type": "done"}], 9.94, first_text=2.04)
+    assert r["seconds"] == 9.9 and r["first_text_seconds"] == 2.0

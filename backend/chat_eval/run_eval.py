@@ -34,12 +34,13 @@ SCRIPTS = {"hi": re.compile(r"[ऀ-ॿ]"), "gu": re.compile(r"[઀-૿]")}
 
 # ── scoring (pure, unit-tested) ──────────────────────────────────────────────
 
-def score_case(case: dict, events: list, seconds: float) -> dict:
+def score_case(case: dict, events: list, seconds: float, first_text: Optional[float] = None) -> dict:
     """Return {'passed': bool, 'checks': {name: bool}, 'tools': [...], 'reply': str}."""
     tools = [e["tool"] for e in events if e.get("type") == "status"]
     reply = "".join(e.get("text", "") for e in events if e.get("type") == "delta")
     low = reply.lower()
-    checks = {"no_error": not any(e.get("type") == "error" for e in events) and bool(reply.strip())}
+    checks = {"no_error": not any(e.get("type") == "error" for e in events) and bool(reply.strip()),
+              "complete": not any(e.get("type") == "done" and e.get("truncated") for e in events)}
 
     if case.get("expect_tools_any"):
         checks["tools"] = any(t in tools for t in case["expect_tools_any"])
@@ -54,8 +55,9 @@ def score_case(case: dict, events: list, seconds: float) -> dict:
     links = LINK.findall(reply)
     checks["in_app_links"] = all(u.startswith("/") and not u.startswith("//") for u in links)
 
-    return {"passed": all(checks.values()), "checks": checks, "tools": tools,
-            "reply": reply, "seconds": round(seconds, 1)}
+    return {"passed": all(checks.values()), "checks": checks, "tools": tools, "reply": reply,
+            "seconds": round(seconds, 1),
+            "first_text_seconds": round(first_text, 1) if first_text is not None else None}
 
 
 def parse_sse(raw: str) -> list:
@@ -72,6 +74,25 @@ def _request(url: str, body: Optional[dict] = None, token: Optional[str] = None,
     req = urllib.request.Request(url, data=data, headers=headers, method="POST" if data else "GET")
     with urllib.request.urlopen(req, timeout=timeout) as res:
         return res.read().decode("utf-8")
+
+
+def stream_chat(url: str, body: dict, token: Optional[str], start: float):
+    """POST and read the event stream as it arrives. Returns (events, seconds_to_first_text)."""
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers, method="POST")
+    events, first_text = [], None
+    with urllib.request.urlopen(req, timeout=180) as res:
+        for raw in res:
+            line = raw.decode("utf-8").strip()
+            if not line.startswith("data: "):
+                continue
+            event = json.loads(line[6:])
+            if event.get("type") == "delta" and first_text is None:
+                first_text = time.monotonic() - start
+            events.append(event)
+    return events, first_text
 
 
 def _firebase_web_key() -> Optional[str]:
@@ -132,21 +153,22 @@ def main() -> None:
         body = {"message": case["question"], "history": case.get("history", []),
                 "context": resolve_context(case, args.base_url, token)}
         start = time.monotonic()
+        first_text = None
         try:
-            raw = _request(f"{args.base_url}/api/chat/stream", body,
-                           token=token if case["as"] == "user" else None)
-            events = parse_sse(raw)
+            events, first_text = stream_chat(f"{args.base_url}/api/chat/stream", body,
+                                             token if case["as"] == "user" else None, start)
         except urllib.error.HTTPError as exc:
             events = [{"type": "error", "message": f"HTTP {exc.code}"}]
         except urllib.error.URLError as exc:
             sys.exit(f"Cannot reach {args.base_url}: {exc.reason}. Is the backend running?")
-        result = {"id": case["id"], "category": case["category"], **score_case(case, events, time.monotonic() - start)}
+        result = {"id": case["id"], "category": case["category"], **score_case(case, events, time.monotonic() - start, first_text)}
         results.append(result)
         errors = [e for e in events if e.get("type") == "error"]
         consecutive_errors = consecutive_errors + 1 if errors else 0
         failed = [k for k, ok in result["checks"].items() if not ok]
         print(f"[{i:>2}/{len(cases)}] {'PASS' if result['passed'] else 'FAIL'} {case['id']:<28} "
-              f"{result['seconds']:>5}s  tools={','.join(result['tools']) or '-'}"
+              f"{result['seconds']:>5}s (first text {result['first_text_seconds'] or '-'}s)  "
+              f"tools={','.join(result['tools']) or '-'}"
               + (f"  failed={','.join(failed)}" if failed else ""))
         if consecutive_errors >= 3:
             print(f"\nStopping: 3 errors in a row ({errors[0].get('message')}).")
@@ -164,7 +186,10 @@ def main() -> None:
         by_cat[r["category"]] = (p + r["passed"], n + 1)
 
     print(f"\nScore: {passed}/{len(results)} passed ({100 * passed / len(results):.0f}%)")
-    print(f"Latency: median {times[len(times) // 2]}s, slowest {times[-1]}s")
+    firsts = sorted(r["first_text_seconds"] for r in results if r["first_text_seconds"] is not None)
+    print(f"Full reply: median {times[len(times) // 2]}s, slowest {times[-1]}s")
+    if firsts:
+        print(f"First text appears: median {firsts[len(firsts) // 2]}s, slowest {firsts[-1]}s")
     for cat, (p, n) in sorted(by_cat.items()):
         print(f"  {cat:<10} {p}/{n}")
     if skipped:
@@ -173,7 +198,10 @@ def main() -> None:
     out = HERE / "results"
     out.mkdir(exist_ok=True)
     path = out / f"eval-{datetime.now():%Y%m%d-%H%M%S}.json"
-    path.write_text(json.dumps({"score": passed, "total": len(results), "results": results},
+    path.write_text(json.dumps({"score": passed, "total": len(results),
+                                "provider": os.getenv("CHAT_PROVIDER") or "openai",
+                                "model": os.getenv("CHAT_MODEL") or os.getenv("OPENAI_CHAT_MODEL"),
+                                "results": results},
                                ensure_ascii=False, indent=2))
     print(f"Details: {path}")
 

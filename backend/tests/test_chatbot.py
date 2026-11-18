@@ -448,8 +448,9 @@ def test_chat_endpoint_says_busy_when_rate_limited(client, monkeypatch):
 
 # ── Chat Completions providers (Gemini, Ollama) ─────────────────────────────
 
-def _chunk(content=None, tool_calls=None):
-    return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=content, tool_calls=tool_calls))])
+def _chunk(content=None, tool_calls=None, finish=None):
+    return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=content, tool_calls=tool_calls),
+                                                    finish_reason=finish)])
 
 
 def _tc(index, id=None, name=None, args=None, extra=None):
@@ -566,3 +567,20 @@ async def test_gemini_thought_signature_is_sent_back_with_the_tool_call(gemini, 
     await _collect(chatbot.answer_stream("wishlist?", [], {}, USER, FakePool()))
     sent_call = gemini.chat.completions.create.call_args_list[1].kwargs["messages"][-2]["tool_calls"][0]
     assert sent_call["extra_content"] == sig
+
+
+@pytest.mark.asyncio
+async def test_cut_off_reply_is_flagged(gemini):
+    gemini.chat.completions.create.return_value = FakeStream(
+        [_chunk(content="Here are the screenings: -"), _chunk(finish="length")])
+    events = await _collect(chatbot.answer_stream("tell me about X", [], {}, None, FakePool()))
+    assert events[-1] == {"type": "done", "truncated": True}
+    assert gemini.chat.completions.create.call_args.kwargs["max_tokens"] == chatbot.CHAT_API_MAX_TOKENS
+
+
+@pytest.mark.asyncio
+async def test_openai_incomplete_reply_is_flagged(fake_openai):
+    fake_openai.responses.create.return_value = FakeStream(
+        [_ev("response.output_text.delta", delta="Partial"), _ev("response.incomplete", response=_resp([], text="Partial"))])
+    events = await _collect(chatbot.answer_stream("hi", [], {}, None, FakePool()))
+    assert events[-1] == {"type": "done", "truncated": True}
