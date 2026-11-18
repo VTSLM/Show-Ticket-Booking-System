@@ -65,7 +65,7 @@ export function googleCalendarUrl(ev: CalendarEvent): string {
 }
 
 const escapeIcs = (s: string) =>
-  s.replace(/\\/g, "\\\\").replace(/;/g, "\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
 
 // iCalendar lines should be at most 75 characters; longer ones continue on the next line after a space
 const foldLine = (line: string) => {
