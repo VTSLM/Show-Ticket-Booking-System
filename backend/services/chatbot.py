@@ -35,10 +35,26 @@ class AssistantUnavailable(Exception):
 PROVIDERS = {
     "openai": {"key_env": "OPENAI_API_KEY", "base_url": None, "api": "responses"},
     "gemini": {"key_env": "GEMINI_API_KEY", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-               "api": "chat", "default_model": "gemini-3.8-flash"},
+               "api": "chat", "default_model": "gemini-3.8-flash", "timeout": 60.0,
+               # Gemini thinks before answering by default; "low" keeps replies quick
+               "reasoning_effort": "low"},
     "ollama": {"key_env": None, "base_url": "http://localhost:11434/v1", "api": "chat",
-               "default_model": "llama3.1"},
+               "default_model": "llama3.1", "timeout": 120.0},
 }
+
+
+def _timeout(provider: str) -> float:
+    try:
+        return float(os.getenv("CHAT_TIMEOUT_SECONDS") or PROVIDERS[provider].get("timeout", 25.0))
+    except ValueError:
+        return 25.0
+
+
+def _reasoning_effort(provider: str) -> Optional[str]:
+    value = os.getenv("CHAT_REASONING_EFFORT")
+    if value is not None:
+        return value.strip() or None  # set but empty = don't send it
+    return PROVIDERS[provider].get("reasoning_effort")
 
 
 def _provider() -> str:
@@ -72,7 +88,7 @@ def _get_client() -> AsyncOpenAI:
         api_key = "local"  # Ollama ignores the key
     if _client is None or _client_provider != provider:
         base_url = os.getenv("CHAT_BASE_URL") or conf["base_url"]
-        _client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=25.0, max_retries=1)
+        _client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=_timeout(provider), max_retries=1)
         _client_provider = provider
     return _client
 
@@ -311,9 +327,13 @@ async def _chat_stream(client, message, history, context, user, pool) -> AsyncIt
     wrote_text = False
     try:
         for round_no in range(MAX_TOOL_ROUNDS + 1):
+            extra = {}
+            effort = _reasoning_effort(_provider())
+            if effort:
+                extra["reasoning_effort"] = effort
             stream = await client.chat.completions.create(
                 model=_model(), messages=messages, tools=tools, stream=True,
-                max_tokens=MAX_OUTPUT_TOKENS,
+                max_tokens=MAX_OUTPUT_TOKENS, **extra,
             )
             calls: Dict[int, dict] = {}
             text = []

@@ -13,6 +13,15 @@ from rate_limit import DEFAULT_RULES
 from routers import chat as chat_router
 from services import chatbot, chatbot_tools as tools
 
+@pytest.fixture(autouse=True)
+def default_provider_settings(monkeypatch):
+    """Tests must not depend on a developer's local .env (e.g. CHAT_PROVIDER=gemini)."""
+    for name in ("CHAT_PROVIDER", "CHAT_MODEL", "CHAT_BASE_URL", "CHAT_TIMEOUT_SECONDS",
+                 "CHAT_REASONING_EFFORT", "OPENAI_CHAT_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(chatbot, "_client", None)
+
+
 USER = {"id": "11111111-1111-1111-1111-111111111111", "name": "Asha Patel", "status": "active", "roles": ["customer"]}
 NOW = datetime.now(timezone.utc)
 
@@ -480,6 +489,7 @@ async def test_gemini_assembles_streamed_tool_calls_and_sends_results_back(gemin
     assert ran == [("search_shows", {"city": "Ahmedabad"})]
     second = gemini.chat.completions.create.call_args_list[1].kwargs
     assert second["model"] == "gemini-3.8-flash" and second["stream"] is True
+    assert second["reasoning_effort"] == "low"
     msgs = second["messages"]
     assert msgs[0]["role"] == "system" and "TicketFlow" in msgs[0]["content"]
     assert msgs[-2]["tool_calls"][0] == {"id": "c1", "type": "function",
@@ -521,3 +531,13 @@ def test_provider_settings(monkeypatch):
     assert chatbot._model() == "gemini-pro-x"
     monkeypatch.setenv("CHAT_PROVIDER", "something-else")
     assert chatbot._provider() == "openai"
+
+
+def test_timeout_and_reasoning_settings(monkeypatch):
+    monkeypatch.delenv("CHAT_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("CHAT_REASONING_EFFORT", raising=False)
+    assert chatbot._timeout("gemini") == 60.0 and chatbot._timeout("openai") == 25.0
+    assert chatbot._reasoning_effort("gemini") == "low" and chatbot._reasoning_effort("openai") is None
+    monkeypatch.setenv("CHAT_TIMEOUT_SECONDS", "90")
+    monkeypatch.setenv("CHAT_REASONING_EFFORT", "")
+    assert chatbot._timeout("gemini") == 90.0 and chatbot._reasoning_effort("gemini") is None
