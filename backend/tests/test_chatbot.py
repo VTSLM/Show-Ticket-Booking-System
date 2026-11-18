@@ -360,7 +360,7 @@ async def test_stream_reports_tool_status_then_streams_text(fake_openai, monkeyp
 async def test_stream_turns_openai_failure_into_error_event(fake_openai):
     fake_openai.responses.create.side_effect = RuntimeError("quota exceeded")
     events = await _collect(chatbot.answer_stream("hi", [], {}, None, FakePool()))
-    assert events == [{"type": "error", "message": "The assistant had a problem answering. Please try again."}]
+    assert events == [{"type": "error", "message": chatbot.ERROR_REPLY, "reason": "failed"}]
 
 
 @pytest.mark.asyncio
@@ -414,3 +414,24 @@ def test_stream_endpoint_validates_input(client):
 def test_stream_endpoint_is_rate_limited():
     rule = next(r for r in DEFAULT_RULES if r.name == "chat")
     assert rule.pattern.match("/api/chat/stream") and rule.pattern.match("/api/chat")
+
+
+@pytest.mark.asyncio
+async def test_stream_says_busy_when_openai_is_rate_limited(fake_openai):
+    fake_openai.responses.create.side_effect = RuntimeError(
+        "Rate limit reached for gpt-x on tokens per min (TPM): Limit 100000")
+    events = await _collect(chatbot.answer_stream("hi", [], {}, None, FakePool()))
+    assert events == [{"type": "error", "message": chatbot.BUSY_REPLY, "reason": "rate_limited"}]
+
+
+def test_chat_endpoint_says_busy_when_rate_limited(client, monkeypatch):
+    c, _ = client
+
+    async def limited(*a, **k):
+        try:
+            raise RuntimeError("Rate limit reached")
+        except RuntimeError as exc:
+            raise chatbot.AssistantUnavailable("limited") from exc
+    monkeypatch.setattr(chatbot, "answer", limited)
+    r = c.post("/api/chat", json={"message": "hi"})
+    assert r.status_code == 503 and r.json()["detail"] == chatbot.BUSY_REPLY

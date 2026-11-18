@@ -68,8 +68,9 @@ async def chat(
     user, context, history, pool = await _prepare_request(body, auth)
     try:
         reply = await chatbot.answer(body.message, history, context, user, pool)
-    except chatbot.AssistantUnavailable:
-        raise HTTPException(status_code=503, detail=UNAVAILABLE)
+    except chatbot.AssistantUnavailable as exc:
+        busy = exc.__cause__ is not None and chatbot._is_rate_limited(exc.__cause__)
+        raise HTTPException(status_code=503, detail=chatbot.BUSY_REPLY if busy else UNAVAILABLE)
     return {"reply": reply}
 
 

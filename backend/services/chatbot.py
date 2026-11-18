@@ -104,6 +104,20 @@ TOOL_STATUS = {
     "get_my_wishlist": "Opening your wishlist…",
 }
 FALLBACK_REPLY = "Sorry, I couldn't work that out. Could you ask in a different way?"
+ERROR_REPLY = "The assistant had a problem answering. Please try again."
+BUSY_REPLY = "The assistant is busy right now. Please try again in a few minutes."
+
+
+def _is_rate_limited(exc: Exception) -> bool:
+    """OpenAI rate or quota limits (raised as RateLimitError, or as APIError inside a stream)."""
+    try:
+        from openai import RateLimitError
+        if isinstance(exc, RateLimitError):
+            return True
+    except ImportError:  # pragma: no cover
+        pass
+    text = str(exc).lower()
+    return "rate limit" in text or "insufficient_quota" in text
 
 
 def _prepare(message: str, history: List[dict], context: dict, user: Optional[dict]):
@@ -209,9 +223,14 @@ async def answer_stream(
             outputs = await _run_calls(calls, pool, user)
             kwargs = dict(model=_model(), instructions=instructions, previous_response_id=final.id,
                           input=outputs, tools=TOOL_SCHEMAS, max_output_tokens=MAX_OUTPUT_TOKENS)
-    except Exception:
-        logger.exception("Streaming assistant reply failed")
-        yield {"type": "error", "message": "The assistant had a problem answering. Please try again."}
+    except Exception as exc:
+        busy = _is_rate_limited(exc)
+        if busy:
+            logger.warning("OpenAI rate limit reached for the assistant: %s", exc)
+        else:
+            logger.exception("Streaming assistant reply failed")
+        yield {"type": "error", "message": BUSY_REPLY if busy else ERROR_REPLY,
+               "reason": "rate_limited" if busy else "failed"}
         return
     if not wrote_text:
         yield {"type": "delta", "text": FALLBACK_REPLY}

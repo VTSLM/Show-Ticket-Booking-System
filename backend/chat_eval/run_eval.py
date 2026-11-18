@@ -124,6 +124,7 @@ def main() -> None:
     token = login() if args.login else None
 
     results, skipped = [], []
+    consecutive_errors = 0
     for i, case in enumerate(cases, 1):
         if case["as"] == "user" and not token:
             skipped.append(case["id"])
@@ -141,10 +142,16 @@ def main() -> None:
             sys.exit(f"Cannot reach {args.base_url}: {exc.reason}. Is the backend running?")
         result = {"id": case["id"], "category": case["category"], **score_case(case, events, time.monotonic() - start)}
         results.append(result)
+        errors = [e for e in events if e.get("type") == "error"]
+        consecutive_errors = consecutive_errors + 1 if errors else 0
         failed = [k for k, ok in result["checks"].items() if not ok]
         print(f"[{i:>2}/{len(cases)}] {'PASS' if result['passed'] else 'FAIL'} {case['id']:<28} "
               f"{result['seconds']:>5}s  tools={','.join(result['tools']) or '-'}"
               + (f"  failed={','.join(failed)}" if failed else ""))
+        if consecutive_errors >= 3:
+            print(f"\nStopping: 3 errors in a row ({errors[0].get('message')}).")
+            print("Check the backend log; an OpenAI rate or quota limit is the usual cause.")
+            break
         time.sleep(args.delay)
 
     if not results:
