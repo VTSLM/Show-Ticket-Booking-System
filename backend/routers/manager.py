@@ -8,8 +8,92 @@ from database import get_conn
 from dependencies import require_role
 
 import json
+import uuid
 
 router = APIRouter(prefix="/api/manager", tags=["manager"])
+
+
+def _is_admin(user: dict) -> bool:
+    """get_current_user puts roles in a list; there is no single "role" key."""
+    return "admin" in (user.get("roles") or [])
+
+
+# ---- Ownership (issue #80) ----
+# A manager owns an event through its organizer profile
+# (events.organizer_id -> organizer_profiles.user_id), a show and its zones
+# through the event, and a venue through the verification case they opened
+# for it (venue_verification_cases.applicant_id). Admins own everything.
+# Anything a manager does not own answers 404, so ids of other
+# organizations' rows are not confirmed to exist.
+
+MANAGER_ROLES = require_role("manager", "admin")
+
+_OWNS_EVENT = """EXISTS (SELECT 1 FROM organizer_profiles op
+                       WHERE op.id = {e}.organizer_id AND op.user_id = {uid})"""
+_OWNS_VENUE = """EXISTS (SELECT 1 FROM venue_verification_cases vc
+                       WHERE vc.venue_id = {v}.id AND vc.applicant_id = {uid})"""
+
+
+def _not_found(what: str) -> HTTPException:
+    return HTTPException(status_code=404, detail=f"{what} not found")
+
+
+def _require_uuid(value: str, what: str) -> None:
+    try:
+        uuid.UUID(str(value))
+    except ValueError:
+        raise _not_found(what)
+
+
+async def _assert_owns_event(conn, user: dict, event_id: str) -> None:
+    _require_uuid(event_id, "Event")
+    if _is_admin(user):
+        return
+    ok = await conn.fetchval(
+        f"SELECT 1 FROM events e WHERE e.id = $1::uuid AND {_OWNS_EVENT.format(e='e', uid='$2')}",
+        event_id, user["id"],
+    )
+    if not ok:
+        raise _not_found("Event")
+
+
+async def _assert_owns_show(conn, user: dict, show_id: str) -> None:
+    _require_uuid(show_id, "Show")
+    if _is_admin(user):
+        return
+    ok = await conn.fetchval(
+        f"""SELECT 1 FROM shows s JOIN events e ON e.id = s.event_id
+             WHERE s.id = $1::uuid AND {_OWNS_EVENT.format(e='e', uid='$2')}""",
+        show_id, user["id"],
+    )
+    if not ok:
+        raise _not_found("Show")
+
+
+async def _assert_owns_venue(conn, user: dict, venue_id: str) -> None:
+    _require_uuid(venue_id, "Venue")
+    if _is_admin(user):
+        return
+    ok = await conn.fetchval(
+        f"SELECT 1 FROM venues v WHERE v.id = $1::uuid AND {_OWNS_VENUE.format(v='v', uid='$2')}",
+        venue_id, user["id"],
+    )
+    if not ok:
+        raise _not_found("Venue")
+
+
+async def _assert_owns_screen(conn, user: dict, screen_id: str) -> None:
+    _require_uuid(screen_id, "Screen")
+    if _is_admin(user):
+        return
+    ok = await conn.fetchval(
+        f"""SELECT 1 FROM screens sc JOIN venues v ON v.id = sc.venue_id
+             WHERE sc.id = $1::uuid AND {_OWNS_VENUE.format(v='v', uid='$2')}""",
+        screen_id, user["id"],
+    )
+    if not ok:
+        raise _not_found("Screen")
+
 
 # ---- Venues ----
 class VenueCreate(BaseModel):
@@ -20,19 +104,33 @@ class VenueCreate(BaseModel):
     pincode: Optional[str] = None
 
 @router.get("/venues")
-async def list_venues(conn: asyncpg.Connection = Depends(get_conn)):
-    rows = await conn.fetch("SELECT * FROM venues ORDER BY name")
+async def list_venues(
+    user: dict = Depends(MANAGER_ROLES),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    # Managers see the venues they own plus approved venues, which they may
+    # book for their shows (approved venues are already public via browse).
+    if _is_admin(user):
+        rows = await conn.fetch("SELECT v.*, true AS owned FROM venues v ORDER BY v.name")
+    else:
+        owns = _OWNS_VENUE.format(v="v", uid="$1")
+        rows = await conn.fetch(
+            f"""SELECT v.*, {owns} AS owned FROM venues v
+                 WHERE {owns} OR v.verification_status = 'approved'
+                 ORDER BY v.name""",
+            user["id"],
+        )
     return [dict(r) for r in rows]
 
 @router.post("/venues")
 async def create_venue(
     body: VenueCreate,
-    user: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    is_admin = user.get("role") == "admin"
+    is_admin = _is_admin(user)
     v_status = "approved" if is_admin else "unverified"
-    
+
     async with conn.transaction():
         row = await conn.fetchrow(
             """INSERT INTO venues (name, address, city, state, pincode, verification_status)
@@ -41,8 +139,8 @@ async def create_venue(
         )
         if not is_admin:
             await conn.execute(
-                """INSERT INTO venue_verification_cases (venue_id, applicant_id, status)
-                   VALUES ($1, $2, 'DRAFT') ON CONFLICT DO NOTHING""",
+                """INSERT INTO venue_verification_cases (venue_id, applicant_id)
+                   VALUES ($1, $2) ON CONFLICT DO NOTHING""",
                 row["id"], user["id"]
             )
     return dict(row)
@@ -59,7 +157,20 @@ class ScreenCreate(BaseModel):
     layout_config: Optional[dict] = None  # Custom coordinate geometry, sections, polygons
 
 @router.get("/venues/{venue_id}/screens")
-async def list_screens(venue_id: str, conn: asyncpg.Connection = Depends(get_conn)):
+async def list_screens(
+    venue_id: str,
+    user: dict = Depends(MANAGER_ROLES),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    _require_uuid(venue_id, "Venue")
+    if not _is_admin(user):
+        visible = await conn.fetchval(
+            f"""SELECT 1 FROM venues v WHERE v.id = $1::uuid
+                 AND ({_OWNS_VENUE.format(v='v', uid='$2')} OR v.verification_status = 'approved')""",
+            venue_id, user["id"],
+        )
+        if not visible:
+            raise _not_found("Venue")
     rows = await conn.fetch("SELECT * FROM screens WHERE venue_id=$1::uuid ORDER BY name", venue_id)
     return [dict(r) for r in rows]
 
@@ -67,9 +178,10 @@ async def list_screens(venue_id: str, conn: asyncpg.Connection = Depends(get_con
 async def create_screen(
     venue_id: str,
     body: ScreenCreate,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    await _assert_owns_venue(conn, user, venue_id)
     cfg_json = json.dumps(body.layout_config) if body.layout_config else None
     screen = await conn.fetchrow(
         """INSERT INTO screens (venue_id, name, capacity, layout_type, stage_position, layout_config)
@@ -117,9 +229,10 @@ class UpdateSeatTierRequest(BaseModel):
 async def update_seat_tier(
     screen_id: str,
     body: UpdateSeatTierRequest,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    await _assert_owns_screen(conn, user, screen_id)
     if body.row_label:
         await conn.execute(
             """UPDATE seats SET seat_type=$1::seat_type
@@ -156,23 +269,29 @@ class EventCreate(BaseModel):
     terms_and_conditions: Optional[str] = None
 
 @router.get("/events")
-async def list_events(conn: asyncpg.Connection = Depends(get_conn)):
+async def list_events(
+    user: dict = Depends(MANAGER_ROLES),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    admin = _is_admin(user)
     rows = await conn.fetch(
         """SELECT e.*, op.legal_name as organization_name, op.verification_status as organizer_status
            FROM events e
            LEFT JOIN organizer_profiles op ON op.id = e.organizer_id
-           ORDER BY e.created_at DESC"""
+           WHERE $1::boolean OR op.user_id = $2
+           ORDER BY e.created_at DESC""",
+        admin, user["id"],
     )
     return [dict(r) for r in rows]
 
 @router.post("/events")
 async def create_event(
     body: EventCreate,
-    user: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     organizer_id = body.organizer_id
-    is_admin = user.get("role") == "admin"
+    is_admin = _is_admin(user)
 
     if not is_admin:
         if not organizer_id:
@@ -220,9 +339,10 @@ async def create_event(
 async def update_event(
     event_id: str,
     body: dict,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    await _assert_owns_event(conn, user, event_id)
     allowed = {
         "title","description","event_type","duration_minutes","language","genre",
         "poster_url","backdrop_url","status","certificate","release_date",
@@ -243,7 +363,7 @@ async def update_event(
     set_clause = ", ".join(f"{k}=${i+2}" for i, k in enumerate(updates))
     vals = list(updates.values())
     row = await conn.fetchrow(
-        f"UPDATE events SET {set_clause}, updated_at=now() WHERE id=$1 RETURNING *",
+        f"UPDATE events SET {set_clause}, updated_at=now() WHERE id=$1::uuid RETURNING *",
         event_id, *vals
     )
     if not row:
@@ -277,30 +397,35 @@ class ShowCreate(BaseModel):
     zones: Optional[List[ZoneInput]] = None
 
 @router.get("/shows")
-async def list_shows(conn: asyncpg.Connection = Depends(get_conn)):
+async def list_shows(
+    user: dict = Depends(MANAGER_ROLES),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
     rows = await conn.fetch(
-        """SELECT s.*, e.title as event_title, v.name as venue_name, sc.name as screen_name,
+        f"""SELECT s.*, e.title as event_title, v.name as venue_name, sc.name as screen_name,
                   sc.layout_type
            FROM shows s
            JOIN events e ON e.id=s.event_id
            JOIN screens sc ON sc.id=s.screen_id
            JOIN venues v ON v.id=sc.venue_id
-           ORDER BY s.start_time DESC"""
+           WHERE $1::boolean OR {_OWNS_EVENT.format(e='e', uid='$2')}
+           ORDER BY s.start_time DESC""",
+        _is_admin(user), user["id"],
     )
     return [dict(r) for r in rows]
 
 @router.post("/shows")
 async def create_show(
     body: ShowCreate,
-    user: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    is_admin = user.get("role") == "admin"
+    is_admin = _is_admin(user)
 
     # Double-Lock Verification Guard: Both Event Organizer AND Venue must be verified
     if not is_admin:
         guard_row = await conn.fetchrow(
-            """SELECT e.title as event_title, e.organizer_id,
+            """SELECT e.title as event_title, e.organizer_id, op.user_id as org_user_id,
                       op.legal_name as org_name, op.verification_status as org_status,
                       v.name as venue_name, v.verification_status as venue_status
                FROM events e
@@ -311,6 +436,10 @@ async def create_show(
             body.screen_id, body.event_id
         )
         if not guard_row:
+            raise HTTPException(status_code=404, detail="Selected event or venue screen not found.")
+
+        # Managers may only schedule shows for their own organization's events.
+        if str(guard_row["org_user_id"]) != str(user["id"]):
             raise HTTPException(status_code=404, detail="Selected event or venue screen not found.")
 
         if guard_row["org_status"] != "APPROVED":
@@ -367,7 +496,12 @@ async def create_show(
     return dict(show)
 
 @router.get("/shows/{show_id}/zones")
-async def list_show_zones(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
+async def list_show_zones(
+    show_id: str,
+    user: dict = Depends(MANAGER_ROLES),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    await _assert_owns_show(conn, user, show_id)
     rows = await conn.fetch(
         """SELECT * FROM show_zones WHERE show_id=$1::uuid ORDER BY display_order, price DESC""",
         show_id
@@ -378,9 +512,10 @@ async def list_show_zones(show_id: str, conn: asyncpg.Connection = Depends(get_c
 async def add_show_zone(
     show_id: str,
     body: ZoneInput,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    await _assert_owns_show(conn, user, show_id)
     poly_json = json.dumps(body.polygon_coords) if body.polygon_coords else None
     row = await conn.fetchrow(
         """INSERT INTO show_zones (show_id, name, zone_type, total_capacity, price, color_hex, polygon_coords, x_pos, y_pos, width, height)
@@ -394,9 +529,11 @@ async def add_show_zone(
 async def delete_show_zone(
     show_id: str,
     zone_id: str,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    await _assert_owns_show(conn, user, show_id)
+    _require_uuid(zone_id, "Zone")
     await conn.execute(
         """DELETE FROM show_zones WHERE id=$1::uuid AND show_id=$2::uuid""",
         zone_id, show_id
@@ -404,7 +541,12 @@ async def delete_show_zone(
     return {"deleted": True}
 
 @router.get("/shows/{show_id}")
-async def get_show(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
+async def get_show(
+    show_id: str,
+    user: dict = Depends(MANAGER_ROLES),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    await _assert_owns_show(conn, user, show_id)
     row = await conn.fetchrow(
         """SELECT s.*, e.title as event_title, e.duration_minutes, e.language, e.genre, e.poster_url,
                   v.name as venue_name, v.city, sc.name as screen_name, sc.capacity
@@ -412,7 +554,7 @@ async def get_show(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
            JOIN events e ON e.id=s.event_id
            JOIN screens sc ON sc.id=s.screen_id
            JOIN venues v ON v.id=sc.venue_id
-           WHERE s.id=$1""",
+           WHERE s.id=$1::uuid""",
         show_id
     )
     if not row:
@@ -422,19 +564,21 @@ async def get_show(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
 @router.delete("/shows/{show_id}")
 async def delete_show(
     show_id: str,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    await conn.execute("DELETE FROM shows WHERE id=$1", show_id)
+    await _assert_owns_show(conn, user, show_id)
+    await conn.execute("DELETE FROM shows WHERE id=$1::uuid", show_id)
     return {"message": "Show deleted"}
 
 @router.patch("/shows/{show_id}")
 async def update_show(
     show_id: str,
     body: dict,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    await _assert_owns_show(conn, user, show_id)
     allowed = {"start_time", "end_time", "base_price", "status", "dynamic_pricing"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
@@ -454,8 +598,9 @@ async def update_show(
 @router.delete("/events/{event_id}")
 async def delete_event(
     event_id: str,
-    _: dict = Depends(require_role("manager", "admin")),
+    user: dict = Depends(MANAGER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    await _assert_owns_event(conn, user, event_id)
     await conn.execute("DELETE FROM events WHERE id=$1::uuid", event_id)
     return {"message": "Event deleted"}
