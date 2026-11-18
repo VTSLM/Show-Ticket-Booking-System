@@ -17,6 +17,8 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Support emails (new request, admin reply) are sent after the response, so customers and admins no longer wait several seconds; SMTP calls now time out after 20 s
 - My Bookings shows expired bookings as "Expired" instead of "Pending"
 - Browse price sorting follows the price shown on each card (the current dynamic price), and grouped events show their cheapest showtime's price
+### Changed
+- Sign-up: Confirm Password must be typed (copy, cut, paste and drag-and-drop are blocked in that field only) and shows whether the passwords match while typing (#136)
 
 ### Removed
 - Duplicated `sprint1/`, `sprint2/` and `sprint3/` folders. Earlier sprints are available as the `v0.1.0` and `v0.2.0` tags.
