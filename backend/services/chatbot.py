@@ -349,9 +349,13 @@ async def _chat_stream(client, message, history, context, user, pool) -> AsyncIt
                     yield {"type": "delta", "text": delta.content}
                 for tc in getattr(delta, "tool_calls", None) or []:
                     slot = calls.setdefault(tc.index if tc.index is not None else len(calls),
-                                            {"id": None, "name": "", "arguments": ""})
+                                            {"id": None, "name": "", "arguments": "", "extra": None})
                     if tc.id:
                         slot["id"] = tc.id
+                    # Gemini 3 attaches a thought_signature that must be sent back with the call
+                    extra = getattr(tc, "extra_content", None) or (getattr(tc, "model_extra", None) or {}).get("extra_content")
+                    if extra:
+                        slot["extra"] = extra
                     if tc.function and tc.function.name:
                         slot["name"] = tc.function.name
                     if tc.function and tc.function.arguments:
@@ -370,7 +374,8 @@ async def _chat_stream(client, message, history, context, user, pool) -> AsyncIt
             messages.append({
                 "role": "assistant", "content": "".join(text) or None,
                 "tool_calls": [{"id": c["id"], "type": "function",
-                                "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}}
+                                "function": {"name": c["name"], "arguments": c["arguments"] or "{}"},
+                                **({"extra_content": c["extra"]} if c.get("extra") else {})}
                                for c in ordered],
             })
             outputs = await _run_calls(

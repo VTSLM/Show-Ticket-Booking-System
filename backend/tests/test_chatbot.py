@@ -452,8 +452,9 @@ def _chunk(content=None, tool_calls=None):
     return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=content, tool_calls=tool_calls))])
 
 
-def _tc(index, id=None, name=None, args=None):
-    return SimpleNamespace(index=index, id=id, function=SimpleNamespace(name=name, arguments=args))
+def _tc(index, id=None, name=None, args=None, extra=None):
+    return SimpleNamespace(index=index, id=id, function=SimpleNamespace(name=name, arguments=args),
+                           extra_content=extra)
 
 
 @pytest.fixture
@@ -552,3 +553,16 @@ def test_busy_errors_are_recognised(message):
 
 def test_other_errors_are_not_busy():
     assert not chatbot._is_rate_limited(RuntimeError("Error code: 401 - invalid api key"))
+
+
+@pytest.mark.asyncio
+async def test_gemini_thought_signature_is_sent_back_with_the_tool_call(gemini, monkeypatch):
+    sig = {"google": {"thought_signature": "EokBCoYB"}}
+    gemini.chat.completions.create.side_effect = [
+        FakeStream([_chunk(tool_calls=[_tc(0, id="c1", name="get_my_wishlist", args="{}", extra=sig)])]),
+        FakeStream([_chunk(content="Your wishlist is empty.")]),
+    ]
+    monkeypatch.setattr(chatbot, "run_tool", AsyncMock(return_value={"count": 0}))
+    await _collect(chatbot.answer_stream("wishlist?", [], {}, USER, FakePool()))
+    sent_call = gemini.chat.completions.create.call_args_list[1].kwargs["messages"][-2]["tool_calls"][0]
+    assert sent_call["extra_content"] == sig
