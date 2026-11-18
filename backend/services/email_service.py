@@ -4,7 +4,7 @@ from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 import asyncio
 from config import GMAIL_USER, GMAIL_APP_PASSWORD
-from services.ticket_service import build_ticket_pdf
+from services.ticket_service import build_ticket_pdf, format_show_datetime
 
 async def send_ticket_email(ticket_data: dict):
     """Send ticket confirmation email with PDF attachment."""
@@ -47,7 +47,7 @@ def _send_email_sync(ticket_data: dict):
           <tr><td style="padding:8px; background:#16213e; color:white; font-weight:bold;">Screen</td>
               <td style="padding:8px;">{ticket_data.get('screen_name','')}</td></tr>
           <tr><td style="padding:8px; background:#16213e; color:white; font-weight:bold;">Show Time</td>
-              <td style="padding:8px;">{ticket_data.get('start_time','')}</td></tr>
+              <td style="padding:8px;">{format_show_datetime(ticket_data.get('start_time',''))}</td></tr>
           <tr><td style="padding:8px; background:#16213e; color:white; font-weight:bold;">Total</td>
               <td style="padding:8px;">₹{float(ticket_data.get('total_amount',0)):.2f}</td></tr>
         </table>

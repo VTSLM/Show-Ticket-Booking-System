@@ -2,7 +2,6 @@
 Endpoints for user and admin in-app notifications.
 Allows fetching unread notifications and marking them as read.
 """
-from typing import Optional
 import asyncpg
 from fastapi import APIRouter, Depends
 from database import get_conn

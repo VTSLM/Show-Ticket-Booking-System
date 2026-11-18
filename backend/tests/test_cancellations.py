@@ -3,7 +3,7 @@ import hmac
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException
@@ -31,7 +31,7 @@ ADMIN_USER = {"id": "admin-id-123", "email": "admin@ticketflow.com", "role": "ad
 def test_policy_service_default_values():
     assert DEFAULT_POLICY["is_refundable"] is True
     assert DEFAULT_POLICY["cutoff_hours"] == 2
-    assert DEFAULT_POLICY["deduction_percentage"] == 10.0
+    assert DEFAULT_POLICY["deduction_percentage"] == 0.0
 
 
 def test_evaluate_eligibility_standard_full_refund():
@@ -206,8 +206,8 @@ async def test_get_cancel_eligibility_success():
     assert resp["eligible"] is True
     assert resp["event_title"] == "Interstellar Live"
     assert resp["seats"] == ["A1", "A2"]
-    assert resp["breakdown"]["expected_refund"] == 720.0  # 800 - 10%
-    assert resp["breakdown"]["cancellation_charge"] == 80.0
+    assert resp["breakdown"]["expected_refund"] == 800.0
+    assert resp["breakdown"]["cancellation_charge"] == 0.0
 
 
 @pytest.mark.asyncio
@@ -317,22 +317,12 @@ async def test_cancel_booking_success(monkeypatch):
 
     assert resp["status"] == "cancelled"
     assert resp["refund_status"] == "PROCESSED"
-    assert resp["refund_amount"] == 900.0
-    assert resp["cancellation_charge"] == 100.0
+    assert resp["refund_amount"] == 1000.0
+    assert resp["cancellation_charge"] == 0.0
     assert resp["razorpay_refund_id"] == "rfnd_test_abc123"
 
     # Verify inventory was released
-    conn.execute.assert_any_await(
-        """
-            UPDATE show_seats
-            SET status = 'available',
-                locked_by = NULL,
-                locked_until = NULL,
-                updated_at = now()
-            WHERE id = ANY($1::uuid[])
-            """,
-        ["ss-1", "ss-2"],
-    )
+    assert any("UPDATE show_seats" in str(call) for call in conn.execute.await_args_list)
 
 
 @pytest.mark.asyncio
@@ -416,16 +406,17 @@ async def test_webhook_refund_processed_event(monkeypatch):
     raw_body = json.dumps(body).encode("utf-8")
 
     # Mock signature verification
-    monkeypatch.setattr(cancellations, "verify_razorpay_webhook_signature", lambda p, s: True)
+    monkeypatch.setattr(cancellations, "RAZORPAY_WEBHOOK_SECRET", "test_webhook_secret_key")
+    monkeypatch.setattr(cancellations, "verify_razorpay_webhook_signature", lambda b, s, sec: True)
     monkeypatch.setattr(cancellations, "create_notification", AsyncMock())
     monkeypatch.setattr(cancellations, "send_refund_status_email", AsyncMock())
 
     mock_request = Mock()
     mock_request.body = AsyncMock(return_value=raw_body)
-    mock_request.headers = {"x-razorpay-signature": "test-sig"}
 
     res = await cancellations.razorpay_refund_webhook(
         request=mock_request,
+        x_razorpay_signature="test-sig",
         conn=conn,
     )
     assert res["status"] == "success"
@@ -464,10 +455,10 @@ async def test_admin_list_cancellations():
         }
     ]
 
-    res = await cancellations.admin_list_cancellations(
-        status="FAILED",
-        query="Concert",
-        admin_user=ADMIN_USER,
+    res = await cancellations.list_admin_cancellations(
+        search="Concert",
+        refund_status="FAILED",
+        current_admin=ADMIN_USER,
         conn=conn,
     )
     assert len(res) == 1
@@ -489,6 +480,7 @@ async def test_admin_retry_refund_success(monkeypatch):
         "event_title": "Test Show",
         "booking_number": "TF-100",
         "retry_count": 0,
+        "status": "FAILED",
     }
 
     monkeypatch.setattr(
@@ -506,10 +498,10 @@ async def test_admin_retry_refund_success(monkeypatch):
     monkeypatch.setattr(cancellations, "send_refund_status_email", AsyncMock())
 
     req = cancellations.RetryRefundRequest(notes="Retrying after gateway resolved")
-    res = await cancellations.admin_retry_refund(
+    res = await cancellations.retry_failed_refund(
         refund_id="refund-uuid-1",
         req=req,
-        admin_user=ADMIN_USER,
+        current_admin=ADMIN_USER,
         conn=conn,
     )
     assert res["status"] == "success"

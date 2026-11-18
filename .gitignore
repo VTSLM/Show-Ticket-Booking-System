@@ -48,6 +48,7 @@ override.tf.json
 Thumbs.db
 .idea/
 .vscode/*
+TEAM-UPDATE.md
 !.vscode/extensions.json
 *.swp
 *.swo

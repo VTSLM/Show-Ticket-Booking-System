@@ -48,12 +48,16 @@ CREATE TABLE IF NOT EXISTS cancellation_policies (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Insert standard default policy if none exists
+-- Insert standard default policy if none exists (0.00% standard deduction unless agreed/configured per show)
 INSERT INTO cancellation_policies (name, description, cutoff_hours, deduction_percentage, flat_cancellation_fee, is_refundable, is_default)
 SELECT 'Standard Platform Cancellation Policy',
-       'Full or partial refund eligible up to 2 hours prior to showtime. Standard 10% cancellation processing charge applies.',
-       2, 10.00, 0.00, true, true
+       'Full refund eligible up to 2 hours prior to showtime.',
+       2, 0.00, 0.00, true, true
 WHERE NOT EXISTS (SELECT 1 FROM cancellation_policies WHERE is_default = true);
 
 -- Add policy reference to shows table
 ALTER TABLE shows ADD COLUMN IF NOT EXISTS cancellation_policy_id uuid REFERENCES cancellation_policies(id) ON DELETE SET NULL;
+
+-- Enable Row Level Security (RLS) on new tables
+ALTER TABLE refunds ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cancellation_policies ENABLE ROW LEVEL SECURITY;

@@ -1,27 +1,23 @@
 version: 2
+
 updates:
+
   - package-ecosystem: pip
     directory: /backend
-    schedule: { interval: weekly, day: monday }
-    open-pull-requests-limit: 5
-    labels: ["type: chore", "area: backend"]
-    commit-message: { prefix: "chore(deps)" }
+    schedule:
+      interval: weekly
+
   - package-ecosystem: npm
     directory: /frontend
-    schedule: { interval: weekly, day: monday }
-    open-pull-requests-limit: 5
-    labels: ["type: chore", "area: frontend"]
-    commit-message: { prefix: "chore(deps)" }
-    groups:
-      minor-and-patch:
-        update-types: [minor, patch]
+    schedule:
+      interval: weekly
+
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly, day: monday }
-    labels: ["type: chore", "area: ci"]
-    commit-message: { prefix: "ci(deps)" }
+    schedule:
+      interval: weekly
+
   - package-ecosystem: docker
     directory: /backend
-    schedule: { interval: monthly }
-    labels: ["type: chore", "area: backend"]
-    commit-message: { prefix: "chore(deps)" }
+    schedule:
+      interval: weekly

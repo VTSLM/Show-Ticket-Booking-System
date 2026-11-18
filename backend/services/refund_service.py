@@ -29,6 +29,7 @@ async def initiate_razorpay_refund(
     razorpay_payment_id: str,
     amount_paise: int,
     notes: Optional[Dict[str, str]] = None,
+    timeout: float = 10.0,
 ) -> Dict[str, Any]:
     """
     Issue a full or partial refund via Razorpay.
@@ -37,18 +38,18 @@ async def initiate_razorpay_refund(
         razorpay_payment_id: The 'pay_...' ID stored on the payments row.
         amount_paise: Refund amount in paise (₹1 = 100 paise).
         notes: Optional metadata dictionary.
+        timeout: Maximum seconds to await gateway response (default 10s).
 
     Returns:
         Dict containing refund details: id, status, amount, etc.
     """
-    if is_test_environment():
-        # Clear test mode notification when credentials are not configured
+    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
         return {
-            "id": f"rfnd_test_{razorpay_payment_id[-10:]}",
-            "status": "processed",
+            "id": None,
+            "status": "pending",
             "amount": amount_paise,
             "currency": "INR",
-            "test_mode": True,
+            "error": "Razorpay credentials not configured. Refund kept in PENDING status.",
         }
 
     loop = asyncio.get_event_loop()
@@ -61,7 +62,24 @@ async def initiate_razorpay_refund(
     def _do_refund():
         return client.payment.refund(razorpay_payment_id, payload)
 
-    return await loop.run_in_executor(None, _do_refund)
+    try:
+        return await asyncio.wait_for(loop.run_in_executor(None, _do_refund), timeout=timeout)
+    except asyncio.TimeoutError:
+        return {
+            "id": None,
+            "status": "pending",
+            "amount": amount_paise,
+            "currency": "INR",
+            "error": "Payment gateway request timed out. Refund kept in PENDING status for retry.",
+        }
+    except Exception as e:
+        return {
+            "id": None,
+            "status": "failed",
+            "amount": amount_paise,
+            "currency": "INR",
+            "error": str(e),
+        }
 
 
 def verify_razorpay_webhook_signature(

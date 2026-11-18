@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import get_pool, close_pool
 from firebase_admin_setup import init_firebase
+from rate_limit import RateLimitMiddleware
 from routers.auth import router as auth_router, admin_router
 from routers.manager import router as manager_router
 from routers.browse import router as browse_router
@@ -23,6 +24,8 @@ from routers.support_admin import router as support_admin_router
 from routers.venue_verification import router as venue_verification_router
 from routers.wishlist import router as wishlist_router
 from routers.notifications import router as notifications_router
+from routers.chat import router as chat_router
+from routers.manager_analytics import router as manager_analytics_router
 
 
 async def _cleanup_expired_locks():
@@ -59,6 +62,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiting. Added BEFORE CORS on purpose: the last middleware added is the
+# outermost, so CORS headers are also put on 429 responses and the browser can
+# show the "Too many requests" message instead of a CORS error.
+app.add_middleware(RateLimitMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -90,6 +98,8 @@ app.include_router(support_admin_router)
 app.include_router(venue_verification_router)
 app.include_router(wishlist_router)
 app.include_router(notifications_router)
+app.include_router(chat_router)
+app.include_router(manager_analytics_router)
 
 @app.get("/")
 def root():

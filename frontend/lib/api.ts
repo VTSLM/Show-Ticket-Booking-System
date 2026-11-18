@@ -12,14 +12,14 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
-  requireAuth = true
+  requireAuth: boolean | "optional" = true
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
   if (requireAuth) {
     const token = await getToken();
-    if (!token) throw new Error("Not authenticated");
-    headers["Authorization"] = `Bearer ${token}`;
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    else if (requireAuth !== "optional") throw new Error("Not authenticated");
   }
 
   const res = await fetch(`${API_URL}${path}`, {
@@ -39,7 +39,7 @@ async function request<T>(
 
 export const api = {
   get: <T>(path: string, auth = true) => request<T>("GET", path, undefined, auth),
-  post: <T>(path: string, body?: unknown, auth = true) =>
+  post: <T>(path: string, body?: unknown, auth: boolean | "optional" = true) =>
     request<T>("POST", path, body, auth),
   put: <T>(path: string, body?: unknown, auth = true) =>
     request<T>("PUT", path, body, auth),
@@ -109,6 +109,8 @@ export const ticketsApi = {
   pdfUrl: (booking_id: string) => `${API_URL}/api/tickets/bookings/${booking_id}/pdf`,
   verify: (booking_id: string) =>
     api.get<any>(`/api/tickets/bookings/${booking_id}/verify`, false),
+  scan: (data: { qr_data?: string; booking_id?: string }) =>
+    api.post<any>("/api/tickets/scan", data),
 };
 
 export const managerApi = {
@@ -306,5 +308,65 @@ export const venueDocumentsApi = {
     anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
+  },
+};
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatContext {
+  event_id?: string;
+  show_id?: string;
+  booking_id?: string;
+}
+
+export type ChatStreamEvent =
+  | { type: "status"; tool: string; text: string }
+  | { type: "delta"; text: string }
+  | { type: "done" }
+  | { type: "error"; message: string };
+
+export const chatApi = {
+  // Sends the login token when there is one, so the assistant can see the user's own bookings
+  send: (message: string, history: ChatMessage[], context: ChatContext) =>
+    api.post<{ reply: string }>("/api/chat", { message, history, context }, "optional"),
+
+  /** Streams the reply as server-sent events; calls onEvent for each one. */
+  stream: async (
+    message: string,
+    history: ChatMessage[],
+    context: ChatContext,
+    onEvent: (event: ChatStreamEvent) => void,
+    signal?: AbortSignal
+  ): Promise<void> => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = await getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_URL}/api/chat/stream`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ message, history, context }),
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "Request failed");
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let end;
+      while ((end = buffer.indexOf("\n\n")) !== -1) {
+        const chunk = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        if (chunk.startsWith("data: ")) onEvent(JSON.parse(chunk.slice(6)) as ChatStreamEvent);
+      }
+    }
   },
 };

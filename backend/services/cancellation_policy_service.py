@@ -10,10 +10,10 @@ import asyncpg
 DEFAULT_POLICY = {
     "name": "Standard Platform Cancellation Policy",
     "cutoff_hours": 2,
-    "deduction_percentage": 10.0,
+    "deduction_percentage": 0.0,
     "flat_cancellation_fee": 0.0,
     "is_refundable": True,
-    "description": "Cancellations allowed up to 2 hours before showtime with standard 10% processing charge.",
+    "description": "Cancellations allowed up to 2 hours before showtime with full refund.",
 }
 
 

@@ -4,9 +4,8 @@ Ensures customers and admins receive timely, deduplicated notifications.
 """
 import json
 import asyncio
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 import asyncpg
-from services.email_service import _send_email_sync
 from config import GMAIL_USER
 
 

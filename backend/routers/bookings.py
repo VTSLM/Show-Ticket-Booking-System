@@ -191,8 +191,11 @@ async def get_booking(
                   e.title        AS event_title,
                   e.poster_url,
                   sh.start_time,
+                  sh.end_time,
+                  e.duration_minutes,
                   v.name         AS venue_name,
                   v.city,
+                  v.address,
                   sc.name        AS screen_name,
                   array_agg(row_to_json(bs.*)) AS seats_info
            FROM bookings b
@@ -208,8 +211,8 @@ async def get_booking(
              JOIN seats      s  ON s.id  = ss.seat_id
            ) bs ON bs.booking_id = b.id
            WHERE b.id = $1 AND b.user_id = $2
-           GROUP BY b.id, e.title, e.poster_url, sh.start_time,
-                    v.name, v.city, sc.name""",
+           GROUP BY b.id, e.title, e.poster_url, sh.start_time, sh.end_time,
+                    e.duration_minutes, v.name, v.city, v.address, sc.name""",
         booking_id, str(current_user["id"])
     )
     if not row:

@@ -2,9 +2,8 @@
 Complete, production-ready Booking Cancellation, Refund Management & Webhook endpoints.
 Customer, Administrator, and Razorpay Gateway lifecycle operations.
 """
-from datetime import datetime, timezone
 import json
-from typing import Optional, List
+from typing import Optional
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from pydantic import BaseModel, Field
@@ -13,7 +12,7 @@ from database import get_conn
 from dependencies import get_current_user, require_role
 
 require_admin = require_role("admin")
-from config import RAZORPAY_KEY_SECRET
+from config import RAZORPAY_WEBHOOK_SECRET
 from services.cancellation_policy_service import (
     get_show_cancellation_policy,
     evaluate_cancellation_eligibility,
@@ -30,6 +29,8 @@ from services.cancellation_notification_service import (
 )
 
 router = APIRouter(prefix="/api/bookings", tags=["cancellations"])
+
+CANCEL_CUTOFF_HOURS = 2
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -250,38 +251,81 @@ async def cancel_booking(
                 amount_paise,
                 notes={"booking_id": booking_id, "refund_id": refund_id_db or ""},
             )
-            gateway_refund_id = rz_res.get("id")
-            gateway_status = "PROCESSING" if rz_res.get("status") in ("pending", "processing") else "PROCESSED"
+            gateway_refund_id = rz_res.get("id") or rz_res.get("refund_id")
+            raw_status = (rz_res.get("status") or "PENDING").upper()
+            if raw_status in ("PROCESSED", "REFUNDED"):
+                gateway_status = "PROCESSED"
+            elif raw_status == "FAILED" or rz_res.get("error"):
+                gateway_status = "FAILED"
+            else:
+                gateway_status = "PENDING"
 
-            await conn.execute(
-                """
-                UPDATE refunds
-                SET razorpay_refund_id = $1, status = $2, updated_at = now(),
-                    completed_at = CASE WHEN $2 = 'PROCESSED' THEN now() ELSE NULL END
-                WHERE id = $3::uuid
-                """,
-                gateway_refund_id,
-                gateway_status,
-                refund_id_db,
-            )
-
-            await conn.execute(
-                """
-                UPDATE payments
-                SET status = 'refunded', razorpay_refund_id = $1,
-                    refunded_amount = $2, refunded_at = now()
-                WHERE id = $3::uuid
-                """,
-                gateway_refund_id,
-                refund_amount,
-                booking["payment_id"],
-            )
-
-            await conn.execute(
-                "UPDATE bookings SET refund_status = $1 WHERE id = $2::uuid",
-                gateway_status,
-                booking_id,
-            )
+            if gateway_status == "PROCESSED":
+                await conn.execute(
+                    """
+                    UPDATE refunds
+                    SET razorpay_refund_id = $1, status = 'PROCESSED', updated_at = now(), completed_at = now()
+                    WHERE id = $2::uuid
+                    """,
+                    gateway_refund_id,
+                    refund_id_db,
+                )
+                await conn.execute(
+                    """
+                    UPDATE payments
+                    SET status = 'refunded', razorpay_refund_id = $1,
+                        refunded_amount = $2, refunded_at = now()
+                    WHERE id = $3::uuid
+                    """,
+                    gateway_refund_id,
+                    refund_amount,
+                    booking["payment_id"],
+                )
+                await conn.execute(
+                    "UPDATE bookings SET refund_status = 'REFUNDED' WHERE id = $1::uuid",
+                    booking_id,
+                )
+            elif gateway_status == "FAILED":
+                fail_err = rz_res.get("error") or "Gateway error"
+                await conn.execute(
+                    """
+                    UPDATE refunds
+                    SET status = 'FAILED', failure_reason = $1, updated_at = now()
+                    WHERE id = $2::uuid
+                    """,
+                    fail_err,
+                    refund_id_db,
+                )
+                await conn.execute(
+                    "UPDATE bookings SET refund_status = 'REFUND_FAILED' WHERE id = $1::uuid",
+                    booking_id,
+                )
+                await notify_admins(
+                    conn,
+                    "refund.failed",
+                    {
+                        "booking_id": booking_id,
+                        "refund_id": refund_id_db,
+                        "amount": refund_amount,
+                        "error": fail_err,
+                        "customer_name": booking["user_name"],
+                    },
+                )
+            else:
+                # Kept as PENDING
+                await conn.execute(
+                    """
+                    UPDATE refunds
+                    SET razorpay_refund_id = $1, status = 'PENDING', updated_at = now()
+                    WHERE id = $2::uuid
+                    """,
+                    gateway_refund_id,
+                    refund_id_db,
+                )
+                await conn.execute(
+                    "UPDATE bookings SET refund_status = 'PENDING' WHERE id = $1::uuid",
+                    booking_id,
+                )
 
         except Exception as exc:
             gateway_status = "FAILED"
@@ -401,8 +445,11 @@ async def razorpay_refund_webhook(
     """
     body = await request.body()
 
-    if RAZORPAY_KEY_SECRET and not verify_razorpay_webhook_signature(
-        body, x_razorpay_signature or "", RAZORPAY_KEY_SECRET
+    if not RAZORPAY_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail="Razorpay webhook secret not configured on server")
+
+    if not x_razorpay_signature or not verify_razorpay_webhook_signature(
+        body, x_razorpay_signature, RAZORPAY_WEBHOOK_SECRET
     ):
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
@@ -461,9 +508,11 @@ async def razorpay_refund_webhook(
             "refund.successful",
             {"booking_id": str(booking_id), "refund_amount": refund_amount, "reference": refund_id},
         )
+        u_email = refund_row.get("user_email") or refund_row.get("customer_email") or ""
+        u_name = refund_row.get("user_name") or refund_row.get("customer_name") or "Customer"
         await send_refund_status_email(
-            refund_row["user_email"],
-            refund_row["user_name"],
+            u_email,
+            u_name,
             str(booking_id),
             refund_row.get("event_title", "Event"),
             "processed",
@@ -498,9 +547,11 @@ async def razorpay_refund_webhook(
             "refund.failed",
             {"booking_id": str(booking_id), "refund_id": str(db_refund_id), "amount": refund_amount, "reason": reason},
         )
+        u_email = refund_row.get("user_email") or refund_row.get("customer_email") or ""
+        u_name = refund_row.get("user_name") or refund_row.get("customer_name") or "Customer"
         await send_refund_status_email(
-            refund_row["user_email"],
-            refund_row["user_name"],
+            u_email,
+            u_name,
             str(booking_id),
             refund_row.get("event_title", "Event"),
             "failed",
@@ -597,7 +648,7 @@ async def retry_failed_refund(
             notes={"refund_id": refund_id, "retried_by": admin_id},
         )
         new_status = "PROCESSING" if rz_res.get("status") in ("pending", "processing") else "PROCESSED"
-        new_rz_refund_id = rz_res.get("id")
+        new_rz_refund_id = rz_res.get("id") or rz_res.get("refund_id")
 
         await conn.execute(
             """
