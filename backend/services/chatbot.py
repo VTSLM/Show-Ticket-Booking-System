@@ -10,7 +10,8 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import AsyncIterator, List, Optional
+from types import SimpleNamespace
+from typing import AsyncIterator, Dict, List, Optional
 
 import asyncpg
 from openai import AsyncOpenAI
@@ -26,25 +27,67 @@ MAX_OUTPUT_TOKENS = 700
 
 
 class AssistantUnavailable(Exception):
-    """OpenAI is not configured or did not answer."""
+    """The model service is not configured or did not answer."""
+
+
+# Which model service answers. "openai" uses the Responses API; "gemini" and
+# "ollama" use the OpenAI-compatible Chat Completions API of those services.
+PROVIDERS = {
+    "openai": {"key_env": "OPENAI_API_KEY", "base_url": None, "api": "responses"},
+    "gemini": {"key_env": "GEMINI_API_KEY", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+               "api": "chat", "default_model": "gemini-3.8-flash"},
+    "ollama": {"key_env": None, "base_url": "http://localhost:11434/v1", "api": "chat",
+               "default_model": "llama3.1"},
+}
+
+
+def _provider() -> str:
+    name = (os.getenv("CHAT_PROVIDER") or "openai").strip().lower()
+    return name if name in PROVIDERS else "openai"
 
 
 def _model() -> str:
     # `or` so an empty value in .env falls back instead of sending model="".
-    return (os.getenv("OPENAI_CHAT_MODEL") or os.getenv("OPENAI_REVIEW_MODEL") or "gpt-6-luna").strip()
+    if os.getenv("CHAT_MODEL"):
+        return os.getenv("CHAT_MODEL").strip()
+    provider = _provider()
+    if provider == "openai":
+        return (os.getenv("OPENAI_CHAT_MODEL") or os.getenv("OPENAI_REVIEW_MODEL") or "gpt-6-luna").strip()
+    return PROVIDERS[provider]["default_model"]
 
 
 _client: Optional[AsyncOpenAI] = None
+_client_provider: Optional[str] = None
 
 
 def _get_client() -> AsyncOpenAI:
-    global _client
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise AssistantUnavailable("OPENAI_API_KEY is not configured")
-    if _client is None:
-        _client = AsyncOpenAI(api_key=api_key, timeout=25.0, max_retries=1)
+    global _client, _client_provider
+    provider = _provider()
+    conf = PROVIDERS[provider]
+    if conf["key_env"]:
+        api_key = os.getenv(conf["key_env"])
+        if not api_key:
+            raise AssistantUnavailable(f"{conf['key_env']} is not configured")
+    else:
+        api_key = "local"  # Ollama ignores the key
+    if _client is None or _client_provider != provider:
+        base_url = os.getenv("CHAT_BASE_URL") or conf["base_url"]
+        _client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=25.0, max_retries=1)
+        _client_provider = provider
     return _client
+
+
+def _chat_tools() -> List[dict]:
+    """TOOL_SCHEMAS in Chat Completions form. Some providers (Gemini) reject
+    additionalProperties or an empty parameter object, so those are left out."""
+    tools = []
+    for t in TOOL_SCHEMAS:
+        fn = {"name": t["name"], "description": t["description"]}
+        props = t["parameters"]["properties"]
+        if props:
+            fn["parameters"] = {"type": "object", "properties": props}
+        tools.append({"type": "function", "function": fn})
+    return tools
 
 
 HELP = f"""
@@ -154,6 +197,14 @@ async def answer(
 ) -> str:
     """Return the assistant's whole reply (non-streaming)."""
     client = _get_client()
+    if PROVIDERS[_provider()]["api"] == "chat":
+        parts = []
+        async for event in _chat_stream(client, message, history, context, user, pool):
+            if event["type"] == "error":
+                raise AssistantUnavailable(event["message"]) from event.get("_exc")
+            if event["type"] == "delta":
+                parts.append(event["text"])
+        return "".join(parts).strip() or FALLBACK_REPLY
     instructions, items = _prepare(message, history, context, user)
     try:
         response = await client.responses.create(
@@ -193,6 +244,11 @@ async def answer_stream(
     Call _get_client() first if the caller needs to fail with 503 before streaming starts.
     """
     client = _get_client()
+    if PROVIDERS[_provider()]["api"] == "chat":
+        async for event in _chat_stream(client, message, history, context, user, pool):
+            event.pop("_exc", None)
+            yield event
+        return
     instructions, items = _prepare(message, history, context, user)
     kwargs = dict(model=_model(), instructions=instructions, input=items,
                   tools=TOOL_SCHEMAS, max_output_tokens=MAX_OUTPUT_TOKENS)
@@ -231,6 +287,77 @@ async def answer_stream(
             logger.exception("Streaming assistant reply failed")
         yield {"type": "error", "message": BUSY_REPLY if busy else ERROR_REPLY,
                "reason": "rate_limited" if busy else "failed"}
+        return
+    if not wrote_text:
+        yield {"type": "delta", "text": FALLBACK_REPLY}
+    yield {"type": "done"}
+
+
+def _error_event(exc: Exception) -> dict:
+    busy = _is_rate_limited(exc)
+    if busy:
+        logger.warning("Model rate limit reached for the assistant: %s", exc)
+    else:
+        logger.exception("Assistant reply failed")
+    return {"type": "error", "message": BUSY_REPLY if busy else ERROR_REPLY,
+            "reason": "rate_limited" if busy else "failed", "_exc": exc}
+
+
+async def _chat_stream(client, message, history, context, user, pool) -> AsyncIterator[dict]:
+    """The same loop as answer_stream, on the Chat Completions API (Gemini, Ollama)."""
+    instructions, items = _prepare(message, history, context, user)
+    messages = [{"role": "system", "content": instructions}, *items]
+    tools = _chat_tools()
+    wrote_text = False
+    try:
+        for round_no in range(MAX_TOOL_ROUNDS + 1):
+            stream = await client.chat.completions.create(
+                model=_model(), messages=messages, tools=tools, stream=True,
+                max_tokens=MAX_OUTPUT_TOKENS,
+            )
+            calls: Dict[int, dict] = {}
+            text = []
+            async for chunk in stream:
+                if not getattr(chunk, "choices", None):
+                    continue
+                delta = chunk.choices[0].delta
+                if getattr(delta, "content", None):
+                    wrote_text = True
+                    text.append(delta.content)
+                    yield {"type": "delta", "text": delta.content}
+                for tc in getattr(delta, "tool_calls", None) or []:
+                    slot = calls.setdefault(tc.index if tc.index is not None else len(calls),
+                                            {"id": None, "name": "", "arguments": ""})
+                    if tc.id:
+                        slot["id"] = tc.id
+                    if tc.function and tc.function.name:
+                        slot["name"] = tc.function.name
+                    if tc.function and tc.function.arguments:
+                        slot["arguments"] += tc.function.arguments
+            if not calls:
+                break
+            if round_no == MAX_TOOL_ROUNDS:
+                if not wrote_text:
+                    yield {"type": "delta", "text": FALLBACK_REPLY}
+                    wrote_text = True
+                break
+            ordered = [calls[k] for k in sorted(calls)]
+            for i, c in enumerate(ordered):
+                c["id"] = c["id"] or f"call_{round_no}_{i}"
+                yield {"type": "status", "tool": c["name"], "text": TOOL_STATUS.get(c["name"], "Looking that up…")}
+            messages.append({
+                "role": "assistant", "content": "".join(text) or None,
+                "tool_calls": [{"id": c["id"], "type": "function",
+                                "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}}
+                               for c in ordered],
+            })
+            outputs = await _run_calls(
+                [SimpleNamespace(name=c["name"], arguments=c["arguments"], call_id=c["id"]) for c in ordered],
+                pool, user)
+            for out in outputs:
+                messages.append({"role": "tool", "tool_call_id": out["call_id"], "content": out["output"]})
+    except Exception as exc:
+        yield _error_event(exc)
         return
     if not wrote_text:
         yield {"type": "delta", "text": FALLBACK_REPLY}

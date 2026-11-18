@@ -435,3 +435,89 @@ def test_chat_endpoint_says_busy_when_rate_limited(client, monkeypatch):
     monkeypatch.setattr(chatbot, "answer", limited)
     r = c.post("/api/chat", json={"message": "hi"})
     assert r.status_code == 503 and r.json()["detail"] == chatbot.BUSY_REPLY
+
+
+# ── Chat Completions providers (Gemini, Ollama) ─────────────────────────────
+
+def _chunk(content=None, tool_calls=None):
+    return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=content, tool_calls=tool_calls))])
+
+
+def _tc(index, id=None, name=None, args=None):
+    return SimpleNamespace(index=index, id=id, function=SimpleNamespace(name=name, arguments=args))
+
+
+@pytest.fixture
+def gemini(monkeypatch):
+    monkeypatch.setenv("CHAT_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.delenv("CHAT_MODEL", raising=False)
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock()
+    monkeypatch.setattr(chatbot, "_get_client", lambda: client)
+    return client
+
+
+@pytest.mark.asyncio
+async def test_gemini_assembles_streamed_tool_calls_and_sends_results_back(gemini, monkeypatch):
+    gemini.chat.completions.create.side_effect = [
+        FakeStream([_chunk(tool_calls=[_tc(0, id="c1", name="search_shows", args='{"city": "Ahm')]),
+                    _chunk(tool_calls=[_tc(0, args='edabad"}')])]),
+        FakeStream([_chunk(content="Two shows "), _chunk(content="found.")]),
+    ]
+    ran = []
+
+    async def fake_run(name, arguments, conn, user):
+        ran.append((name, json.loads(arguments)))
+        return {"events": []}
+    monkeypatch.setattr(chatbot, "run_tool", fake_run)
+
+    events = await _collect(chatbot.answer_stream("concerts?", [], {}, None, FakePool()))
+    assert events == [
+        {"type": "status", "tool": "search_shows", "text": "Searching shows…"},
+        {"type": "delta", "text": "Two shows "}, {"type": "delta", "text": "found."}, {"type": "done"},
+    ]
+    assert ran == [("search_shows", {"city": "Ahmedabad"})]
+    second = gemini.chat.completions.create.call_args_list[1].kwargs
+    assert second["model"] == "gemini-3.8-flash" and second["stream"] is True
+    msgs = second["messages"]
+    assert msgs[0]["role"] == "system" and "TicketFlow" in msgs[0]["content"]
+    assert msgs[-2]["tool_calls"][0] == {"id": "c1", "type": "function",
+                                         "function": {"name": "search_shows", "arguments": '{"city": "Ahmedabad"}'}}
+    assert msgs[-1] == {"role": "tool", "tool_call_id": "c1", "content": json.dumps({"events": []})}
+
+
+@pytest.mark.asyncio
+async def test_gemini_non_streaming_answer_and_busy_error(gemini):
+    gemini.chat.completions.create.return_value = FakeStream([_chunk(content="Hello!")])
+    assert await chatbot.answer("hi", [], {}, None, FakePool()) == "Hello!"
+
+    gemini.chat.completions.create.side_effect = RuntimeError("429 Resource exhausted: rate limit")
+    events = await _collect(chatbot.answer_stream("hi", [], {}, None, FakePool()))
+    assert events == [{"type": "error", "message": chatbot.BUSY_REPLY, "reason": "rate_limited"}]
+    with pytest.raises(chatbot.AssistantUnavailable):
+        await chatbot.answer("hi", [], {}, None, FakePool())
+
+
+def test_chat_tools_are_gemini_safe():
+    tools = chatbot._chat_tools()
+    assert len(tools) == len(chatbot.TOOL_SCHEMAS)
+    for t in tools:
+        assert t["type"] == "function" and "additionalProperties" not in json.dumps(t)
+    wishlist = next(t for t in tools if t["function"]["name"] == "get_my_wishlist")
+    assert "parameters" not in wishlist["function"]  # no empty parameter object
+
+
+def test_provider_settings(monkeypatch):
+    monkeypatch.setattr(chatbot, "_client", None)
+    monkeypatch.setenv("CHAT_PROVIDER", "gemini")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(chatbot.AssistantUnavailable, match="GEMINI_API_KEY"):
+        chatbot._get_client()
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    client = chatbot._get_client()
+    assert "generativelanguage.googleapis.com" in str(client.base_url)
+    monkeypatch.setenv("CHAT_MODEL", "gemini-pro-x")
+    assert chatbot._model() == "gemini-pro-x"
+    monkeypatch.setenv("CHAT_PROVIDER", "something-else")
+    assert chatbot._provider() == "openai"
