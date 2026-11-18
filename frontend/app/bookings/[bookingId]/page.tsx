@@ -3,7 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { bookingsApi } from "@/lib/api";
-import { cancellationsApi, CancelEligibility } from "@/lib/cancellationsApi";
+import { cancellationsApi, CancelEligibilityResponse } from "@/lib/cancellationsApi";
+import CancelConfirmationModal from "@/components/CancelConfirmationModal";
+import RefundProgressTracker from "@/components/RefundProgressTracker";
 import { useAuth } from "@/contexts/AuthContext";
 import toast from "react-hot-toast";
 import Link from "next/link";
@@ -133,7 +135,7 @@ export default function BookingDetailPage() {
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const [eligibility, setEligibility] = useState<CancelEligibility | null>(null);
+  const [eligibility, setEligibility] = useState<CancelEligibilityResponse | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
@@ -192,17 +194,17 @@ export default function BookingDetailPage() {
     }
   };
 
-  const handleConfirmCancel = async () => {
+  const handleConfirmCancel = async (reason: string, comments: string) => {
     setCancelling(true);
     try {
-      const result = await cancellationsApi.cancel(bookingId);
+      const result = await cancellationsApi.cancel(bookingId, { reason, comments });
       setShowCancelModal(false);
-      toast.success("Booking cancelled");
+      toast.success("Booking cancelled successfully");
       setLoading(true);
       loadBooking();
-      if (result.refund_initiated) {
+      if (result.refund_amount > 0) {
         toast.success(
-          `Refund of ₹${result.refund_amount.toFixed(2)} initiated — allow 5–7 business days`,
+          `Refund of ₹${result.refund_amount.toFixed(2)} (${result.refund_status}) — allow 5–7 business days`,
           { duration: 6000 }
         );
       }
@@ -383,6 +385,12 @@ export default function BookingDetailPage() {
           ← My Bookings
         </Link>
 
+        {isCancelled && (
+          <div style={{ marginBottom: 20 }}>
+            <RefundProgressTracker bookingId={bookingId} />
+          </div>
+        )}
+
         {/* ── TICKET CARD ── */}
         <div className="ticket-card">
 
@@ -513,7 +521,7 @@ export default function BookingDetailPage() {
                       Cancel Booking
                     </button>
                   )}
-                  {eligibility && !eligibility.eligible && (
+                  {eligibility && !eligibility.eligible && !isCancelled && (
                     <p style={{ textAlign: "center", fontSize: 12, color: "var(--muted)", padding: "4px 0" }}>
                       🔒 {eligibility.reason}
                     </p>
@@ -559,60 +567,15 @@ export default function BookingDetailPage() {
         </div>
       </div>
 
-      {/* ── CANCEL MODAL ── */}
-      {showCancelModal && (
-        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowCancelModal(false); }}>
-          <div className="modal-box">
-            <div className="modal-icon">🎟️</div>
-            <h2 style={{ textAlign: "center", fontWeight: 800, fontSize: 18, margin: "0 0 10px", color: "var(--foreground)" }}>
-              Cancel this booking?
-            </h2>
-            <p style={{ textAlign: "center", color: "var(--muted)", fontSize: 14, lineHeight: 1.6, margin: "0 0 24px" }}>
-              This action cannot be undone.
-              {eligibility?.has_payment && eligibility?.refund_amount ? (
-                <>
-                  {" "}A refund of{" "}
-                  <span style={{ color: "var(--foreground)", fontWeight: 700 }}>
-                    ₹{eligibility.refund_amount.toFixed(2)}
-                  </span>{" "}
-                  will be initiated to your original payment method (5–7 business days).
-                </>
-              ) : (
-                " No payment is on record for this booking."
-              )}
-            </p>
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={() => setShowCancelModal(false)}
-                disabled={cancelling}
-                style={{
-                  flex: 1, padding: "13px", borderRadius: 12,
-                  background: "var(--surface)", border: "1px solid var(--border)",
-                  color: "var(--foreground)", fontWeight: 600, fontSize: 14, cursor: "pointer",
-                }}
-              >
-                Keep It
-              </button>
-              <button
-                onClick={handleConfirmCancel}
-                disabled={cancelling}
-                style={{
-                  flex: 1, padding: "13px", borderRadius: 12,
-                  background: "#ff3344", border: "none",
-                  color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer",
-                  opacity: cancelling ? 0.6 : 1,
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                }}
-              >
-                {cancelling ? (
-                  <><span style={{ width: 15, height: 15, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite", display: "inline-block" }} /> Cancelling…</>
-                ) : "Yes, Cancel"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── CANCEL CONFIRMATION MODAL ── */}
+      <CancelConfirmationModal
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        onConfirm={handleConfirmCancel}
+        eligibility={eligibility}
+        bookingId={bookingId}
+        loading={cancelling}
+      />
     </>
   );
 }
