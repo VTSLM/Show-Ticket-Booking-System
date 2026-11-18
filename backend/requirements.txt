@@ -9,7 +9,7 @@ razorpay==1.4.2
 # provides, so Setuptools stays on 80.x until Razorpay drops it.
 setuptools==80.9.0
 reportlab==4.2.5
-qrcode[pil]==8.0
+qrcode[pil]==8.2
 Pillow==13.0.0
 python-multipart==0.0.34
 httpx==0.28.1
