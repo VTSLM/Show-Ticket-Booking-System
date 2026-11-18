@@ -541,3 +541,14 @@ def test_timeout_and_reasoning_settings(monkeypatch):
     monkeypatch.setenv("CHAT_TIMEOUT_SECONDS", "90")
     monkeypatch.setenv("CHAT_REASONING_EFFORT", "")
     assert chatbot._timeout("gemini") == 90.0 and chatbot._reasoning_effort("gemini") is None
+
+
+@pytest.mark.parametrize("message", [
+    "Rate limit reached for gpt-x", "Error code: 503 - This model is currently experiencing high demand",
+    "429 Resource exhausted", "insufficient_quota"])
+def test_busy_errors_are_recognised(message):
+    assert chatbot._is_rate_limited(RuntimeError(message))
+
+
+def test_other_errors_are_not_busy():
+    assert not chatbot._is_rate_limited(RuntimeError("Error code: 401 - invalid api key"))

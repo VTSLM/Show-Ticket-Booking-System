@@ -176,7 +176,9 @@ def _is_rate_limited(exc: Exception) -> bool:
     except ImportError:  # pragma: no cover
         pass
     text = str(exc).lower()
-    return "rate limit" in text or "insufficient_quota" in text
+    # rate or quota limits, or the provider's model is overloaded (e.g. Gemini 503 "high demand")
+    return any(s in text for s in ("rate limit", "insufficient_quota", "resource exhausted",
+                                   "high demand", "overloaded", "503"))
 
 
 def _prepare(message: str, history: List[dict], context: dict, user: Optional[dict]):
