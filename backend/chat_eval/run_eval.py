@@ -95,6 +95,18 @@ def stream_chat(url: str, body: dict, token: Optional[str], start: float):
     return events, first_text
 
 
+def _backend_setting(name: str) -> Optional[str]:
+    """A value from the environment, else from backend/.env (the server's settings)."""
+    if os.getenv(name):
+        return os.getenv(name)
+    env = HERE.parent / ".env"
+    if env.exists():
+        for line in env.read_text().splitlines():
+            if line.startswith(f"{name}="):
+                return line.split("=", 1)[1].strip().strip('"') or None
+    return None
+
+
 def _firebase_web_key() -> Optional[str]:
     key = os.getenv("FIREBASE_WEB_API_KEY")
     env_local = HERE.parent.parent / "frontend" / ".env.local"
@@ -185,7 +197,9 @@ def main() -> None:
         p, n = by_cat.get(r["category"], (0, 0))
         by_cat[r["category"]] = (p + r["passed"], n + 1)
 
-    print(f"\nScore: {passed}/{len(results)} passed ({100 * passed / len(results):.0f}%)")
+    print(f"\nModel: {_backend_setting('CHAT_PROVIDER') or 'openai'} / "
+          f"{_backend_setting('CHAT_MODEL') or _backend_setting('OPENAI_CHAT_MODEL') or 'default'}")
+    print(f"Score: {passed}/{len(results)} passed ({100 * passed / len(results):.0f}%)")
     firsts = sorted(r["first_text_seconds"] for r in results if r["first_text_seconds"] is not None)
     print(f"Full reply: median {times[len(times) // 2]}s, slowest {times[-1]}s")
     if firsts:
@@ -199,8 +213,8 @@ def main() -> None:
     out.mkdir(exist_ok=True)
     path = out / f"eval-{datetime.now():%Y%m%d-%H%M%S}.json"
     path.write_text(json.dumps({"score": passed, "total": len(results),
-                                "provider": os.getenv("CHAT_PROVIDER") or "openai",
-                                "model": os.getenv("CHAT_MODEL") or os.getenv("OPENAI_CHAT_MODEL"),
+                                "provider": _backend_setting("CHAT_PROVIDER") or "openai",
+                                "model": _backend_setting("CHAT_MODEL") or _backend_setting("OPENAI_CHAT_MODEL"),
                                 "results": results},
                                ensure_ascii=False, indent=2))
     print(f"Details: {path}")

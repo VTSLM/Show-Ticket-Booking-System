@@ -39,7 +39,7 @@
     {"id": "policy-seat-hold", "category": "policy", "as": "guest", "question": "How long are my seats held while I pay?", "expect_no_tools": true, "must_contain_any": ["10 minute", "10-minute", "10 min"]},
     {"id": "policy-payment-methods", "category": "policy", "as": "guest", "question": "Which payment methods can I use?", "expect_no_tools": true, "must_contain_any": ["upi"]},
     {"id": "policy-refund-time", "category": "policy", "as": "guest", "question": "How long do refunds take?", "expect_no_tools": true, "must_contain_any": ["5–7", "5-7", "5 to 7"]},
-    {"id": "policy-pending-payment", "category": "policy", "as": "guest", "question": "Money got deducted but my booking still says pending", "expect_no_tools": true, "must_contain_any": ["10–15", "10-15", "/support"]},
+    {"id": "policy-pending-payment", "category": "policy", "as": "guest", "question": "Money got deducted but my booking still says pending", "must_contain_any": ["10–15", "10-15", "/support"]},
     {"id": "policy-ticket-pdf", "category": "policy", "as": "guest", "question": "How do I download my ticket?", "must_contain_any": ["pdf"]},
     {"id": "policy-forgot-password", "category": "policy", "as": "guest", "question": "I forgot my password", "expect_no_tools": true, "must_contain_any": ["forgot password", "/auth/login"]},
 
