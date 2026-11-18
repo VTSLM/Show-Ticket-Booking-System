@@ -1,11 +1,43 @@
 import io
 import base64
+import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
+
+IST_TIMEZONE = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+
+def format_show_datetime(val) -> str:
+    """Format show start_time into Indian Standard Time (IST, UTC+5:30).
+    E.g. '17 Nov 2026, 01:45 PM'
+    """
+    if not val:
+        return ""
+    dt = None
+    if isinstance(val, datetime.datetime):
+        dt = val
+    elif isinstance(val, str):
+        val_str = val.strip()
+        val_clean = val_str.replace("Z", "+00:00")
+        try:
+            dt = datetime.datetime.fromisoformat(val_clean)
+        except Exception:
+            return val_str
+    elif isinstance(val, datetime.date):
+        return val.strftime("%d %b %Y")
+    else:
+        return str(val)
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+
+    dt_ist = dt.astimezone(IST_TIMEZONE)
+    return dt_ist.strftime("%d %b %Y, %I:%M %p")
+
 
 def build_ticket_pdf(ticket_data: dict) -> bytes:
     buf = io.BytesIO()
@@ -18,7 +50,7 @@ def build_ticket_pdf(ticket_data: dict) -> bytes:
     title_style = ParagraphStyle("title", parent=styles["Title"],
                                   fontSize=22, textColor=colors.HexColor("#1a1a2e"),
                                   alignment=TA_CENTER, spaceAfter=0.3*cm)
-    elements.append(Paragraph("🎫 TicketFlow", title_style))
+    elements.append(Paragraph("TicketFlow", title_style))
     elements.append(Paragraph("Your E-Ticket", ParagraphStyle("sub", parent=styles["Normal"],
                                 fontSize=12, textColor=colors.grey, alignment=TA_CENTER)))
     elements.append(Spacer(1, 0.5*cm))
@@ -28,7 +60,7 @@ def build_ticket_pdf(ticket_data: dict) -> bytes:
         ["Event", ticket_data.get("event_title", "")],
         ["Venue", ticket_data.get("venue_name", "") + (f", {ticket_data.get('venue_city','')}" if ticket_data.get("venue_city") else "")],
         ["Screen", ticket_data.get("screen_name", "")],
-        ["Date & Time", ticket_data.get("start_time", "")],
+        ["Date & Time", format_show_datetime(ticket_data.get("start_time", ""))],
         ["Booked By", ticket_data.get("user_name", "")],
         ["Booking ID", ticket_data.get("booking_id", "")[:16] + "..."],
     ]
@@ -54,9 +86,9 @@ def build_ticket_pdf(ticket_data: dict) -> bytes:
             s.get("row_label", ""),
             str(s.get("seat_number", "")),
             s.get("seat_type", "standard").capitalize(),
-            f"₹{float(s.get('price', 0)):.2f}"
+            f"Rs. {float(s.get('price', 0)):.2f}"
         ])
-    seat_rows.append(["", "", "Total", f"₹{float(ticket_data.get('total_amount', 0)):.2f}"])
+    seat_rows.append(["", "", "Total", f"Rs. {float(ticket_data.get('total_amount', 0)):.2f}"])
     seat_table = Table(seat_rows, colWidths=[3*cm, 3*cm, 5*cm, 4*cm])
     seat_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e94560")),
