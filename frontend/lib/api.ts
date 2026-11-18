@@ -12,14 +12,14 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
-  requireAuth = true
+  requireAuth: boolean | "optional" = true
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
   if (requireAuth) {
     const token = await getToken();
-    if (!token) throw new Error("Not authenticated");
-    headers["Authorization"] = `Bearer ${token}`;
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    else if (requireAuth !== "optional") throw new Error("Not authenticated");
   }
 
   const res = await fetch(`${API_URL}${path}`, {
@@ -39,7 +39,7 @@ async function request<T>(
 
 export const api = {
   get: <T>(path: string, auth = true) => request<T>("GET", path, undefined, auth),
-  post: <T>(path: string, body?: unknown, auth = true) =>
+  post: <T>(path: string, body?: unknown, auth: boolean | "optional" = true) =>
     request<T>("POST", path, body, auth),
   put: <T>(path: string, body?: unknown, auth = true) =>
     request<T>("PUT", path, body, auth),
@@ -309,4 +309,21 @@ export const venueDocumentsApi = {
     anchor.click();
     URL.revokeObjectURL(url);
   },
+};
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatContext {
+  event_id?: string;
+  show_id?: string;
+  booking_id?: string;
+}
+
+export const chatApi = {
+  // Sends the login token when there is one, so the assistant can see the user's own bookings
+  send: (message: string, history: ChatMessage[], context: ChatContext) =>
+    api.post<{ reply: string }>("/api/chat", { message, history, context }, "optional"),
 };

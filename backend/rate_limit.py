@@ -83,6 +83,8 @@ DEFAULT_RULES: List[Rule] = [
     _rule("verification-upload", "POST", r"^/api/verification(/.*)?$", 20, TEN_MIN),
     # Search is the heaviest read (fuzzy matching)
     _rule("browse-search", "GET", r"^/api/browse/shows$", 180, MIN),
+    # Assistant: each message calls OpenAI (costs money)
+    _rule("chat", "POST", r"^/api/chat$", 20, MIN),
 ]
 
 EXEMPT_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json"}
