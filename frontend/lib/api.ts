@@ -109,6 +109,8 @@ export const ticketsApi = {
   pdfUrl: (booking_id: string) => `${API_URL}/api/tickets/bookings/${booking_id}/pdf`,
   verify: (booking_id: string) =>
     api.get<any>(`/api/tickets/bookings/${booking_id}/verify`, false),
+  scan: (data: { qr_data?: string; booking_id?: string }) =>
+    api.post<any>("/api/tickets/scan", data),
 };
 
 export const managerApi = {
