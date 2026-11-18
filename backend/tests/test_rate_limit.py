@@ -110,6 +110,23 @@ def test_global_limit_applies_to_unmatched_routes():
     assert client.get("/api/other").status_code == 429
 
 
+def test_global_limit_is_per_user_when_logged_in():
+    # two logged-in users on the same IP do not share the global limit
+    client = TestClient(make_app([], global_per_min=2))
+    for _ in range(2):
+        assert client.get("/api/other", headers={"Authorization": "Bearer user-a"}).status_code == 200
+    assert client.get("/api/other", headers={"Authorization": "Bearer user-a"}).status_code == 429
+    assert client.get("/api/other", headers={"Authorization": "Bearer user-b"}).status_code == 200
+
+
+def test_ip_backstop_stops_floods_of_fake_tokens():
+    client = TestClient(make_app([], global_per_min=100, ip_backstop_per_min=3))
+    for i in range(3):
+        assert client.get("/api/other", headers={"Authorization": f"Bearer fake-{i}"}).status_code == 200
+    # a 4th brand-new token from the same IP is stopped by the IP backstop
+    assert client.get("/api/other", headers={"Authorization": "Bearer fake-new"}).status_code == 429
+
+
 def test_health_and_preflight_are_never_limited():
     client = TestClient(make_app([], global_per_min=1))
     for _ in range(5):

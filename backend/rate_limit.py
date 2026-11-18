@@ -9,8 +9,8 @@ How it works
   * A sliding-window counter per "bucket" (rule + client). A client may make
     `limit` requests in any `window` seconds; the next one gets HTTP 429 with
     a Retry-After header and a readable message (the frontend shows it as a toast).
-  * Specific rules (below) protect sensitive endpoints. A global per-IP limit
-    covers everything else, so nobody can flood the API.
+  * Specific rules (below) protect sensitive endpoints. A global limit covers
+    everything else: per user when logged in, per IP when logged out.
   * Logged-in users are counted per user, not per IP, so many students on the
     same campus Wi-Fi do not block each other. Anonymous requests are counted per IP.
   * In-memory, no extra library and no extra service.
@@ -21,7 +21,11 @@ Settings (environment variables, all optional)
                               (Azure, Vercel, Nginx ...): the client IP is then read
                               from X-Forwarded-For. Keep "false" when the API is
                               reached directly, otherwise the header can be faked.
-  RATE_LIMIT_GLOBAL_PER_MIN   requests per minute per IP for every endpoint (default 600)
+  RATE_LIMIT_GLOBAL_PER_MIN   requests per minute for every endpoint: per logged-in user,
+                              or per IP when logged out (default 600)
+  RATE_LIMIT_IP_BACKSTOP_PER_MIN  requests per minute per IP across ALL users on it. Very
+                              high on purpose (shared campus Wi-Fi); it only stops floods
+                              that use many fake tokens (default 6000)
 
 Limit: counters live in one process. With several workers/servers each keeps its
 own count; use a shared store such as Redis if the API is scaled out.
@@ -78,7 +82,7 @@ DEFAULT_RULES: List[Rule] = [
     _rule("profile-photo", "POST", r"^/api/profile/photo$", 10, TEN_MIN),
     _rule("verification-upload", "POST", r"^/api/verification(/.*)?$", 20, TEN_MIN),
     # Search is the heaviest read (fuzzy matching)
-    _rule("browse-search", "GET", r"^/api/browse/shows$", 180, MIN, "ip"),
+    _rule("browse-search", "GET", r"^/api/browse/shows$", 180, MIN),
 ]
 
 EXEMPT_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json"}
@@ -129,6 +133,7 @@ class RateLimitMiddleware:
         app: ASGIApp,
         rules: Optional[List[Rule]] = None,
         global_per_min: Optional[int] = None,
+        ip_backstop_per_min: Optional[int] = None,
         enabled: Optional[bool] = None,
         trust_proxy: Optional[bool] = None,
         clock: Callable[[], float] = time.monotonic,
@@ -138,6 +143,10 @@ class RateLimitMiddleware:
         self.global_per_min = (
             global_per_min if global_per_min is not None
             else int(os.getenv("RATE_LIMIT_GLOBAL_PER_MIN", "600"))
+        )
+        self.ip_backstop_per_min = (
+            ip_backstop_per_min if ip_backstop_per_min is not None
+            else int(os.getenv("RATE_LIMIT_IP_BACKSTOP_PER_MIN", "6000"))
         )
         self.enabled = _env_bool("RATE_LIMIT_ENABLED", True) if enabled is None else enabled
         self.trust_proxy = _env_bool("RATE_LIMIT_TRUST_PROXY", False) if trust_proxy is None else trust_proxy
@@ -180,23 +189,33 @@ class RateLimitMiddleware:
 
         headers = dict(scope.get("headers") or [])
         ip = self._client_ip(scope, headers)
+        user_key = self._user_key(headers)
 
         # 1) the specific rule for this endpoint, if any
         rule = self._match(method, path)
         if rule is not None:
             who = ip
             if rule.by == "user":
-                who = self._user_key(headers) or ip
+                who = user_key or ip
             ok, retry = self.limiter.check(f"{rule.name}|{who}", rule.limit, rule.window)
             if not ok:
                 await self._reject(send, retry, rule.limit, rule.window)
                 return
 
-        # 2) the global per-IP limit (also stops floods of fake tokens)
-        ok, retry = self.limiter.check(f"global|{ip}", self.global_per_min, MIN)
+        # 2) the global limit: per user when logged in, so people sharing one IP
+        #    (campus Wi-Fi) do not share a single limit; per IP when logged out
+        ok, retry = self.limiter.check(f"global|{user_key or ip}", self.global_per_min, MIN)
         if not ok:
             await self._reject(send, retry, self.global_per_min, MIN)
             return
+
+        # 3) per-IP backstop for logged-in traffic: a flood of fake tokens would
+        #    otherwise get a fresh per-user bucket every time
+        if user_key is not None:
+            ok, retry = self.limiter.check(f"ipflood|{ip}", self.ip_backstop_per_min, MIN)
+            if not ok:
+                await self._reject(send, retry, self.ip_backstop_per_min, MIN)
+                return
 
         await self.app(scope, receive, send)
 
