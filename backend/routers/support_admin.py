@@ -6,7 +6,7 @@
 #   6 — Reply to tickets / change status (conversation thread)
 #   7 — Email notification to customer on admin reply
 #
-# Auth: require_role("admin", "manager")
+# Auth: admins only. Managers must not see customers' support requests.
 # Customer side → routers/support.py (Tirth's work)
 
 from typing import Literal, Optional
@@ -19,6 +19,8 @@ from dependencies import require_role
 from services.support_email_service import send_admin_reply_notification
 
 router = APIRouter(prefix="/api/admin/support", tags=["support-admin"])
+
+ADMIN_ONLY = require_role("admin")
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -63,7 +65,7 @@ async def list_all_requests(
     status: Optional[SupportStatus] = Query(None),
     category: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    admin: dict = Depends(require_role("admin", "manager")),
+    admin: dict = Depends(ADMIN_ONLY),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     """
@@ -120,7 +122,7 @@ async def list_all_requests(
 @router.get("/requests/{request_id}")
 async def get_request_detail(
     request_id: str,
-    _: dict = Depends(require_role("admin", "manager")),
+    _: dict = Depends(ADMIN_ONLY),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     """Get one support request with full message thread (admin view)."""
@@ -145,7 +147,7 @@ async def get_request_detail(
 async def admin_reply(
     request_id: str,
     body: AdminReplyBody,
-    admin: dict = Depends(require_role("admin", "manager")),
+    admin: dict = Depends(ADMIN_ONLY),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     """
@@ -210,7 +212,7 @@ async def admin_reply(
 async def change_status(
     request_id: str,
     body: StatusChangeBody,
-    _: dict = Depends(require_role("admin", "manager")),
+    _: dict = Depends(ADMIN_ONLY),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     """Change a request's status without adding a message."""
