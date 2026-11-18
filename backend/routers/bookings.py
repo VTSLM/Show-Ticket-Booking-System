@@ -180,6 +180,117 @@ async def create_booking(
     return {"booking_id": str(booking_id), "booking_number": booking_number, "total_amount": float(total), "status": "pending"}
 
 
+@router.post("/waitlist/{show_id}")
+async def join_waitlist(
+    show_id: str,
+    current_user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    """Add the current user to a sold-out show's FIFO waitlist."""
+    user_id = str(current_user["id"])
+
+    async with conn.transaction():
+        # Lock the show row so simultaneous requests cannot create ambiguous
+        # queue positions or join while another request changes its capacity.
+        show = await conn.fetchrow(
+            """SELECT s.id, s.status, e.status AS event_status,
+                      (SELECT COUNT(*) FROM show_seats ss
+                       WHERE ss.show_id = s.id AND ss.status = 'available') AS available_seats,
+                      (SELECT COALESCE(SUM(
+                           GREATEST(0, sz.total_capacity - sz.booked_count - sz.locked_count)
+                       ), 0)
+                       FROM show_zones sz WHERE sz.show_id = s.id) AS available_zone_capacity
+               FROM shows s
+               JOIN events e ON e.id = s.event_id
+               WHERE s.id = $1::uuid
+               FOR UPDATE OF s""",
+            show_id
+        )
+
+        if not show or show["status"] != "scheduled" or show["event_status"] != "published":
+            raise HTTPException(status_code=404, detail="Show not found or no longer available")
+
+        available_seats = int(show["available_seats"] or 0)
+        available_zone_capacity = int(show["available_zone_capacity"] or 0)
+        if available_seats > 0 or available_zone_capacity > 0:
+            raise HTTPException(status_code=409, detail="This show still has tickets available")
+
+        existing = await conn.fetchrow(
+            """SELECT id, created_at FROM show_waitlist
+               WHERE show_id = $1::uuid AND user_id = $2::uuid AND status = 'waiting'""",
+            show_id, user_id
+        )
+
+        if existing:
+            position = await conn.fetchval(
+                """SELECT COUNT(*) FROM show_waitlist
+                   WHERE show_id = $1::uuid AND status = 'waiting'
+                     AND (created_at, id) <= ($2, $3)""",
+                show_id, existing["created_at"], existing["id"]
+            )
+            return {"status": "already_joined", "position": int(position)}
+
+        entry = await conn.fetchrow(
+            """INSERT INTO show_waitlist (show_id, user_id, status, created_at)
+               VALUES ($1::uuid, $2::uuid, 'waiting', NOW())
+               ON CONFLICT (show_id, user_id)
+               DO UPDATE SET status = 'waiting', created_at = NOW()
+               RETURNING id, created_at""",
+            show_id, user_id
+        )
+
+        position = await conn.fetchval(
+            """SELECT COUNT(*) FROM show_waitlist
+               WHERE show_id = $1::uuid AND status = 'waiting'
+                 AND (created_at, id) <= ($2, $3)""",
+            show_id, entry["created_at"], entry["id"]
+        )
+
+    return {"status": "joined", "position": int(position)}
+
+
+@router.get("/waitlist")
+async def list_my_waitlist(
+    current_user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    """List the current user's active waitlist entries."""
+    rows = await conn.fetch(
+        """SELECT w.id, w.show_id, w.created_at,
+                  e.title AS event_title, s.start_time,
+                  v.name AS venue_name, v.city,
+                  (SELECT COUNT(*) FROM show_waitlist ahead
+                   WHERE ahead.show_id = w.show_id AND ahead.status = 'waiting'
+                     AND (ahead.created_at, ahead.id) <= (w.created_at, w.id)) AS position
+           FROM show_waitlist w
+           JOIN shows s ON s.id = w.show_id
+           JOIN events e ON e.id = s.event_id
+           JOIN screens sc ON sc.id = s.screen_id
+           JOIN venues v ON v.id = sc.venue_id
+           WHERE w.user_id = $1::uuid AND w.status = 'waiting'
+           ORDER BY w.created_at, w.id""",
+        str(current_user["id"])
+    )
+    return [dict(row) for row in rows]
+
+
+@router.delete("/waitlist/{show_id}")
+async def leave_waitlist(
+    show_id: str,
+    current_user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    """Remove the current user's active entry from a show's waitlist."""
+    result = await conn.execute(
+        """UPDATE show_waitlist SET status = 'cancelled'
+           WHERE show_id = $1::uuid AND user_id = $2::uuid AND status = 'waiting'""",
+        show_id, str(current_user["id"])
+    )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="Active waitlist entry not found")
+    return {"status": "cancelled"}
+
+
 @router.get("/{booking_id}")
 async def get_booking(
     booking_id: str,
