@@ -7,6 +7,7 @@ import { cancellationsApi, CancelEligibility } from "@/lib/cancellationsApi";
 import { useAuth } from "@/contexts/AuthContext";
 import toast from "react-hot-toast";
 import Link from "next/link";
+import { bookingToCalendarEvent, googleCalendarUrl, downloadIcs } from "@/lib/calendar";
 
 /* ── tiny helpers ───────────────────────────────────────────── */
 function fmtDate(iso: string) {
@@ -132,6 +133,7 @@ export default function BookingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showCalendarMenu, setShowCalendarMenu] = useState(false);
 
   const [eligibility, setEligibility] = useState<CancelEligibility | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -247,6 +249,7 @@ export default function BookingDetailPage() {
   const totalSeats = seats.length;
   const isCancelled = booking.status === "cancelled";
   const isConfirmed = booking.status === "confirmed";
+  const calendarEvent = isConfirmed ? bookingToCalendarEvent(booking, bookingId) : null;
 
   return (
     <>
@@ -504,6 +507,41 @@ export default function BookingDetailPage() {
                       <>⬇ Download Ticket PDF</>
                     )}
                   </button>
+
+                  {calendarEvent && (
+                    <>
+                      <button
+                        onClick={() => setShowCalendarMenu((v) => !v)}
+                        className="action-btn btn-allbookings"
+                        aria-expanded={showCalendarMenu}
+                      >
+                        📅 Add to Calendar
+                      </button>
+                      {showCalendarMenu && (
+                        <div style={{ display: "flex", gap: 10 }}>
+                          <a
+                            href={googleCalendarUrl(calendarEvent)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="action-btn btn-allbookings"
+                            style={{ fontSize: 13, padding: "10px 12px" }}
+                          >
+                            Google Calendar
+                          </a>
+                          <button
+                            onClick={() => {
+                              downloadIcs(calendarEvent, `ticketflow-${String(bookingId).slice(0, 8)}.ics`);
+                              toast.success("Calendar file downloaded");
+                            }}
+                            className="action-btn btn-allbookings"
+                            style={{ fontSize: 13, padding: "10px 12px" }}
+                          >
+                            Apple / Outlook (.ics)
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
 
                   {eligibility?.eligible && (
                     <button
