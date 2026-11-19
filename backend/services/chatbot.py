@@ -214,6 +214,93 @@ async def _run_calls(calls, pool: asyncpg.Pool, user: Optional[dict]) -> List[di
     return outputs
 
 
+# These tools are deliberately simple read-only lookups. Their result is already
+# structured for the customer-facing UI, so we can render a short reply locally
+# after the model selects the tool. This saves the second model call that would
+# otherwise be needed just to turn the tool result into prose.
+SIMPLE_LOOKUP_TOOLS = {"get_my_bookings", "get_booking_status", "get_my_wishlist"}
+
+
+def _simple_lookup_reply(message: str, tool_name: str, result: dict) -> Optional[str]:
+    """Render a deterministic reply for simple personal-data lookups.
+
+    Returns None when the result is not safe/suitable for direct rendering; the
+    normal model follow-up is then used. This keeps complex questions on the
+    existing model path while making simple lookups one model call.
+    """
+    if tool_name not in SIMPLE_LOOKUP_TOOLS or not isinstance(result, dict):
+        return None
+    if result.get("error") == "tool_failed":
+        return None
+
+    # Authentication errors and not-found responses are safe to present directly.
+    if result.get("error") == "login_required":
+        return "Please [log in](/auth/login) to see your bookings and wishlist."
+    if result.get("error") == "not_found":
+        return result.get("message") or "I couldn't find that booking."
+
+    if tool_name == "get_my_bookings":
+        bookings = result.get("bookings")
+        if not isinstance(bookings, list):
+            return None
+        which = result.get("which", "upcoming")
+        if not bookings:
+            if which == "past":
+                return "You don't have any past bookings."
+            if which == "all":
+                return "You don't have any bookings yet."
+            return "You don't have any upcoming bookings."
+
+        label = {"upcoming": "upcoming", "past": "past", "all": ""}.get(which, "")
+        lines = [f"Here are your {label} bookings:" if label else "Here are your bookings:"]
+        for b in bookings[:10]:
+            event = b.get("event") or "Your show"
+            status = b.get("status") or "unknown"
+            payment = b.get("payment_status")
+            line = f"• **{event}** — {b.get('show_time', 'time unavailable')} · {b.get('venue', 'venue unavailable')} · {status}"
+            if payment:
+                line += f" · payment: {payment}"
+            line += f" · [View booking]({b.get('link', '/bookings')})"
+            lines.append(line)
+        if len(bookings) > 10:
+            lines.append("[View all bookings](/bookings)")
+        return "\n".join(lines)
+
+    if tool_name == "get_booking_status":
+        event = result.get("event") or "Your booking"
+        status = result.get("status") or "unknown"
+        payment = result.get("payment_status")
+        lines = [f"**{event}** — {status}."]
+        if payment:
+            lines.append(f"Payment: {payment}.")
+        if result.get("seats"):
+            lines.append(f"Seats: {result['seats']}.")
+        if result.get("show_time"):
+            lines.append(f"Show: {result['show_time']} at {result.get('venue', 'the venue')}.")
+        if result.get("can_cancel_now") is True:
+            lines.append(f"You can cancel it until {result.get('cancel_before')}.")
+        elif result.get("can_cancel_now") is False and result.get("cancel_before"):
+            lines.append(f"The cancellation cutoff was {result['cancel_before']}.")
+        lines.append(f"[View booking]({result.get('link', '/bookings')})")
+        return "\n".join(lines)
+
+    if tool_name == "get_my_wishlist":
+        items = result.get("items")
+        if not isinstance(items, list):
+            return None
+        if not items:
+            return "Your wishlist is empty. [Open wishlist](/wishlist)"
+        lines = ["Here’s your wishlist:"]
+        for item in items[:20]:
+            title = item.get("title") or "Untitled event"
+            next_show = item.get("next_show")
+            suffix = f" — next show: {next_show}" if next_show else ""
+            lines.append(f"• **{title}**{suffix} · [View]({item.get('link', '/wishlist')})")
+        return "\n".join(lines)
+
+    return None
+
+
 def _function_calls(response) -> list:
     return [o for o in (getattr(response, "output", None) or []) if getattr(o, "type", None) == "function_call"]
 
@@ -246,6 +333,17 @@ async def answer(
             if not calls:
                 break
             outputs = await _run_calls(calls, pool, user)
+
+            # Simple personal lookups do not need a second model call just to
+            # turn structured data into a short list/status response.
+            if len(calls) == 1 and calls[0].name in SIMPLE_LOOKUP_TOOLS:
+                try:
+                    direct = _simple_lookup_reply(message, calls[0].name, json.loads(outputs[0]["output"]))
+                except (KeyError, TypeError, json.JSONDecodeError):
+                    direct = None
+                if direct:
+                    return direct
+
             response = await client.responses.create(
                 model=_model(), instructions=instructions, previous_response_id=response.id,
                 input=outputs, tools=TOOL_SCHEMAS, max_output_tokens=MAX_OUTPUT_TOKENS,
@@ -309,6 +407,41 @@ async def answer_stream(
             for call in calls:
                 yield {"type": "status", "tool": call.name, "text": TOOL_STATUS.get(call.name, "Looking that up…")}
             outputs = await _run_calls(calls, pool, user)
+            # Send rich result cards to the frontend when show data is available.
+            cards = []
+
+            for output in outputs:
+                try:
+                    data = json.loads(output["output"])
+                except (KeyError, TypeError, json.JSONDecodeError):
+                    continue
+
+                # Search/recommendation results:
+                # events -> shows -> show cards
+                for event in data.get("events", []):
+                    for show in event.get("shows", []):
+                        if isinstance(show, dict) and show.get("show_id"):
+                            cards.append(show)
+
+                # Event details:
+                # upcoming_shows -> show cards
+                for show in data.get("upcoming_shows", []):
+                    if isinstance(show, dict) and show.get("show_id"):
+                        cards.append(show)
+
+            if cards:
+                yield {"type": "cards", "cards": cards}
+
+            if len(calls) == 1 and calls[0].name in SIMPLE_LOOKUP_TOOLS:
+                try:
+                    direct = _simple_lookup_reply(message, calls[0].name, json.loads(outputs[0]["output"]))
+                except (KeyError, TypeError, json.JSONDecodeError):
+                    direct = None
+                if direct:
+                    yield {"type": "delta", "text": direct}
+                    yield _done(truncated)
+                    return
+
             kwargs = dict(model=_model(), instructions=instructions, previous_response_id=final.id,
                           input=outputs, tools=TOOL_SCHEMAS, max_output_tokens=MAX_OUTPUT_TOKENS)
     except Exception as exc:
@@ -398,6 +531,36 @@ async def _chat_stream(client, message, history, context, user, pool) -> AsyncIt
             outputs = await _run_calls(
                 [SimpleNamespace(name=c["name"], arguments=c["arguments"], call_id=c["id"]) for c in ordered],
                 pool, user)
+
+            cards = []
+
+            for output in outputs:
+                try:
+                    data = json.loads(output["output"])
+                except (KeyError, TypeError, json.JSONDecodeError):
+                    continue
+
+                for event in data.get("events", []):
+                    for show in event.get("shows", []):
+                        if isinstance(show, dict) and show.get("show_id"):
+                            cards.append(show)
+
+                for show in data.get("upcoming_shows", []):
+                    if isinstance(show, dict) and show.get("show_id"):
+                        cards.append(show)
+
+            if cards:
+                yield {"type": "cards", "cards": cards}
+            if len(ordered) == 1 and ordered[0]["name"] in SIMPLE_LOOKUP_TOOLS:
+                try:
+                    direct = _simple_lookup_reply(message, ordered[0]["name"], json.loads(outputs[0]["output"]))
+                except (KeyError, TypeError, json.JSONDecodeError):
+                    direct = None
+                if direct:
+                    yield {"type": "delta", "text": direct}
+                    yield _done(truncated)
+                    return
+
             for out in outputs:
                 messages.append({"role": "tool", "tool_call_id": out["call_id"], "content": out["output"]})
     except Exception as exc:

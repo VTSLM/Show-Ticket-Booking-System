@@ -322,9 +322,23 @@ export interface ChatContext {
   booking_id?: string;
 }
 
+export interface ChatResultCard {
+  show_id: string;
+  event_id: string;
+  title: string;
+  poster_url?: string | null;
+  time: string;
+  venue: string;
+  city: string;
+  price_from?: string | null;
+  seats_left: number;
+  book_link: string;
+}
+
 export type ChatStreamEvent =
   | { type: "status"; tool: string; text: string }
   | { type: "delta"; text: string }
+  | { type: "cards"; cards: ChatResultCard[] }
   | { type: "done" }
   | { type: "error"; message: string };
 
