@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
+import NotificationBell from "@/components/NotificationBell";
 
 export default function Navbar() {
   const { profile, loading, logout, isManager, isAdmin } = useAuth();
@@ -39,6 +40,8 @@ export default function Navbar() {
               Support
             </Link>
 
+            <NotificationBell />
+
             {isManager && !isAdmin && (
               <>
                 <Link href="/verification/organizer" className="hover:text-red-300">
@@ -73,6 +76,9 @@ export default function Navbar() {
                 </Link>
                 <Link href="/admin/organizers" className="hover:text-red-300">
                   Organizers
+                </Link>
+                <Link href="/admin/cancellations" className="hover:text-red-300">
+                  Cancellations & Refunds
                 </Link>
               </>
             )}
