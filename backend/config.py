@@ -21,6 +21,25 @@ MAX_DOCUMENT_SIZE_BYTES = int(os.getenv("MAX_DOCUMENT_SIZE_BYTES", str(10 * 1024
 ALLOWED_DOCUMENT_MIME_TYPES = ("application/pdf", "image/jpeg", "image/png")
 SIGNED_URL_EXPIRY_SECONDS = 300  # 5 minutes
 
+# ── Role-Based Inactivity Timeout Configuration ──────────────────────────────
+# Role-specific inactivity limits: Customer 30m, Manager 20m, Admin 15m.
+INACTIVITY_TIMEOUT_CUSTOMER_SECONDS = int(os.getenv("INACTIVITY_TIMEOUT_CUSTOMER_SECONDS", str(30 * 60)))
+INACTIVITY_TIMEOUT_MANAGER_SECONDS = int(os.getenv("INACTIVITY_TIMEOUT_MANAGER_SECONDS", str(20 * 60)))
+INACTIVITY_TIMEOUT_ADMIN_SECONDS = int(os.getenv("INACTIVITY_TIMEOUT_ADMIN_SECONDS", str(15 * 60)))
+INACTIVITY_WARNING_LEAD_SECONDS = int(os.getenv("INACTIVITY_WARNING_LEAD_SECONDS", str(2 * 60)))
+
+
+def get_role_inactivity_timeout_seconds(roles: list[str]) -> int:
+    """Return the inactivity timeout in seconds based on highest privilege role."""
+    if not roles:
+        return INACTIVITY_TIMEOUT_CUSTOMER_SECONDS
+    normalized = [r.lower() for r in roles]
+    if "admin" in normalized:
+        return INACTIVITY_TIMEOUT_ADMIN_SECONDS
+    if "manager" in normalized or "organizer" in normalized:
+        return INACTIVITY_TIMEOUT_MANAGER_SECONDS
+    return INACTIVITY_TIMEOUT_CUSTOMER_SECONDS
+
 
 # ── Environment ──────────────────────────────────────────────────────────────
 # APP_ENV=production turns on the production checks below, hides the API docs

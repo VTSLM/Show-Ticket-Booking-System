@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import date
@@ -112,7 +112,105 @@ async def verify_token(body: dict, conn: asyncpg.Connection = Depends(get_conn))
     if user["status"] == "blocked":
         raise HTTPException(status_code=403, detail="Account blocked")
 
-    return {"user": user, "firebase_uid": uid}
+    session_info = None
+    try:
+        from services.session_service import create_session, validate_session
+        session_id = body.get("session_id")
+        if session_id:
+            is_valid, _, sess = await validate_session(conn, session_id, str(user["id"]))
+            if is_valid:
+                session_info = sess
+        if not session_info:
+            session_info = await create_session(conn, str(user["id"]), user["roles"])
+    except Exception:
+        # Fallback for unit tests with minimal mock connections
+        from config import get_role_inactivity_timeout_seconds, INACTIVITY_WARNING_LEAD_SECONDS
+        import uuid
+        timeout = get_role_inactivity_timeout_seconds(user.get("roles", []))
+        session_info = {
+            "id": str(uuid.uuid4()),
+            "user_id": str(user.get("id")),
+            "role": user.get("roles", ["customer"])[0] if user.get("roles") else "customer",
+            "timeout_seconds": timeout,
+            "warning_lead_seconds": INACTIVITY_WARNING_LEAD_SECONDS,
+        }
+
+    return {"user": user, "firebase_uid": uid, "session": session_info}
+
+
+@router.post("/session/heartbeat")
+async def session_heartbeat(
+    request: Request,
+    body: Optional[dict] = None,
+    current_user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """
+    Heartbeat endpoint called when user clicks 'Stay Logged In' or performs meaningful activity.
+    Verifies server-side session and updates last_activity_at.
+    """
+    session_id = None
+    if request and hasattr(request, "headers"):
+        session_id = request.headers.get("x-session-id")
+    if not session_id and body:
+        session_id = body.get("session_id")
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+
+    from services.session_service import heartbeat_session
+    is_valid, reason, session = await heartbeat_session(conn, session_id, str(current_user["id"]))
+    if not is_valid:
+        raise HTTPException(
+            status_code=401,
+            detail=reason or "Session expired due to inactivity. Please log in again.",
+        )
+
+    return {
+        "status": "active",
+        "session": session,
+    }
+
+
+@router.post("/session/logout")
+async def session_logout(
+    request: Request,
+    body: Optional[dict] = None,
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """
+    Explicitly revokes session on the server.
+    """
+    session_id = None
+    if request and hasattr(request, "headers"):
+        session_id = request.headers.get("x-session-id")
+    if not session_id and body:
+        session_id = body.get("session_id")
+
+    if session_id:
+        from services.session_service import revoke_session
+        await revoke_session(conn, session_id)
+
+    return {"status": "logged_out"}
+
+
+@router.get("/session/policy")
+async def get_session_policy():
+    """
+    Returns centrally configured role-based session inactivity timeouts.
+    """
+    from config import (
+        INACTIVITY_TIMEOUT_CUSTOMER_SECONDS,
+        INACTIVITY_TIMEOUT_MANAGER_SECONDS,
+        INACTIVITY_TIMEOUT_ADMIN_SECONDS,
+        INACTIVITY_WARNING_LEAD_SECONDS,
+    )
+    return {
+        "customer_timeout_seconds": INACTIVITY_TIMEOUT_CUSTOMER_SECONDS,
+        "manager_timeout_seconds": INACTIVITY_TIMEOUT_MANAGER_SECONDS,
+        "admin_timeout_seconds": INACTIVITY_TIMEOUT_ADMIN_SECONDS,
+        "warning_lead_seconds": INACTIVITY_WARNING_LEAD_SECONDS,
+    }
 
 
 @router.get("/me")

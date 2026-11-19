@@ -1,6 +1,27 @@
 import { auth } from "./firebase";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const SESSION_STORAGE_KEY = "ticketflow_session_id";
+
+let sessionExpiryHandler: (() => void) | null = null;
+
+export function onSessionExpired(handler: () => void) {
+  sessionExpiryHandler = handler;
+}
+
+export function getActiveSessionId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(SESSION_STORAGE_KEY);
+}
+
+export function setActiveSessionId(sessionId: string | null) {
+  if (typeof window === "undefined") return;
+  if (sessionId) {
+    localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+  } else {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  }
+}
 
 async function getToken(): Promise<string | null> {
   const user = auth.currentUser;
@@ -20,6 +41,9 @@ async function request<T>(
     const token = await getToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
     else if (requireAuth !== "optional") throw new Error("Not authenticated");
+
+    const sessionId = getActiveSessionId();
+    if (sessionId) headers["X-Session-ID"] = sessionId;
   }
 
   const res = await fetch(`${API_URL}${path}`, {
@@ -30,7 +54,18 @@ async function request<T>(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Request failed");
+    const detail = err.detail || "Request failed";
+    if (
+      res.status === 401 &&
+      (detail.toLowerCase().includes("inactivity") ||
+        detail.toLowerCase().includes("session expired") ||
+        detail.toLowerCase().includes("revoked"))
+    ) {
+      if (sessionExpiryHandler) {
+        sessionExpiryHandler();
+      }
+    }
+    throw new Error(detail);
   }
 
   if (res.status === 204) return undefined as T;
@@ -49,8 +84,20 @@ export const api = {
 
 export const authApi = {
   register: (data: object) => api.post("/auth/register", data, false),
-  verifyToken: (id_token: string) => api.post("/auth/verify-token", { id_token }, false),
+  verifyToken: (id_token: string, session_id?: string | null) =>
+    api.post("/auth/verify-token", { id_token, session_id }, false),
   me: () => api.get("/auth/me"),
+  heartbeat: (session_id?: string) =>
+    api.post("/auth/session/heartbeat", { session_id }),
+  logoutSession: (session_id?: string) =>
+    api.post("/auth/session/logout", { session_id }, false),
+  getSessionPolicy: () =>
+    api.get<{
+      customer_timeout_seconds: number;
+      manager_timeout_seconds: number;
+      admin_timeout_seconds: number;
+      warning_lead_seconds: number;
+    }>("/auth/session/policy", false),
 };
 
 export const browseApi = {

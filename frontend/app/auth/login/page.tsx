@@ -23,6 +23,7 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const { refreshProfile } = useAuth();
   const redirectTo = searchParams.get("redirect") || "/browse";
+  const reason = searchParams.get("reason");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +108,12 @@ function LoginForm() {
             Log in
           </h2>
         </header>
+
+        {reason === "inactivity" && (
+          <div className="mb-6 rounded-2xl border border-amber-500/40 bg-amber-500/15 p-4 text-sm font-medium text-amber-200">
+            Your session expired due to inactivity. Please log in again.
+          </div>
+        )}
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div>

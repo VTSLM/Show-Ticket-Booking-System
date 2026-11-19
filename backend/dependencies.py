@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import asyncpg
 from database import get_conn
@@ -20,7 +20,8 @@ async def get_current_firebase_uid(
 
 async def get_current_user(
     uid: str = Depends(get_current_firebase_uid),
-    conn: asyncpg.Connection = Depends(get_conn)
+    conn: asyncpg.Connection = Depends(get_conn),
+    request: Request = None,
 ) -> dict:
     row = await conn.fetchrow(
         """
@@ -44,6 +45,22 @@ async def get_current_user(
     if user["status"] != "active":
         detail = "Account pending admin approval" if user["status"] == "inactive" else "Account blocked"
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+    # Server-Side Inactivity & Revocation Enforcement
+    if request is not None and hasattr(request, "headers"):
+        session_id = request.headers.get("x-session-id")
+        if session_id:
+            from services.session_service import validate_session, touch_session
+            is_valid, reason, session = await validate_session(conn, session_id, str(user["id"]))
+            if not is_valid:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=reason or "Your session expired due to inactivity. Please log in again.",
+                )
+            user["session_id"] = session_id
+            user["session"] = session
+            await touch_session(conn, session_id)
+
     return user
 
 def require_role(*roles: str):
