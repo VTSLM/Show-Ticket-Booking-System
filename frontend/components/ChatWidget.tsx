@@ -5,7 +5,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { chatApi, ChatContext, ChatMessage } from "@/lib/api";
+import { chatApi, ChatContext, ChatMessage, ChatResultCard } from "@/lib/api";
 
 const MAX_LENGTH = 500;
 const HISTORY_SENT = 10;
@@ -77,6 +77,7 @@ export default function ChatWidget() {
   const { profile } = useAuth();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [resultCards, setResultCards] = useState<ChatResultCard[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -107,6 +108,7 @@ export default function ChatWidget() {
     setMessages(m => [...m, { role: "user", content: message }]);
     setInput("");
     setError(null);
+    setResultCards([]);
     setSending(true);
     let started = false;
     // Updaters stay pure (React may run them twice in development)
@@ -123,9 +125,16 @@ export default function ChatWidget() {
     };
     try {
       await chatApi.stream(message, history, context, event => {
-        if (event.type === "status") setStatus(event.text);
-        else if (event.type === "delta") { setStatus(null); appendText(event.text); }
-        else if (event.type === "error") setError(event.message);
+        if (event.type === "status") {
+          setStatus(event.text);
+        } else if (event.type === "delta") {
+          setStatus(null);
+          appendText(event.text);
+        } else if (event.type === "cards") {
+          setResultCards(event.cards);
+        } else if (event.type === "error") {
+          setError(event.message);
+        }
       });
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
@@ -162,7 +171,7 @@ export default function ChatWidget() {
             </div>
             <div className="flex items-center gap-1">
               {messages.length > 0 && (
-                <button onClick={() => { setMessages([]); setError(null); }}
+                <button onClick={() => { setMessages([]); setResultCards([]); setError(null); }}
                         className="rounded-lg px-2 py-1 text-xs text-[var(--muted)] hover:bg-white/5 hover:text-white">
                   New chat
                 </button>
@@ -200,7 +209,64 @@ export default function ChatWidget() {
                 </div>
               </div>
             ))}
+            {resultCards.length > 0 && (
+              <div className="space-y-3">
+                {resultCards.map(card => (
+                  <div
+                    key={card.show_id}
+                    className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-raised)]"
+                  >
+                    {card.poster_url && (
+                      <img
+                        src={card.poster_url}
+                        alt={card.title}
+                        className="h-40 w-full object-cover"
+                      />
+                    )}
 
+                    <div className="p-3">
+                      <p className="font-semibold text-white">{card.title}</p>
+
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        🕐 {card.time}
+                      </p>
+
+                      <p className="text-xs text-[var(--muted)]">
+                        📍 {card.venue}, {card.city}
+                      </p>
+
+                      <div className="mt-2 flex items-center justify-between text-xs">
+                        <span className="text-[var(--foreground)]">
+                          {card.price_from
+                            ? `From ${card.price_from}`
+                            : "Price unavailable"}
+                        </span>
+
+                        <span className={card.seats_left > 0 ? "text-green-400" : "text-red-400"}>
+                          {card.seats_left > 0
+                            ? `${card.seats_left} seats left`
+                            : "Sold out"}
+                        </span>
+                      </div>
+
+                      {card.seats_left > 0 ? (
+                        <Link
+                          href={card.book_link}
+                          onClick={() => setOpen(false)}
+                          className="mt-3 block rounded-lg bg-[var(--blue)] px-3 py-2 text-center text-sm font-semibold text-white transition hover:bg-[var(--blue-hover)]"
+                        >
+                          Book
+                        </Link>
+                      ) : (
+                        <span className="mt-3 block rounded-lg bg-white/5 px-3 py-2 text-center text-sm text-[var(--muted)]">
+                          Sold out
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {sending && messages[messages.length - 1]?.role !== "assistant" && (
               <div className="flex justify-start">
                 <div className="rounded-2xl rounded-bl-sm border border-[var(--border)] bg-[var(--surface-raised)] px-3.5 py-2.5 text-sm text-[var(--muted)]">
