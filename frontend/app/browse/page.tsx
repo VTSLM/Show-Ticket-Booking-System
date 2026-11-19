@@ -5,6 +5,7 @@ import Link from "next/link";
 import toast from "react-hot-toast";
 import { browseApi } from "@/lib/api";
 import { useWishlist } from "@/components/useWishlist";
+import EventPoster from "@/components/EventPoster";
 
 const EVENT_TYPES = [
   { label: "All", value: "" },
@@ -21,46 +22,6 @@ function getDateOffset(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
-}
-
-// Poster that falls back to a placeholder when the image URL is empty or fails to load
-function Poster({
-  src,
-  alt,
-  className,
-  fallbackClassName,
-  emojiClassName = "text-6xl",
-  emoji = "🎥",
-}: {
-  src?: string | null;
-  alt: string;
-  className: string;
-  fallbackClassName: string;
-  emojiClassName?: string;
-  emoji?: string;
-}) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
-
-  if (!src || failed) {
-    return (
-      <div className={fallbackClassName}>
-        <span className={emojiClassName} aria-hidden="true">
-          {emoji}
-        </span>
-      </div>
-    );
-  }
-  return (
-    <img
-      src={src}
-      alt={alt}
-      className={className}
-      loading="lazy"
-      referrerPolicy="no-referrer"
-      onError={() => setFailed(true)}
-    />
-  );
 }
 
 const hasRating = (s: any) => Number(s.review_count ?? 0) > 0 && s.avg_rating != null;
@@ -407,13 +368,13 @@ export default function BrowsePage() {
                               onClick={() => selectSuggestion(show.title)}
                               className="flex min-w-0 flex-1 items-center gap-3 text-left"
                             >
-                              <Poster
+                              <EventPoster
                                 src={show.poster_url}
                                 alt={show.title}
+                                eventType={show.event_type}
                                 className="h-10 w-8 shrink-0 rounded object-cover"
-                                fallbackClassName="flex h-10 w-8 shrink-0 items-center justify-center rounded bg-slate-800"
-                                emojiClassName="text-sm"
-                                emoji="🎬"
+                                placeholderClassName="flex h-10 w-8 shrink-0 items-center justify-center rounded bg-slate-800"
+                                iconClassName="text-sm"
                               />
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-semibold text-white">
@@ -696,11 +657,12 @@ export default function BrowsePage() {
                 href={show.event_id ? `/events/${show.event_id}` : `/shows/${show.show_id}`}
                 className="group flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-950/30"
               >
-                <Poster
+                <EventPoster
                   src={show.poster_url}
                   alt={`${show.title} poster`}
+                  eventType={show.event_type}
                   className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                  fallbackClassName="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950"
+                  placeholderClassName="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950"
                 />
 
                 <div className="p-5">

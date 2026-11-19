@@ -18,6 +18,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Duplicated `sprint1/`, `sprint2/` and `sprint3/` folders. Earlier sprints are available as the `v0.1.0` and `v0.2.0` tags.
 
 ### Fixed
+- Events without a working poster show a neutral placeholder for their event type instead of the Ramayana poster (#170)
 - Malformed ids in URLs return 404 instead of a server error, and the seat map of an unknown show returns 404 instead of an empty map (#140)
 
 ### Security
