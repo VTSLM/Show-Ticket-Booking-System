@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 
+import config
 from database import get_pool
 from services.chatbot_tools import _is_uuid as is_uuid
 from routers.reviews import get_optional_user, optional_security
@@ -137,6 +138,26 @@ UNAVAILABLE = (
     "Please try again later."
 )
 
+CHAT_DISABLED = (
+    "The chat assistant is currently disabled. "
+    "Please try again later."
+)
+
+
+def _ensure_chat_enabled() -> None:
+    """
+    Enforce the chatbot feature flag at the API boundary.
+
+    This is intentionally checked before any database lookup
+    or AI provider call.
+    """
+
+    if not config.CHAT_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=CHAT_DISABLED,
+        )
+
 
 @router.post("")
 async def chat(
@@ -145,6 +166,7 @@ async def chat(
         HTTPAuthorizationCredentials
     ] = Depends(optional_security),
 ):
+    _ensure_chat_enabled()
 
     user, context, history, pool = (
         await _prepare_request(
@@ -404,6 +426,7 @@ async def chat_stream(
         HTTPAuthorizationCredentials
     ] = Depends(optional_security),
 ):
+    _ensure_chat_enabled()
 
     user, context, history, pool = (
         await _prepare_request(
