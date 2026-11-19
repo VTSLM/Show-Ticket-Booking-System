@@ -1,7 +1,7 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
 
 from routers.support import (
@@ -166,6 +166,7 @@ async def test_create_payment_request_gets_high_priority():
     )
 
     result = await create_request(
+        background_tasks=BackgroundTasks(),
         req=request,
         current_user=make_user(),
         conn=conn,
@@ -200,6 +201,7 @@ async def test_create_refund_request_gets_high_priority():
     conn.fetchval.return_value = 1
 
     result = await create_request(
+        background_tasks=BackgroundTasks(),
         req=request,
         current_user=make_user(),
         conn=conn,
@@ -220,6 +222,7 @@ async def test_create_booking_request_requires_booking():
 
     with pytest.raises(HTTPException) as exc:
         await create_request(
+            background_tasks=BackgroundTasks(),
             req=request,
             current_user=make_user(),
             conn=conn,
@@ -243,6 +246,7 @@ async def test_create_refund_request_requires_booking():
 
     with pytest.raises(HTTPException) as exc:
         await create_request(
+            background_tasks=BackgroundTasks(),
             req=request,
             current_user=make_user(),
             conn=conn,
@@ -268,6 +272,7 @@ async def test_create_request_rejects_booking_owned_by_another_user():
 
     with pytest.raises(HTTPException) as exc:
         await create_request(
+            background_tasks=BackgroundTasks(),
             req=request,
             current_user=make_user(USER_ID),
             conn=conn,
@@ -299,6 +304,7 @@ async def test_create_request_with_owned_booking_succeeds():
     )
 
     result = await create_request(
+        background_tasks=BackgroundTasks(),
         req=request,
         current_user=make_user(),
         conn=conn,
@@ -331,6 +337,7 @@ async def test_create_account_request_does_not_require_booking():
     )
 
     result = await create_request(
+        background_tasks=BackgroundTasks(),
         req=request,
         current_user=make_user(),
         conn=conn,
@@ -629,3 +636,47 @@ async def test_customer_cannot_reopen_closed_request():
     assert exc.value.detail == "Only resolved requests can be reopened"
 
     conn.execute.assert_not_awaited()
+
+@pytest.mark.asyncio
+async def test_new_request_emails_admin_after_the_response():
+    conn = create_mock_connection()
+    conn.fetchrow.return_value = {
+        "id": REQUEST_ID,
+        "request_number": "SR-20261118-ABC123",
+        "status": "open",
+        "priority": "normal",
+        "created_at": "2026-11-18T10:00:00",
+    }
+    request = CreateSupportRequest(
+        category="other",
+        subject="Question about the app",
+        message="How do I change my phone number?",
+    )
+    tasks = BackgroundTasks()
+    with patch("routers.support.send_new_ticket_notification", new=AsyncMock()) as email_mock:
+        await create_request(req=request, background_tasks=tasks, current_user=make_user(), conn=conn)
+        email_mock.assert_not_awaited()  # the customer doesn't wait for SMTP
+        await tasks()
+        email_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_failed_admin_email_does_not_raise():
+    conn = create_mock_connection()
+    conn.fetchrow.return_value = {
+        "id": REQUEST_ID,
+        "request_number": "SR-20261118-ABC124",
+        "status": "open",
+        "priority": "normal",
+        "created_at": "2026-11-18T10:00:00",
+    }
+    request = CreateSupportRequest(
+        category="other",
+        subject="Question about the app",
+        message="How do I change my phone number?",
+    )
+    tasks = BackgroundTasks()
+    with patch("routers.support.send_new_ticket_notification", new=AsyncMock(side_effect=Exception("SMTP down"))):
+        result = await create_request(req=request, background_tasks=tasks, current_user=make_user(), conn=conn)
+        await tasks()
+    assert result["status"] == "open"

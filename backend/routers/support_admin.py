@@ -6,12 +6,12 @@
 #   6 — Reply to tickets / change status (conversation thread)
 #   7 — Email notification to customer on admin reply
 #
-# Auth: require_role("admin", "manager")
+# Auth: admins only. Managers must not see customers' support requests.
 # Customer side → routers/support.py (Tirth's work)
 
 from typing import Literal, Optional
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from database import get_conn
@@ -19,6 +19,8 @@ from dependencies import require_role
 from services.support_email_service import send_admin_reply_notification
 
 router = APIRouter(prefix="/api/admin/support", tags=["support-admin"])
+
+ADMIN_ONLY = require_role("admin")
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -58,12 +60,20 @@ async def _get_request_or_404(request_id: str, conn: asyncpg.Connection) -> dict
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+
+async def _email_customer_safely(**kwargs) -> None:
+    """Background task: a failed email must never affect the admin's reply."""
+    try:
+        await send_admin_reply_notification(**kwargs)
+    except Exception as exc:
+        print(f"[support_admin] email to customer failed: {exc}")
+
 @router.get("/requests")
 async def list_all_requests(
     status: Optional[SupportStatus] = Query(None),
     category: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    admin: dict = Depends(require_role("admin", "manager")),
+    admin: dict = Depends(ADMIN_ONLY),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     """
@@ -120,7 +130,7 @@ async def list_all_requests(
 @router.get("/requests/{request_id}")
 async def get_request_detail(
     request_id: str,
-    _: dict = Depends(require_role("admin", "manager")),
+    _: dict = Depends(ADMIN_ONLY),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     """Get one support request with full message thread (admin view)."""
@@ -145,7 +155,8 @@ async def get_request_detail(
 async def admin_reply(
     request_id: str,
     body: AdminReplyBody,
-    admin: dict = Depends(require_role("admin", "manager")),
+    background_tasks: BackgroundTasks,
+    admin: dict = Depends(ADMIN_ONLY),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     """
@@ -183,18 +194,16 @@ async def admin_reply(
             new_status, request_id,
         )
 
-    # Email customer (fire-and-forget — never block the response)
-    try:
-        await send_admin_reply_notification(
-            user_email=request["user_email"],
-            user_name=request["user_name"],
-            subject=request["subject"],
-            request_number=request["request_number"],
-            admin_message=body.message.strip(),
-            new_status=new_status,
-        )
-    except Exception as exc:
-        print(f"[support_admin] email to customer failed: {exc}")
+    # Email the customer after the response is sent (never blocks or fails the reply)
+    background_tasks.add_task(
+        _email_customer_safely,
+        user_email=request["user_email"],
+        user_name=request["user_name"],
+        subject=request["subject"],
+        request_number=request["request_number"],
+        admin_message=body.message.strip(),
+        new_status=new_status,
+    )
 
     return {
         "id": str(msg_row["id"]),
@@ -210,7 +219,7 @@ async def admin_reply(
 async def change_status(
     request_id: str,
     body: StatusChangeBody,
-    _: dict = Depends(require_role("admin", "manager")),
+    _: dict = Depends(ADMIN_ONLY),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     """Change a request's status without adding a message."""
