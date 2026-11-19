@@ -19,6 +19,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 
 ### Fixed
 - Malformed ids in URLs return 404 instead of a server error, and the seat map of an unknown show returns 404 instead of an empty map (#140)
+- Concerts, theatre, comedy and sports events no longer show cinema formats (2D, IMAX) or a cinema screen on the seat map; movies offer only the formats their showtimes have, and managers are warned when a screen's layout does not fit the event (#168)
 
 ### Security
 - The backend now trusts only Firebase ID tokens that the Firebase Admin SDK verifies
