@@ -24,6 +24,7 @@ from routers.verification_documents import router as verification_documents_rout
 from routers.organizer_verification import router as organizer_verification_router
 from routers.organizer_admin import router as organizer_admin_router
 from routers.support_admin import router as support_admin_router
+from routers.admin_users import router as admin_users_router
 from routers.venue_verification import router as venue_verification_router
 from routers.wishlist import router as wishlist_router
 from routers.notifications import router as notifications_router
@@ -104,6 +105,7 @@ app.include_router(verification_documents_router)
 app.include_router(organizer_verification_router)
 app.include_router(organizer_admin_router)
 app.include_router(support_admin_router)
+app.include_router(admin_users_router)
 app.include_router(venue_verification_router)
 app.include_router(wishlist_router)
 app.include_router(notifications_router)

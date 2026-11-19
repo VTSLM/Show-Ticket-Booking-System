@@ -58,3 +58,9 @@ def verify_firebase_token(id_token: str) -> dict:
     if not decoded.get("uid"):
         raise ValueError("Invalid Firebase token")
     return decoded
+
+
+def revoke_refresh_tokens(uid: str) -> None:
+    """Sign the user out of every Firebase session (used when an admin blocks them)."""
+    init_firebase()
+    firebase_auth.revoke_refresh_tokens(uid)

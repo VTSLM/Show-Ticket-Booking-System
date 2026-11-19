@@ -7,6 +7,7 @@ import asyncpg
 
 from database import get_conn
 from dependencies import get_current_user, require_role
+from services.admin_users import write_audit
 from firebase_admin_setup import verify_firebase_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -145,14 +146,22 @@ async def list_pending(
 async def process_approval(
     user_id: str,
     req: ApproveUserRequest,
-    _: dict = Depends(require_role("admin")),
+    admin: dict = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
-    if req.action == "approve":
-        await conn.execute("UPDATE users SET status='active' WHERE id=$1", user_id)
-        return {"message": "User approved"}
-    elif req.action == "reject":
-        await conn.execute("UPDATE users SET status='blocked' WHERE id=$1", user_id)
-        return {"message": "User rejected"}
-    else:
+    if req.action not in ("approve", "reject"):
         raise HTTPException(status_code=400, detail="action must be approve or reject")
+    new_status = "active" if req.action == "approve" else "blocked"
+    async with conn.transaction():
+        result = await conn.execute(
+            "UPDATE users SET status=$2, updated_at=now() WHERE id=$1::uuid AND status='inactive'",
+            user_id, new_status,
+        )
+        if result == "UPDATE 0":
+            raise HTTPException(status_code=404, detail="No pending user with this id")
+        await write_audit(
+            conn, admin["id"], user_id,
+            "manager_approved" if req.action == "approve" else "manager_rejected",
+            {"from": "inactive", "to": new_status}, None,
+        )
+    return {"message": "User approved" if req.action == "approve" else "User rejected"}
