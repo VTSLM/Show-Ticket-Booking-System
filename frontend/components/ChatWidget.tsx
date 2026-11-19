@@ -174,8 +174,12 @@ export default function ChatWidget() {
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [replyIds, setReplyIds] = useState<Record<number, string>>({});
+  const [feedbackByReply, setFeedbackByReply] = useState<Record<string, 1 | -1>>({});
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState<Record<string, boolean>>({});
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const assistantIndexRef = useRef<number | null>(null);
 
   const context = useMemo(() => contextFromPath(pathname), [pathname]);
   const suggestions = suggestionsFor(context, !!profile);
@@ -202,11 +206,13 @@ export default function ChatWidget() {
     setError(null);
     setResultCards([]);
     setSending(true);
+    assistantIndexRef.current = null;
     let started = false;
     // Updaters stay pure (React may run them twice in development)
     const appendText = (text: string) => {
       if (!started) {
         started = true;
+        assistantIndexRef.current = messages.length + 1;
         setMessages(m => [...m, { role: "assistant", content: text }]);
       } else {
         setMessages(m => {
@@ -224,6 +230,11 @@ export default function ChatWidget() {
           appendText(event.text);
         } else if (event.type === "cards") {
           setResultCards(event.cards);
+        } else if (event.type === "done") {
+          const index = assistantIndexRef.current;
+          if (index !== null) {
+            setReplyIds(prev => ({ ...prev, [index]: event.reply_id }));
+          }
         } else if (event.type === "error") {
           setError(event.message);
         }
@@ -235,6 +246,19 @@ export default function ChatWidget() {
     } finally {
       setSending(false);
       setStatus(null);
+    }
+  };
+
+  const submitFeedback = async (replyId: string, rating: 1 | -1) => {
+    if (feedbackByReply[replyId] || feedbackSubmitting[replyId]) return;
+    setFeedbackSubmitting(prev => ({ ...prev, [replyId]: true }));
+    try {
+      await chatApi.feedback(replyId, rating);
+      setFeedbackByReply(prev => ({ ...prev, [replyId]: rating }));
+    } catch {
+      setError("Could not save your feedback. Please try again.");
+    } finally {
+      setFeedbackSubmitting(prev => ({ ...prev, [replyId]: false }));
     }
   };
 
@@ -263,7 +287,15 @@ export default function ChatWidget() {
             </div>
             <div className="flex items-center gap-1">
               {messages.length > 0 && (
-                <button onClick={() => { setMessages([]); setResultCards([]); setError(null); }}
+                <button onClick={() => {
+                  setMessages([]);
+                  setResultCards([]);
+                  setReplyIds({});
+                  setFeedbackByReply({});
+                  setFeedbackSubmitting({});
+                  assistantIndexRef.current = null;
+                  setError(null);
+                }}
                         className="rounded-lg px-2 py-1 text-xs text-[var(--muted)] hover:bg-white/5 hover:text-white">
                   New chat
                 </button>
@@ -290,17 +322,55 @@ export default function ChatWidget() {
               </div>
             )}
 
-            {messages.map((m, i) => (
-              <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                <div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                  m.role === "user"
-                    ? "rounded-br-sm bg-[var(--blue)] text-white"
-                    : "rounded-bl-sm border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--foreground)]"
-                }`}>
-                  {m.role === "assistant" ? <RichText text={m.content} onNavigate={() => setOpen(false)} /> : m.content}
+            {messages.map((m, i) => {
+              const replyId = replyIds[i];
+              const submittedRating = replyId ? feedbackByReply[replyId] : undefined;
+              const submitting = replyId ? !!feedbackSubmitting[replyId] : false;
+
+              return (
+                <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+                  <div className="max-w-[85%]">
+                    <div className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                      m.role === "user"
+                        ? "rounded-br-sm bg-[var(--blue)] text-white"
+                        : "rounded-bl-sm border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--foreground)]"
+                    }`}>
+                      {m.role === "assistant" ? <RichText text={m.content} onNavigate={() => setOpen(false)} /> : m.content}
+                    </div>
+
+                    {m.role === "assistant" && replyId && (
+                      <div className="mt-1.5 flex items-center gap-2 px-1 text-xs text-[var(--muted)]" aria-label="Reply feedback">
+                        {submittedRating ? (
+                          <span role="status">Thanks for your feedback! {submittedRating === 1 ? "👍" : "👎"}</span>
+                        ) : (
+                          <>
+                            <span>Was this helpful?</span>
+                            <button
+                              type="button"
+                              aria-label="Helpful"
+                              disabled={submitting}
+                              onClick={() => submitFeedback(replyId, 1)}
+                              className="rounded-md px-1.5 py-1 hover:bg-white/5 disabled:opacity-50"
+                            >
+                              👍
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Not helpful"
+                              disabled={submitting}
+                              onClick={() => submitFeedback(replyId, -1)}
+                              className="rounded-md px-1.5 py-1 hover:bg-white/5 disabled:opacity-50"
+                            >
+                              👎
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {resultCards.length > 0 && (
               <div className="space-y-3">
                 {resultCards.map(card => (
