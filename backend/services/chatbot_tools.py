@@ -105,7 +105,7 @@ async def _upcoming_shows(
     rows = await conn.fetch(
         f"""SELECT s.id AS show_id, s.start_time, s.dynamic_pricing,
                    e.id AS event_id, e.title, e.event_type::text AS event_type,
-                   e.language, e.genre, e.duration_minutes,
+                   e.language, e.genre, e.duration_minutes, e.poster_url,
                    v.name AS venue_name, v.city, v.address,
                    MIN(ss.price) AS base_price,
                    COUNT(ss.id) FILTER (WHERE ss.status = 'available') AS available_seats,
@@ -128,6 +128,9 @@ async def _upcoming_shows(
 def _show_card(show: dict) -> dict:
     return {
         "show_id": str(show["show_id"]),
+        "event_id": str(show["event_id"]),
+        "title": show["title"],
+        "poster_url": show.get("poster_url"),
         "time": _fmt_time(show["start_time"]),
         "venue": show["venue_name"],
         "city": show["city"],
