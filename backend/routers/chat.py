@@ -1,6 +1,9 @@
 """POST /api/chat: the TicketFlow assistant (services/chatbot.py)."""
 import json
 from typing import List, Literal, Optional
+from uuid import UUID
+
+import asyncpg
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -42,6 +45,11 @@ class ChatRequest(BaseModel):
         return value
 
 
+class ChatFeedbackRequest(BaseModel):
+    reply_id: UUID
+    rating: Literal[-1, 1]
+
+
 async def _prepare_request(body: ChatRequest, auth: Optional[HTTPAuthorizationCredentials]):
     """Resolve the user and the page context. Returns (user, context, history, pool)."""
     # No request-long database connection: a reply can take several seconds of
@@ -71,6 +79,39 @@ async def chat(
     except chatbot.AssistantUnavailable as exc:
         raise HTTPException(status_code=503, detail=chatbot.BUSY_REPLY if exc.busy else UNAVAILABLE)
     return {"reply": reply}
+
+
+@router.post("/feedback")
+async def chat_feedback(
+    body: ChatFeedbackRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+):
+    """Store one helpful/not-helpful vote for an assistant reply.
+
+    Feedback contains only the reply UUID, optional internal user ID, rating,
+    and timestamp. The assistant message itself is never stored here.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        user = await get_optional_user(auth, conn)
+        if user and user.get("status") != "active":
+            user = None
+        try:
+            await conn.execute(
+                """
+                INSERT INTO chat_feedback (reply_id, user_id, rating)
+                VALUES ($1, $2, $3)
+                """,
+                body.reply_id,
+                user.get("id") if user else None,
+                body.rating,
+            )
+        except asyncpg.UniqueViolationError:
+            raise HTTPException(
+                status_code=409,
+                detail="Feedback has already been submitted for this reply.",
+            )
+    return {"ok": True}
 
 
 @router.post("/stream")

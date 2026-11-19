@@ -14,7 +14,7 @@ async function request<T>(
   body?: unknown,
   requireAuth: boolean | "optional" = true
 ): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = { "Content-Type": "application/json"};
 
   if (requireAuth) {
     const token = await getToken();
@@ -339,8 +339,8 @@ export type ChatStreamEvent =
   | { type: "status"; tool: string; text: string }
   | { type: "delta"; text: string }
   | { type: "cards"; cards: ChatResultCard[] }
-  | { type: "done" }
-  | { type: "error"; message: string };
+  | { type: "done"; reply_id: string; truncated?: boolean }
+  | { type: "error"; message: string};
 
 export const chatApi = {
   // Sends the login token when there is one, so the assistant can see the user's own bookings
@@ -355,7 +355,7 @@ export const chatApi = {
     onEvent: (event: ChatStreamEvent) => void,
     signal?: AbortSignal
   ): Promise<void> => {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = { "Content-Type": "application/json"};
     const token = await getToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(`${API_URL}/api/chat/stream`, {
@@ -383,4 +383,10 @@ export const chatApi = {
       }
     }
   },
+
+  feedback: (replyId: string, rating: 1 | -1) =>
+    api.post<{ ok: boolean }>("/api/chat/feedback", {
+      reply_id: replyId,
+      rating,
+    }, "optional"),
 };
