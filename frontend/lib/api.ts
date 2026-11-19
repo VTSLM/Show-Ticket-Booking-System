@@ -1,6 +1,27 @@
 import { auth } from "./firebase";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const SESSION_STORAGE_KEY = "ticketflow_session_id";
+
+let sessionExpiryHandler: (() => void) | null = null;
+
+export function onSessionExpired(handler: () => void) {
+  sessionExpiryHandler = handler;
+}
+
+export function getActiveSessionId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(SESSION_STORAGE_KEY);
+}
+
+export function setActiveSessionId(sessionId: string | null) {
+  if (typeof window === "undefined") return;
+  if (sessionId) {
+    localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+  } else {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  }
+}
 
 async function getToken(): Promise<string | null> {
   const user = auth.currentUser;
@@ -14,12 +35,15 @@ async function request<T>(
   body?: unknown,
   requireAuth: boolean | "optional" = true
 ): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = { "Content-Type": "application/json"};
 
   if (requireAuth) {
     const token = await getToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
     else if (requireAuth !== "optional") throw new Error("Not authenticated");
+
+    const sessionId = getActiveSessionId();
+    if (sessionId) headers["X-Session-ID"] = sessionId;
   }
 
   const res = await fetch(`${API_URL}${path}`, {
@@ -30,7 +54,18 @@ async function request<T>(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Request failed");
+    const detail = err.detail || "Request failed";
+    if (
+      res.status === 401 &&
+      (detail.toLowerCase().includes("inactivity") ||
+        detail.toLowerCase().includes("session expired") ||
+        detail.toLowerCase().includes("revoked"))
+    ) {
+      if (sessionExpiryHandler) {
+        sessionExpiryHandler();
+      }
+    }
+    throw new Error(detail);
   }
 
   if (res.status === 204) return undefined as T;
@@ -49,8 +84,20 @@ export const api = {
 
 export const authApi = {
   register: (data: object) => api.post("/auth/register", data, false),
-  verifyToken: (id_token: string) => api.post("/auth/verify-token", { id_token }, false),
+  verifyToken: (id_token: string, session_id?: string | null) =>
+    api.post("/auth/verify-token", { id_token, session_id }, false),
   me: () => api.get("/auth/me"),
+  heartbeat: (session_id?: string) =>
+    api.post("/auth/session/heartbeat", { session_id }),
+  logoutSession: (session_id?: string) =>
+    api.post("/auth/session/logout", { session_id }, false),
+  getSessionPolicy: () =>
+    api.get<{
+      customer_timeout_seconds: number;
+      manager_timeout_seconds: number;
+      admin_timeout_seconds: number;
+      warning_lead_seconds: number;
+    }>("/auth/session/policy", false),
 };
 
 export const browseApi = {
@@ -371,11 +418,25 @@ export interface ChatContext {
   booking_id?: string;
 }
 
+export interface ChatResultCard {
+  show_id: string;
+  event_id: string;
+  title: string;
+  poster_url?: string | null;
+  time: string;
+  venue: string;
+  city: string;
+  price_from?: string | null;
+  seats_left: number;
+  book_link: string;
+}
+
 export type ChatStreamEvent =
   | { type: "status"; tool: string; text: string }
   | { type: "delta"; text: string }
-  | { type: "done" }
-  | { type: "error"; message: string };
+  | { type: "cards"; cards: ChatResultCard[] }
+  | { type: "done"; reply_id: string; truncated?: boolean }
+  | { type: "error"; message: string};
 
 export const chatApi = {
   // Sends the login token when there is one, so the assistant can see the user's own bookings
@@ -390,7 +451,7 @@ export const chatApi = {
     onEvent: (event: ChatStreamEvent) => void,
     signal?: AbortSignal
   ): Promise<void> => {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = { "Content-Type": "application/json"};
     const token = await getToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(`${API_URL}/api/chat/stream`, {
@@ -418,4 +479,10 @@ export const chatApi = {
       }
     }
   },
+
+  feedback: (replyId: string, rating: 1 | -1) =>
+    api.post<{ ok: boolean }>("/api/chat/feedback", {
+      reply_id: replyId,
+      rating,
+    }, "optional"),
 };

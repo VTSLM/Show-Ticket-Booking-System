@@ -12,12 +12,6 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Project documentation, logo, MIT license, contribution workflow, issue and PR templates (#84)
 - Stricter CI with tests, linting, migration checks, secret scanning, CodeQL and Dependabot (#85)
 
-### Fixed
-- Unexpected server errors now return a JSON 500 with CORS headers, so the browser shows the real error instead of a CORS failure
-- Cancelling a booking answers immediately; the Razorpay refund is requested in the background (30 s timeout) and its id stored when Razorpay confirms
-- Support emails (new request, admin reply) are sent after the response, so customers and admins no longer wait several seconds; SMTP calls now time out after 20 s
-- My Bookings shows expired bookings as "Expired" instead of "Pending"
-- Browse price sorting follows the price shown on each card (the current dynamic price), and grouped events show their cheapest showtime's price
 ### Changed
 - Sign-up: Confirm Password must be typed (copy, cut, paste and drag-and-drop are blocked in that field only) and shows whether the passwords match while typing (#136)
 
