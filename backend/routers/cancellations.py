@@ -10,8 +10,6 @@ from pydantic import BaseModel, Field
 
 from database import get_conn
 from dependencies import get_current_user, require_role
-
-require_admin = require_role("admin")
 from config import RAZORPAY_WEBHOOK_SECRET
 from services.cancellation_policy_service import (
     get_show_cancellation_policy,
@@ -28,6 +26,8 @@ from services.cancellation_notification_service import (
     send_cancellation_email,
     send_refund_status_email,
 )
+
+require_admin = require_role("admin")
 
 router = APIRouter(prefix="/api/bookings", tags=["cancellations"])
 

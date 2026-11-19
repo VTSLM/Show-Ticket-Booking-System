@@ -59,7 +59,7 @@ async def send_cancellation_email(
     event_title: str,
     venue_name: str,
     start_time: str,
-    seats_list: List[str],
+    seats_list: list[str],
     refund_amount: float,
     cancellation_charge: float,
 ):
