@@ -1,19 +1,25 @@
+"""
+Tests for Booking Cancellation, Refund Management & Policy Enforcement.
+Covers background refund scheduling, timeout handling, policy calculations,
+atomic execution, webhook processing, and administrator retry capabilities.
+"""
+import asyncio
 import hashlib
 import hmac
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from routers import cancellations
-from services.cancellation_policy_service import (
-    evaluate_cancellation_eligibility,
-    DEFAULT_POLICY,
-)
 from services import refund_service
+from services.cancellation_policy_service import (
+    DEFAULT_POLICY,
+    evaluate_cancellation_eligibility,
+)
 
 
 BOOKING_ID = "11111111-2222-3333-4444-555555555555"
@@ -24,8 +30,131 @@ CURRENT_USER = {"id": USER_ID, "email": "customer@example.com", "role": "custome
 ADMIN_USER = {"id": "admin-id-123", "email": "admin@ticketflow.com", "role": "admin"}
 
 
+# ── Helpers for origin/main background tests ─────────────────────────────────
+
+def _conn(booking_row):
+    conn = MagicMock()
+    conn.fetchrow = AsyncMock(return_value=booking_row)
+    conn.execute = AsyncMock()
+    tx = MagicMock()
+    tx.__aenter__ = AsyncMock(return_value=None)
+    tx.__aexit__ = AsyncMock(return_value=False)
+    conn.transaction = MagicMock(return_value=tx)
+    return conn
+
+
+def _booking(**over):
+    row = {
+        "id": BOOKING_ID,
+        "status": "confirmed",
+        "total_amount": 210.0,
+        "show_id": "33333333-3333-3333-3333-333333333333",
+        "start_time": datetime.now(timezone.utc) + timedelta(days=1),
+        "payment_id": "44444444-4444-4444-4444-444444444444",
+        "payment_status": "successful",
+        "transaction_id": "pay_TEST123",
+        "paid_amount": 210.0,
+    }
+    row.update(over)
+    return row
+
+
+class _FakeRazorpay:
+    calls = []
+
+    def __init__(self, auth):
+        self.payment = self
+
+    def refund(self, payment_id, data, **kwargs):
+        _FakeRazorpay.calls.append((payment_id, data, kwargs))
+        return {"id": "rfnd_TEST"}
+
+
+def _fake_pool(conn):
+    acquire = MagicMock()
+    acquire.__aenter__ = AsyncMock(return_value=conn)
+    acquire.__aexit__ = AsyncMock(return_value=False)
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=acquire)
+    return pool
+
+
 # ----------------------------------------------------------------------
-# 1. Unit Tests for Policy & Refund Calculation
+# 1. Background Tasks & Async Refund Tests (from main hardening)
+# ----------------------------------------------------------------------
+
+def test_cancel_returns_without_calling_razorpay(monkeypatch):
+    refund = AsyncMock()
+    monkeypatch.setattr(cancellations, "refund_and_record", refund)
+    tasks = BackgroundTasks()
+
+    result = asyncio.run(cancellations.cancel_booking(BOOKING_ID, tasks, CURRENT_USER, _conn(_booking())))
+
+    assert result["status"] == "cancelled"
+    assert result["refund_initiated"] is True
+    assert result["refund_amount"] == 210.0
+    refund.assert_not_awaited()  # nothing slow before the response
+    asyncio.run(tasks())
+    refund.assert_awaited_once_with("44444444-4444-4444-4444-444444444444", "pay_TEST123", 21000)
+
+
+def test_cancel_without_payment_schedules_no_refund(monkeypatch):
+    refund = AsyncMock()
+    monkeypatch.setattr(cancellations, "refund_and_record", refund)
+    tasks = BackgroundTasks()
+
+    row = _booking(payment_id=None, transaction_id=None, paid_amount=None)
+    result = asyncio.run(cancellations.cancel_booking(BOOKING_ID, tasks, CURRENT_USER, _conn(row)))
+
+    assert result["refund_initiated"] is False
+    assert result["refund_amount"] == 0.0
+    assert len(tasks.tasks) == 0
+
+
+def test_cancel_too_close_to_show_is_refused():
+    row = _booking(start_time=datetime.now(timezone.utc) + timedelta(minutes=30))
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(cancellations.cancel_booking(BOOKING_ID, BackgroundTasks(), CURRENT_USER, _conn(row)))
+    assert exc.value.status_code == 400
+
+
+def test_refund_call_uses_a_timeout(monkeypatch):
+    _FakeRazorpay.calls = []
+    monkeypatch.setattr(refund_service.razorpay, "Client", _FakeRazorpay)
+
+    refund_id = asyncio.run(refund_service.initiate_razorpay_refund("pay_TEST123", 21000))
+
+    assert refund_id == "rfnd_TEST"
+    payment_id, data, kwargs = _FakeRazorpay.calls[0]
+    assert data == {"amount": 21000}
+    assert kwargs["timeout"] == refund_service.RAZORPAY_TIMEOUT
+
+
+def test_refund_id_is_stored_after_success(monkeypatch):
+    db = MagicMock()
+    db.execute = AsyncMock()
+    monkeypatch.setattr(refund_service, "initiate_razorpay_refund", AsyncMock(return_value="rfnd_TEST"))
+    monkeypatch.setattr(refund_service, "get_pool", AsyncMock(return_value=_fake_pool(db)))
+
+    asyncio.run(refund_service.refund_and_record("pay-row-1", "pay_TEST123", 21000))
+
+    db.execute.assert_awaited_once()
+    assert db.execute.await_args.args[1:] == ("rfnd_TEST", "pay-row-1")
+
+
+def test_refund_failure_is_logged_not_raised(monkeypatch, capsys):
+    get_pool = AsyncMock()
+    monkeypatch.setattr(refund_service, "initiate_razorpay_refund", AsyncMock(side_effect=TimeoutError("read timed out")))
+    monkeypatch.setattr(refund_service, "get_pool", get_pool)
+
+    asyncio.run(refund_service.refund_and_record("pay-row-1", "pay_TEST123", 21000))
+
+    get_pool.assert_not_awaited()
+    assert "manual follow-up needed" in capsys.readouterr().out
+
+
+# ----------------------------------------------------------------------
+# 2. Unit Tests for Policy & Refund Calculation
 # ----------------------------------------------------------------------
 
 def test_policy_service_default_values():
@@ -79,13 +208,11 @@ def test_evaluate_eligibility_with_percentage_and_flat_fee():
     }
     eligible, reason, breakdown = evaluate_cancellation_eligibility(booking, policy)
     assert eligible is True
-    # 10% of 1000 = 100, + 50 = 150 charge
     assert breakdown["cancellation_charge"] == 150.0
     assert breakdown["expected_refund"] == 850.0
 
 
 def test_evaluate_eligibility_cutoff_passed():
-    # Only 1 hour until showtime, policy cutoff is 2 hours
     near_time = datetime.now(timezone.utc) + timedelta(hours=1)
     booking = {
         "status": "confirmed",
@@ -144,7 +271,7 @@ def test_evaluate_eligibility_pending_unpaid():
 
 
 # ----------------------------------------------------------------------
-# 2. Endpoint Tests: Eligibility
+# 3. Endpoint Tests: Eligibility
 # ----------------------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -181,16 +308,9 @@ async def test_get_cancel_eligibility_success():
         "user_name": "Customer",
         "user_email": "customer@example.com",
     }
-    # _fetch_booking_for_cancellation does:
-    # 1. fetchrow for booking
-    # 2. fetch for seats
-    # 3. fetchrow for refund
-    # get_show_cancellation_policy does:
-    # 4. fetchrow for policy
     conn.fetchrow.side_effect = [
         booking_row,
-        None,  # refund_row
-        DEFAULT_POLICY,  # policy
+        DEFAULT_POLICY,
     ]
     conn.fetch.return_value = [
         {"id": "ss-1", "row_label": "A", "seat_number": 1, "seat_type": "standard", "price": Decimal("400.00")},
@@ -213,7 +333,6 @@ async def test_get_cancel_eligibility_success():
 @pytest.mark.asyncio
 async def test_get_cancel_eligibility_other_user_403():
     conn = AsyncMock()
-    # Booking belongs to OTHER_USER_ID
     conn.fetchrow.return_value = {
         "id": BOOKING_ID,
         "user_id": OTHER_USER_ID,
@@ -230,7 +349,7 @@ async def test_get_cancel_eligibility_other_user_403():
 
 
 # ----------------------------------------------------------------------
-# 3. Endpoint Tests: Cancel Execution & Atomic Transaction
+# 4. Endpoint Tests: Cancel Execution & Atomic Transaction
 # ----------------------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -268,23 +387,16 @@ async def test_cancel_booking_success(monkeypatch):
         "user_email": "customer@example.com",
     }
 
-    # Sequence of fetchrow calls:
-    # 1. _fetch_booking_for_cancellation (booking_row)
-    # 2. _fetch_booking_for_cancellation (refund_row) -> None
-    # 3. get_show_cancellation_policy -> DEFAULT_POLICY
-    # 4. INSERT INTO refunds RETURNING id -> {"id": "refund-uuid-1"}
     conn.fetchrow.side_effect = [
         booking_record,
-        None,
         DEFAULT_POLICY,
-        {"id": "refund-uuid-1"},
     ]
+    conn.fetchval = AsyncMock(return_value="refund-uuid-1")
     conn.fetch.return_value = [
         {"id": "ss-1", "row_label": "B", "seat_number": 5, "seat_type": "standard", "price": Decimal("500.00")},
         {"id": "ss-2", "row_label": "B", "seat_number": 6, "seat_type": "standard", "price": Decimal("500.00")},
     ]
 
-    # Mock Razorpay refund call
     monkeypatch.setattr(
         cancellations,
         "initiate_razorpay_refund",
@@ -297,7 +409,6 @@ async def test_cancel_booking_success(monkeypatch):
         }),
     )
 
-    # Mock notifications
     monkeypatch.setattr(cancellations, "create_notification", AsyncMock())
     monkeypatch.setattr(cancellations, "notify_admins", AsyncMock())
     monkeypatch.setattr(cancellations, "send_cancellation_email", AsyncMock())
@@ -329,7 +440,6 @@ async def test_cancel_booking_success(monkeypatch):
 async def test_cancel_booking_duplicate_request_raises_conflict():
     conn = AsyncMock()
     conn.transaction = Mock(return_value=AsyncMock())
-    # Booking already has status 'cancelled'
     conn.fetchrow.side_effect = [
         {
             "id": BOOKING_ID,
@@ -346,7 +456,6 @@ async def test_cancel_booking_duplicate_request_raises_conflict():
             "payment_id": None,
             "cancellation_policy_id": None,
         },
-        None,  # refund
         DEFAULT_POLICY,
     ]
     conn.fetch.return_value = []
@@ -364,7 +473,7 @@ async def test_cancel_booking_duplicate_request_raises_conflict():
 
 
 # ----------------------------------------------------------------------
-# 4. Webhook Signature & Event Processing
+# 5. Webhook Signature & Event Processing
 # ----------------------------------------------------------------------
 
 def test_webhook_signature_verification():
@@ -405,7 +514,6 @@ async def test_webhook_refund_processed_event(monkeypatch):
     }
     raw_body = json.dumps(body).encode("utf-8")
 
-    # Mock signature verification
     monkeypatch.setattr(cancellations, "RAZORPAY_WEBHOOK_SECRET", "test_webhook_secret_key")
     monkeypatch.setattr(cancellations, "verify_razorpay_webhook_signature", lambda b, s, sec: True)
     monkeypatch.setattr(cancellations, "create_notification", AsyncMock())
@@ -424,7 +532,7 @@ async def test_webhook_refund_processed_event(monkeypatch):
 
 
 # ----------------------------------------------------------------------
-# 5. Admin Cancellation & Retry Management
+# 6. Admin Cancellation & Retry Management
 # ----------------------------------------------------------------------
 
 @pytest.mark.asyncio

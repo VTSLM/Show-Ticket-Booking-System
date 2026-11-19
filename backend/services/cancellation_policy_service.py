@@ -31,7 +31,7 @@ async def get_show_cancellation_policy(conn: asyncpg.Connection, show_id: str) -
         """,
         show_id,
     )
-    if row and row["name"]:
+    if row and ("name" in row) and row["name"]:
         return dict(row)
 
     # Fallback to default policy row in DB
@@ -44,7 +44,7 @@ async def get_show_cancellation_policy(conn: asyncpg.Connection, show_id: str) -
         LIMIT 1
         """
     )
-    if default_row:
+    if default_row and ("name" in default_row) and default_row["name"]:
         return dict(default_row)
 
     return dict(DEFAULT_POLICY)

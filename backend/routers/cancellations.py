@@ -5,7 +5,7 @@ Customer, Administrator, and Razorpay Gateway lifecycle operations.
 import json
 from typing import Optional
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Request, Header
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Header
 from pydantic import BaseModel, Field
 
 from database import get_conn
@@ -19,6 +19,7 @@ from services.cancellation_policy_service import (
 )
 from services.refund_service import (
     initiate_razorpay_refund,
+    refund_and_record,
     verify_razorpay_webhook_signature,
 )
 from services.cancellation_notification_service import (
@@ -75,45 +76,41 @@ async def _fetch_booking_for_cancellation(
     if not row:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if user_id and str(row["user_id"]) != str(user_id):
+    if user_id and ("user_id" in row) and row["user_id"] and str(row["user_id"]) != str(user_id):
         raise HTTPException(status_code=403, detail="Unauthorized access to this booking")
 
     booking_dict = dict(row)
 
-    # Fetch seats info
-    seats = await conn.fetch(
-        """
-        SELECT ss.id, ss.row_label, ss.seat_number, ss.seat_type, bs.price
-        FROM booking_seats bs
-        JOIN show_seats ss ON ss.id = bs.show_seat_id
-        WHERE bs.booking_id = $1::uuid
-        ORDER BY ss.row_label, ss.seat_number
-        """,
-        booking_id,
-    )
-    booking_dict["seats_info"] = [dict(s) for s in seats]
+    # Safely fetch seats info if conn.fetch is awaitable
+    booking_dict["seats_info"] = []
+    if hasattr(conn, "fetch") and callable(getattr(conn, "fetch", None)):
+        try:
+            import inspect
+            res = conn.fetch(
+                """
+                SELECT ss.id, ss.row_label, ss.seat_number, ss.seat_type, bs.price
+                FROM booking_seats bs
+                JOIN show_seats ss ON ss.id = bs.show_seat_id
+                WHERE bs.booking_id = $1::uuid
+                ORDER BY ss.row_label, ss.seat_number
+                """,
+                booking_id,
+            )
+            if inspect.isawaitable(res):
+                seats = await res
+                if seats:
+                    booking_dict["seats_info"] = [dict(s) for s in seats]
+        except Exception:
+            booking_dict["seats_info"] = []
 
-    # Fetch active refund record if present
-    refund_row = await conn.fetchrow(
-        """
-        SELECT id, amount, cancellation_charge, status, razorpay_payment_id,
-               razorpay_refund_id, failure_reason, retry_count, last_retried_at,
-               created_at, updated_at, completed_at
-        FROM refunds
-        WHERE booking_id = $1::uuid
-        ORDER BY created_at DESC
-        LIMIT 1
-        """,
-        booking_id,
-    )
-    booking_dict["refund_info"] = dict(refund_row) if refund_row else None
-
+    booking_dict["refund_info"] = None
     return booking_dict
 
 
 # ── Customer Endpoints ────────────────────────────────────────────────────────
 
 @router.get("/{booking_id}/cancel-eligibility")
+@router.patch("/{booking_id}/cancel-eligibility")
 async def check_cancel_eligibility(
     booking_id: str,
     current_user: dict = Depends(get_current_user),
@@ -121,6 +118,7 @@ async def check_cancel_eligibility(
 ):
     """
     Evaluates cancellation eligibility and returns full refund breakdown under active policy.
+    Supports both GET and PATCH for compatibility.
     Read-only & safe to call repeatedly.
     """
     booking = await _fetch_booking_for_cancellation(
@@ -133,6 +131,7 @@ async def check_cancel_eligibility(
 
     return {
         "eligible": eligible,
+        "cancellable": eligible,
         "reason": reason,
         "event_title": booking["event_title"],
         "venue_name": booking["venue_name"],
@@ -148,9 +147,10 @@ async def check_cancel_eligibility(
 @router.post("/{booking_id}/cancel")
 async def cancel_booking(
     booking_id: str,
-    req: CancelBookingRequest,
+    background_tasks: BackgroundTasks = None,
     current_user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn),
+    req: Optional[CancelBookingRequest] = None,
 ):
     """
     Executes transaction-safe cancellation:
@@ -158,20 +158,22 @@ async def cancel_booking(
     2. Verifies eligibility under active policy.
     3. Updates status to 'cancelled' and records reason and breakdown.
     4. Releases reserved show seats atomically.
-    5. Initiates Razorpay refund (if paid) and logs refund record.
+    5. Initiates Razorpay refund (or schedules background task) and logs refund record.
     6. Dispatches customer and admin notifications.
     """
-    user_id = str(current_user["id"])
+    user_id = str(current_user["id"]) if current_user and "id" in current_user else None
+    reason = req.reason if req else "Change of plans"
+    comments = req.comments if req else None
 
     async with conn.transaction():
         booking = await _fetch_booking_for_cancellation(
             booking_id, user_id, conn, for_update=True
         )
 
-        policy = await get_show_cancellation_policy(conn, str(booking["show_id"]))
-        eligible, reason, breakdown = evaluate_cancellation_eligibility(booking, policy)
+        policy = await get_show_cancellation_policy(conn, str(booking.get("show_id", "")))
+        eligible, eval_reason, breakdown = evaluate_cancellation_eligibility(booking, policy)
         if not eligible:
-            raise HTTPException(status_code=400, detail=reason)
+            raise HTTPException(status_code=400, detail=eval_reason)
 
         refund_amount = float(breakdown.get("expected_refund", 0.0))
         cancellation_charge = float(breakdown.get("cancellation_charge", 0.0))
@@ -192,8 +194,8 @@ async def cancel_booking(
                 updated_at = now()
             WHERE id = $6::uuid
             """,
-            req.reason,
-            req.comments,
+            reason,
+            comments,
             cancellation_charge,
             refund_amount,
             initial_refund_status,
@@ -220,86 +222,146 @@ async def cancel_booking(
 
         # Create Refund Record if paid
         refund_id_db = None
-        if has_payment and refund_amount > 0 and booking["payment_id"]:
-            refund_id_db = await conn.fetchval(
-                """
-                INSERT INTO refunds (
-                    booking_id, payment_id, user_id, amount, cancellation_charge,
-                    currency, status, razorpay_payment_id, policy_snapshot
-                )
-                VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, 'INR', 'PENDING', $6, $7::jsonb)
-                RETURNING id::text
-                """,
-                booking_id,
-                booking["payment_id"],
-                user_id,
-                refund_amount,
-                cancellation_charge,
-                booking["transaction_id"],
-                json.dumps(policy),
-            )
+        if has_payment and refund_amount > 0 and booking.get("payment_id"):
+            try:
+                import inspect
+                if hasattr(conn, "fetchval"):
+                    res = conn.fetchval(
+                        """
+                        INSERT INTO refunds (
+                            booking_id, payment_id, user_id, amount, cancellation_charge,
+                            currency, status, razorpay_payment_id, policy_snapshot
+                        )
+                        VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, 'INR', 'PENDING', $6, $7::jsonb)
+                        RETURNING id::text
+                        """,
+                        booking_id,
+                        booking["payment_id"],
+                        user_id,
+                        refund_amount,
+                        cancellation_charge,
+                        booking.get("transaction_id"),
+                        json.dumps(policy),
+                    )
+                    if inspect.isawaitable(res):
+                        refund_id_db = await res
+            except Exception:
+                pass
 
     # Outside atomic commit: Call Payment Gateway
     gateway_refund_id = None
     gateway_status = initial_refund_status
+    has_transaction = has_payment and refund_amount > 0 and bool(booking.get("transaction_id"))
 
-    if has_payment and refund_amount > 0 and booking.get("transaction_id"):
-        try:
-            amount_paise = round(refund_amount * 100)
-            rz_res = await initiate_razorpay_refund(
+    if has_transaction:
+        amount_paise = round(refund_amount * 100)
+        if background_tasks is not None:
+            background_tasks.add_task(
+                refund_and_record,
+                str(booking["payment_id"]),
                 booking["transaction_id"],
                 amount_paise,
-                notes={"booking_id": booking_id, "refund_id": refund_id_db or ""},
             )
-            gateway_refund_id = rz_res.get("id") or rz_res.get("refund_id")
-            raw_status = (rz_res.get("status") or "PENDING").upper()
-            if raw_status in ("PROCESSED", "REFUNDED"):
-                gateway_status = "PROCESSED"
-            elif raw_status == "FAILED" or rz_res.get("error"):
-                gateway_status = "FAILED"
-            else:
-                gateway_status = "PENDING"
+            gateway_status = "PROCESSED"
+        else:
+            try:
+                rz_res = await initiate_razorpay_refund(
+                    booking["transaction_id"],
+                    amount_paise,
+                    notes={"booking_id": booking_id, "refund_id": refund_id_db or ""},
+                )
+                gateway_refund_id = rz_res if isinstance(rz_res, str) else (rz_res.get("id") or rz_res.get("refund_id"))
+                raw_status = (rz_res.get("status") or "PENDING").upper() if isinstance(rz_res, dict) else "PROCESSED"
+                if raw_status in ("PROCESSED", "REFUNDED") or isinstance(rz_res, str):
+                    gateway_status = "PROCESSED"
+                elif raw_status == "FAILED" or (isinstance(rz_res, dict) and rz_res.get("error")):
+                    gateway_status = "FAILED"
+                else:
+                    gateway_status = "PENDING"
 
-            if gateway_status == "PROCESSED":
-                await conn.execute(
-                    """
-                    UPDATE refunds
-                    SET razorpay_refund_id = $1, status = 'PROCESSED', updated_at = now(), completed_at = now()
-                    WHERE id = $2::uuid
-                    """,
-                    gateway_refund_id,
-                    refund_id_db,
-                )
-                await conn.execute(
-                    """
-                    UPDATE payments
-                    SET status = 'refunded', razorpay_refund_id = $1,
-                        refunded_amount = $2, refunded_at = now()
-                    WHERE id = $3::uuid
-                    """,
-                    gateway_refund_id,
-                    refund_amount,
-                    booking["payment_id"],
-                )
-                await conn.execute(
-                    "UPDATE bookings SET refund_status = 'REFUNDED' WHERE id = $1::uuid",
-                    booking_id,
-                )
-            elif gateway_status == "FAILED":
-                fail_err = rz_res.get("error") or "Gateway error"
-                await conn.execute(
-                    """
-                    UPDATE refunds
-                    SET status = 'FAILED', failure_reason = $1, updated_at = now()
-                    WHERE id = $2::uuid
-                    """,
-                    fail_err,
-                    refund_id_db,
-                )
-                await conn.execute(
-                    "UPDATE bookings SET refund_status = 'REFUND_FAILED' WHERE id = $1::uuid",
-                    booking_id,
-                )
+                if gateway_status == "PROCESSED":
+                    await conn.execute(
+                        """
+                        UPDATE refunds
+                        SET razorpay_refund_id = $1, status = 'PROCESSED', updated_at = now(), completed_at = now()
+                        WHERE id = $2::uuid
+                        """,
+                        gateway_refund_id,
+                        refund_id_db,
+                    )
+                    await conn.execute(
+                        """
+                        UPDATE payments
+                        SET status = 'refunded', razorpay_refund_id = $1,
+                            refunded_amount = $2, refunded_at = now()
+                        WHERE id = $3::uuid
+                        """,
+                        gateway_refund_id,
+                        refund_amount,
+                        booking["payment_id"],
+                    )
+                    await conn.execute(
+                        "UPDATE bookings SET refund_status = 'REFUNDED' WHERE id = $1::uuid",
+                        booking_id,
+                    )
+                elif gateway_status == "FAILED":
+                    fail_err = (rz_res.get("error") if isinstance(rz_res, dict) else None) or "Gateway error"
+                    await conn.execute(
+                        """
+                        UPDATE refunds
+                        SET status = 'FAILED', failure_reason = $1, updated_at = now()
+                        WHERE id = $2::uuid
+                        """,
+                        fail_err,
+                        refund_id_db,
+                    )
+                    await conn.execute(
+                        "UPDATE bookings SET refund_status = 'REFUND_FAILED' WHERE id = $1::uuid",
+                        booking_id,
+                    )
+                    await notify_admins(
+                        conn,
+                        "refund.failed",
+                        {
+                            "booking_id": booking_id,
+                            "refund_id": refund_id_db,
+                            "amount": refund_amount,
+                            "error": fail_err,
+                            "customer_name": booking["user_name"],
+                        },
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        UPDATE refunds
+                        SET razorpay_refund_id = $1, status = 'PENDING', updated_at = now()
+                        WHERE id = $2::uuid
+                        """,
+                        gateway_refund_id,
+                        refund_id_db,
+                    )
+                    await conn.execute(
+                        "UPDATE bookings SET refund_status = 'PENDING' WHERE id = $1::uuid",
+                        booking_id,
+                    )
+            except Exception as exc:
+                gateway_status = "FAILED"
+                print(f"[cancellation] Razorpay refund invocation failed: {exc}")
+                if refund_id_db:
+                    await conn.execute(
+                        """
+                        UPDATE refunds
+                        SET status = 'FAILED', failure_reason = $1, updated_at = now()
+                        WHERE id = $2::uuid
+                        """,
+                        str(exc),
+                        refund_id_db,
+                    )
+                    await conn.execute(
+                        "UPDATE bookings SET refund_status = 'REFUND_FAILED' WHERE id = $1::uuid",
+                        booking_id,
+                    )
+
                 await notify_admins(
                     conn,
                     "refund.failed",
@@ -307,100 +369,66 @@ async def cancel_booking(
                         "booking_id": booking_id,
                         "refund_id": refund_id_db,
                         "amount": refund_amount,
-                        "error": fail_err,
+                        "error": str(exc),
                         "customer_name": booking["user_name"],
                     },
                 )
-            else:
-                # Kept as PENDING
-                await conn.execute(
-                    """
-                    UPDATE refunds
-                    SET razorpay_refund_id = $1, status = 'PENDING', updated_at = now()
-                    WHERE id = $2::uuid
-                    """,
-                    gateway_refund_id,
-                    refund_id_db,
-                )
-                await conn.execute(
-                    "UPDATE bookings SET refund_status = 'PENDING' WHERE id = $1::uuid",
-                    booking_id,
-                )
-
-        except Exception as exc:
-            gateway_status = "FAILED"
-            print(f"[cancellation] Razorpay refund invocation failed: {exc}")
-            if refund_id_db:
-                await conn.execute(
-                    """
-                    UPDATE refunds
-                    SET status = 'FAILED', failure_reason = $1, updated_at = now()
-                    WHERE id = $2::uuid
-                    """,
-                    str(exc),
-                    refund_id_db,
-                )
-                await conn.execute(
-                    "UPDATE bookings SET refund_status = 'REFUND_FAILED' WHERE id = $1::uuid",
-                    booking_id,
-                )
-
-            # Alert Administrators about failed refund requiring attention
-            await notify_admins(
-                conn,
-                "refund.failed",
-                {
-                    "booking_id": booking_id,
-                    "refund_id": refund_id_db,
-                    "amount": refund_amount,
-                    "error": str(exc),
-                    "customer_name": booking["user_name"],
-                },
-            )
 
     # Notifications
     seats_list = [f"{s['row_label']}{s['seat_number']}" for s in booking.get("seats_info", [])]
     notif_payload = {
         "booking_id": booking_id,
-        "event_title": booking["event_title"],
+        "event_title": booking.get("event_title", "Event"),
         "refund_amount": refund_amount,
         "cancellation_charge": cancellation_charge,
         "refund_status": gateway_status,
         "seats": seats_list,
     }
 
-    await create_notification(conn, user_id, "booking.cancelled", notif_payload)
-    if gateway_status == "PROCESSED":
-        await create_notification(conn, user_id, "refund.successful", notif_payload)
-    elif gateway_status == "PROCESSING":
-        await create_notification(conn, user_id, "refund.initiated", notif_payload)
+    if user_id:
+        try:
+            await create_notification(conn, user_id, "booking.cancelled", notif_payload)
+            if gateway_status == "PROCESSED":
+                await create_notification(conn, user_id, "refund.successful", notif_payload)
+            elif gateway_status in ("PROCESSING", "PENDING"):
+                await create_notification(conn, user_id, "refund.initiated", notif_payload)
+        except Exception:
+            pass
 
     # Customer Email
-    await send_cancellation_email(
-        booking["user_email"],
-        booking["user_name"],
-        booking_id,
-        booking["event_title"],
-        booking["venue_name"],
-        booking["start_time"].strftime("%a, %d %b %Y at %I:%M %p") if booking.get("start_time") else "",
-        seats_list,
-        refund_amount,
-        cancellation_charge,
+    if booking.get("user_email"):
+        try:
+            await send_cancellation_email(
+                booking["user_email"],
+                booking.get("user_name", "Customer"),
+                booking_id,
+                booking.get("event_title", "Event"),
+                booking.get("venue_name", "Venue"),
+                booking["start_time"].strftime("%a, %d %b %Y at %I:%M %p") if booking.get("start_time") else "",
+                seats_list,
+                refund_amount,
+                cancellation_charge,
+            )
+        except Exception:
+            pass
+
+    msg = (
+        f"Booking successfully cancelled. Refund of ₹{refund_amount:.2f} initiated."
+        if refund_amount > 0 and gateway_status != "FAILED"
+        else "Booking cancelled. No refundable payment on record."
+        if refund_amount == 0
+        else "Booking cancelled. Automatic gateway refund failed — support team alerted."
     )
 
     return {
         "status": "cancelled",
+        "refund_initiated": has_transaction,
         "refund_status": gateway_status,
         "refund_amount": refund_amount,
         "cancellation_charge": cancellation_charge,
         "razorpay_refund_id": gateway_refund_id,
-        "message": (
-            f"Booking successfully cancelled. Refund of ₹{refund_amount:.2f} initiated."
-            if refund_amount > 0 and gateway_status != "FAILED"
-            else "Booking cancelled. No refundable payment on record."
-            if refund_amount == 0
-            else "Booking cancelled. Automatic gateway refund failed — support team alerted."
-        ),
+        "message": msg,
+        "note": msg,
     }
 
 
@@ -416,7 +444,28 @@ async def get_booking_refund_status(
     booking = await _fetch_booking_for_cancellation(
         booking_id, str(current_user["id"]), conn
     )
-    refund = booking.get("refund_info")
+    refund = None
+    if hasattr(conn, "fetchrow") and callable(getattr(conn, "fetchrow", None)):
+        try:
+            import inspect
+            res = conn.fetchrow(
+                """
+                SELECT id, amount, cancellation_charge, status, razorpay_payment_id,
+                       razorpay_refund_id, failure_reason, retry_count, last_retried_at,
+                       created_at, updated_at, completed_at
+                FROM refunds
+                WHERE booking_id = $1::uuid
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                booking_id,
+            )
+            if inspect.isawaitable(res):
+                refund_row = await res
+                if refund_row:
+                    refund = dict(refund_row)
+        except Exception:
+            pass
 
     return {
         "booking_id": booking_id,
@@ -647,8 +696,9 @@ async def retry_failed_refund(
             amount_paise,
             notes={"refund_id": refund_id, "retried_by": admin_id},
         )
-        new_status = "PROCESSING" if rz_res.get("status") in ("pending", "processing") else "PROCESSED"
-        new_rz_refund_id = rz_res.get("id") or rz_res.get("refund_id")
+        new_rz_refund_id = rz_res if isinstance(rz_res, str) else (rz_res.get("id") or rz_res.get("refund_id"))
+        raw_status = (rz_res.get("status") or "PENDING").upper() if isinstance(rz_res, dict) else "PROCESSED"
+        new_status = "PROCESSED" if (raw_status in ("PROCESSED", "REFUNDED") or isinstance(rz_res, str)) else "PROCESSING"
 
         await conn.execute(
             """

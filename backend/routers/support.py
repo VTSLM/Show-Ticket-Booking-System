@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Literal, Optional
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from database import get_conn
@@ -100,11 +100,20 @@ async def _get_own_request(conn: asyncpg.Connection, request_id: str, user_id: s
     return dict(row)
 
 
+async def _email_admin_safely(**kwargs) -> None:
+    """Background task: a failed email must never affect the support request."""
+    try:
+        await send_new_ticket_notification(**kwargs)
+    except Exception as exc:
+        print(f"[support] admin email failed: {exc}")
+
+
 # ───────────────────────── Endpoints ─────────────────────────
 
 @router.post("/requests", status_code=201)
 async def create_request(
     req: CreateSupportRequest,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
@@ -138,19 +147,17 @@ async def create_request(
             row["id"], user_id, req.message,
         )
 
-    # Email admin on new ticket (item 7 — fire-and-forget)
-    try:
-        await send_new_ticket_notification(
-            admin_email=GMAIL_USER,
-            user_name=current_user["name"],
-            user_email=current_user["email"],
-            subject=req.subject,
-            request_number=request_number,
-            category=req.category,
-            message_preview=req.message,
-        )
-    except Exception as exc:
-        print(f"[support] admin email failed: {exc}")
+    # Email the admin after the response is sent, so the customer doesn't wait for SMTP
+    background_tasks.add_task(
+        _email_admin_safely,
+        admin_email=GMAIL_USER,
+        user_name=current_user["name"],
+        user_email=current_user["email"],
+        subject=req.subject,
+        request_number=request_number,
+        category=req.category,
+        message_preview=req.message,
+    )
 
     return dict(row)
 

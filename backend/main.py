@@ -1,10 +1,13 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 
+from config import CORS_ORIGINS, IS_PRODUCTION, check_production_settings
 from database import get_pool, close_pool
+from error_handling import CatchUnhandledErrors
 from firebase_admin_setup import init_firebase
+from path_ids import validate_path_ids
 from rate_limit import RateLimitMiddleware
 from routers.auth import router as auth_router, admin_router
 from routers.manager import router as manager_router
@@ -47,6 +50,7 @@ async def _cleanup_expired_locks():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    check_production_settings()
     init_firebase()
     await get_pool()
     task = asyncio.create_task(_cleanup_expired_locks())
@@ -60,7 +64,16 @@ app = FastAPI(
     description="Unified backend for the TicketFlow show booking system",
     version="1.0.0",
     lifespan=lifespan,
+    # Malformed ids in URLs -> 404 before any database query (#140)
+    dependencies=[Depends(validate_path_ids)],
+    # The interactive API docs are for development only.
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
 )
+
+# Added before CORS so it sits inside it: error responses keep their CORS headers.
+app.add_middleware(CatchUnhandledErrors)
 
 # Rate limiting. Added BEFORE CORS on purpose: the last middleware added is the
 # outermost, so CORS headers are also put on 429 responses and the browser can
@@ -69,11 +82,7 @@ app.add_middleware(RateLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://ticketflow.vercel.app",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

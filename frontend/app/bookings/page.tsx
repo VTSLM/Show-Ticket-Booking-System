@@ -55,7 +55,13 @@ export default function BookingsPage() {
     confirmed: { label: "Confirmed", color: "#00c977", bg: "#00c97715", border: "#00c97744", glow: "0 0 12px rgba(0,201,119,0.15)" },
     pending:   { label: "Pending",   color: "#ffb300", bg: "#ffb30015", border: "#ffb30044", glow: "0 0 12px rgba(255,179,0,0.15)" },
     cancelled: { label: "Cancelled", color: "#ff4455", bg: "#ff445515", border: "#ff445544", glow: "none" },
+    expired:   { label: "Expired",   color: "#9ba3b5", bg: "#9ba3b515", border: "#9ba3b544", glow: "none" },
   };
+  // Unknown statuses get a neutral badge with their own name, never "Pending"
+  const neutralStatus = (status: string) => ({
+    label: status ? status.charAt(0).toUpperCase() + status.slice(1) : "Unknown",
+    color: "#9ba3b5", bg: "#9ba3b515", border: "#9ba3b544", glow: "none",
+  });
 
   const filteredBookings = useMemo(() => {
     const now = new Date();
@@ -307,7 +313,7 @@ export default function BookingsPage() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {filteredBookings.map((b) => {
-              const sc = statusConfig[b.status] ?? statusConfig.pending;
+              const sc = statusConfig[b.status] ?? neutralStatus(b.status);
               const isCancelled = b.status === "cancelled";
               const refundAmt = Number(b.refund_amount || 0);
 
@@ -343,7 +349,6 @@ export default function BookingsPage() {
                   };
                 }
               }
-
               return (
                 <Link
                   key={b.id}

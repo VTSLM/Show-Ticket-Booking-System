@@ -3,20 +3,36 @@ from __future__ import annotations
 from typing import Optional
 from urllib.parse import urlparse, unquote
 
+import os
 import ssl
 import asyncpg
 
-from config import DATABASE_URL
+from config import DATABASE_URL, IS_PRODUCTION
 
 
 _pool: Optional[asyncpg.Pool] = None
 
 
 def _get_ssl_context():
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
+    """TLS for the database connection, chosen with DATABASE_SSL.
+
+    verify  (production default): encrypt and check the server certificate and host
+            name. DATABASE_SSL_ROOT_CERT can point to the provider's CA file
+            (Supabase needs its own CA; Azure's is in the system store).
+    require (development default): encrypt without checking the certificate.
+    disable : no TLS, for the local Docker database only.
+    """
+    mode = os.getenv("DATABASE_SSL", "verify" if IS_PRODUCTION else "require").strip().lower()
+    if mode == "disable":
+        return False
+    if mode == "require":
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    if mode == "verify":
+        return ssl.create_default_context(cafile=os.getenv("DATABASE_SSL_ROOT_CERT") or None)
+    raise ValueError("DATABASE_SSL must be verify, require or disable")
 
 
 def _parse_database_url():

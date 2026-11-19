@@ -43,6 +43,20 @@ LOCK_DURATION_MINUTES = 10
 # ---- REST endpoints ----
 @router.get("/{show_id}/map")
 async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
+    # Fetch screen and event layout metadata
+    show_meta = await conn.fetchrow(
+        """SELECT sc.layout_type, sc.stage_position, sc.layout_config,
+                  sh.terms_and_conditions as show_terms,
+                  e.terms_and_conditions as event_terms, e.event_type
+           FROM shows sh
+           JOIN screens sc ON sc.id = sh.screen_id
+           JOIN events e ON e.id = sh.event_id
+           WHERE sh.id = $1::uuid""",
+        show_id
+    )
+    if not show_meta:
+        raise HTTPException(status_code=404, detail="Show not found")
+
     # Release expired locks in DB before returning the map
     await conn.execute(
         """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL, locked_price=NULL
@@ -57,18 +71,6 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
            JOIN seats s ON s.id = ss.seat_id
            WHERE ss.show_id = $1::uuid
            ORDER BY s.row_label, s.seat_number""",
-        show_id
-    )
-
-    # Fetch screen and event layout metadata
-    show_meta = await conn.fetchrow(
-        """SELECT sc.layout_type, sc.stage_position, sc.layout_config,
-                  sh.terms_and_conditions as show_terms,
-                  e.terms_and_conditions as event_terms, e.event_type
-           FROM shows sh
-           JOIN screens sc ON sc.id = sh.screen_id
-           JOIN events e ON e.id = sh.event_id
-           WHERE sh.id = $1::uuid""",
         show_id
     )
 

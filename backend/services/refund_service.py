@@ -1,14 +1,19 @@
 """
 Razorpay refund integration service.
-Handles actual refund initiation, status tracking, idempotency, and test mode execution.
-Never mocks successful payment gateway processing in production mode.
+Handles refund initiation, status tracking, idempotency, and background execution.
 """
 import asyncio
-import hmac
 import hashlib
+import hmac
 from typing import Optional, Dict, Any
+
 import razorpay
+
 from config import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
+from database import get_pool
+
+# (connect, read) timeout in seconds for the Razorpay HTTP call
+RAZORPAY_TIMEOUT = (5, 30)
 
 
 def get_razorpay_client() -> razorpay.Client:
@@ -29,57 +34,48 @@ async def initiate_razorpay_refund(
     razorpay_payment_id: str,
     amount_paise: int,
     notes: Optional[Dict[str, str]] = None,
-    timeout: float = 10.0,
-) -> Dict[str, Any]:
+    timeout: Any = RAZORPAY_TIMEOUT,
+) -> str:
     """
-    Issue a full or partial refund via Razorpay.
+    Issue a full or partial refund via Razorpay and return the refund id (rfnd_...).
 
-    Args:
-        razorpay_payment_id: The 'pay_...' ID stored on the payments row.
-        amount_paise: Refund amount in paise (₹1 = 100 paise).
-        notes: Optional metadata dictionary.
-        timeout: Maximum seconds to await gateway response (default 10s).
-
-    Returns:
-        Dict containing refund details: id, status, amount, etc.
+    Raises:
+        Exception: propagated from the Razorpay SDK or the HTTP timeout.
     """
-    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
-        return {
-            "id": None,
-            "status": "pending",
-            "amount": amount_paise,
-            "currency": "INR",
-            "error": "Razorpay credentials not configured. Refund kept in PENDING status.",
-        }
+    loop = asyncio.get_running_loop()
+    client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
-    loop = asyncio.get_event_loop()
-    client = get_razorpay_client()
-
-    payload = {"amount": amount_paise}
+    payload: Dict[str, Any] = {"amount": amount_paise}
     if notes:
         payload["notes"] = notes
 
     def _do_refund():
-        return client.payment.refund(razorpay_payment_id, payload)
+        return client.payment.refund(
+            razorpay_payment_id, payload, timeout=timeout
+        )
+
+    result = await loop.run_in_executor(None, _do_refund)
+    return result["id"] if isinstance(result, dict) else str(result)
+
+
+async def refund_and_record(payment_id: str, razorpay_payment_id: str, amount_paise: int) -> None:
+    """Background task: request the refund and store its id. Never raises."""
+    try:
+        refund_id = await initiate_razorpay_refund(razorpay_payment_id, amount_paise)
+    except Exception as exc:
+        print(f"[refund] Razorpay refund failed for payment {payment_id} (manual follow-up needed): {exc}")
+        return
 
     try:
-        return await asyncio.wait_for(loop.run_in_executor(None, _do_refund), timeout=timeout)
-    except asyncio.TimeoutError:
-        return {
-            "id": None,
-            "status": "pending",
-            "amount": amount_paise,
-            "currency": "INR",
-            "error": "Payment gateway request timed out. Refund kept in PENDING status for retry.",
-        }
-    except Exception as e:
-        return {
-            "id": None,
-            "status": "failed",
-            "amount": amount_paise,
-            "currency": "INR",
-            "error": str(e),
-        }
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE payments SET razorpay_refund_id = $1 WHERE id = $2",
+                refund_id,
+                payment_id,
+            )
+    except Exception as exc:
+        print(f"[refund] refund {refund_id} succeeded but could not be saved for payment {payment_id}: {exc}")
 
 
 def verify_razorpay_webhook_signature(
