@@ -205,7 +205,7 @@ export default function LocationPicker() {
           <div>
             <h2 className="text-lg font-bold text-white">Where are you?</h2>
             <p className="text-xs text-slate-400">
-              We&apos;ll only show shows within {NEARBY_RADIUS_KM} km of this spot.
+              Shows are listed within {NEARBY_RADIUS_KM} km of this spot. Concerts are shown from everywhere.
             </p>
           </div>
           <button

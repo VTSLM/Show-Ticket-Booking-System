@@ -20,7 +20,7 @@ const EVENT_TYPES = [
 // Rows on the page (one swipeable row per kind of show)
 const SECTIONS = [
   { type: "movie", title: "🎬 Movies near you" },
-  { type: "concert", title: "🎵 Concerts near you" },
+  { type: "concert", title: "🎵 Concerts (all, any distance)" },
   { type: "theatre", title: "🎭 Theatre near you" },
   { type: "other", title: "✨ More near you" },
 ];
@@ -172,19 +172,21 @@ export default function BrowsePage() {
   }, []);
 
   const load = useCallback(async () => {
-    // Only shows near the visitor are listed, so nothing loads until a location is set
-    if (!location) {
+    // Without a location only concerts are listed (they have no distance limit)
+    if (!location && filters.event_type && filters.event_type !== "concert") {
       setShows([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const params: Record<string, string> = {
-        lat: String(location.lat),
-        lng: String(location.lng),
-        radius_km: String(NEARBY_RADIUS_KM),
-      };
+      const params: Record<string, string> = location
+        ? {
+            lat: String(location.lat),
+            lng: String(location.lng),
+            radius_km: String(NEARBY_RADIUS_KM),
+          }
+        : { event_type: "concert" };
       if (filters.event_type) params.event_type = filters.event_type;
       if (filters.language) params.language = filters.language;
       if (filters.date) params.date = filters.date;
@@ -487,7 +489,7 @@ export default function BrowsePage() {
             Movies &amp; Shows
           </h1>
           <p className="mt-1 text-sm text-slate-400 sm:text-base">
-            Shows within {NEARBY_RADIUS_KM} km of you. Search by movie, venue, genre, or language.
+            Shows within {NEARBY_RADIUS_KM} km of you, plus every concert. Search by movie, venue, genre, or language.
           </p>
         </div>
 
@@ -814,22 +816,24 @@ export default function BrowsePage() {
         )}
       </div>
 
-      {/* No location yet: nothing is listed until one is chosen */}
-      {locationReady && !location ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-16 text-center">
+      {/* No location yet: only concerts are listed until one is chosen */}
+      {locationReady && !location && (
+        <div className="mb-8 rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-12 text-center">
           <p className="mb-3 text-4xl" aria-hidden="true">
             📍
           </p>
           <p className="font-semibold text-white">Choose your location</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-slate-400">
-            TicketFlow only lists shows within {NEARBY_RADIUS_KM} km of you. Set your location on the map
-            or use your current location.
+            Movies, theatre and other shows are listed within {NEARBY_RADIUS_KM} km of you. Set your
+            location on the map or use your current location. Concerts are always shown below.
           </p>
           <button type="button" onClick={openPicker} className="btn-primary mt-5">
             Set my location
           </button>
         </div>
-      ) : loading ? (
+      )}
+
+      {!locationReady ? null : loading ? (
         <div className="flex gap-4 overflow-hidden">
           {[1, 2, 3, 4, 5].map((n) => (
             <div
@@ -839,6 +843,7 @@ export default function BrowsePage() {
           ))}
         </div>
       ) : shows.length === 0 ? (
+        !location ? null : (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-16 text-center">
           <p className="mb-3 text-4xl" aria-hidden="true">
             🎬
@@ -864,10 +869,11 @@ export default function BrowsePage() {
             </button>
           </div>
         </div>
+        )
       ) : (
         <>
           {(filters.search.trim() || filters.event_type
-            ? [{ key: "all", title: filters.search.trim() ? "Search results" : "Near you", items: shows }]
+            ? [{ key: "all", title: filters.search.trim() ? "Search results" : filters.event_type === "concert" ? "🎵 All concerts" : "Near you", items: shows }]
             : SECTIONS.map((sec) => ({
                 key: sec.type,
                 title: sec.title,

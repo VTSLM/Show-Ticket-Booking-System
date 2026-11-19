@@ -71,11 +71,26 @@ async def test_browse_needs_both_lat_and_lng():
 
 
 @pytest.mark.asyncio
-async def test_browse_returns_nothing_when_no_venue_is_nearby():
+async def test_radius_applies_to_everything_except_concerts():
     conn = AsyncMock()
-    conn.fetch = AsyncMock(return_value=[{"id": uuid4(), "city": "Surat", "latitude": None, "longitude": None}])
+    conn.fetch = AsyncMock(side_effect=[
+        [{"id": uuid4(), "city": "Surat", "latitude": None, "longitude": None}],  # venues
+        [],                                                                        # shows
+    ])
     assert await browse_shows(**_kwargs(lat=28.61, lng=77.20), conn=conn) == []
-    assert conn.fetch.await_count == 1  # never ran the shows query
+    sql = conn.fetch.await_args_list[1].args[0]
+    params = conn.fetch.await_args_list[1].args[1:]
+    assert "lower(e.event_type::text) = 'concert' OR nv.dist_km <=" in sql
+    assert "LEFT JOIN unnest(" in sql  # concerts at unlocated venues still listed
+    assert 100.0 in params
+
+
+def test_venues_with_distance_keeps_far_venues_and_skips_unknown_places():
+    from services.geo_service import venues_with_distance
+    far, unknown = uuid4(), uuid4()
+    got = venues_with_distance([{"id": far, "city": "Surat"}, {"id": unknown, "city": "Atlantis"}], *AHMEDABAD)
+    assert [g["venue_id"] for g in got] == [far]
+    assert got[0]["distance_km"] > 100
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ from database import get_conn
 from services.dynamic_pricing import pricing_summary, apply_multiplier
 import json
 from services.terms_service import resolve_show_terms
-from services.geo_service import DEFAULT_RADIUS_KM, INDIA_CITIES, venues_within
+from services.geo_service import DEFAULT_RADIUS_KM, INDIA_CITIES, venues_with_distance
 
 router = APIRouter(prefix="/api/browse", tags=["browse"])
 
@@ -116,11 +116,10 @@ async def browse_shows(
     agg_order = "s.start_time ASC"
     if nearby:
         venue_rows = await conn.fetch("SELECT id, city, latitude, longitude FROM venues")
-        near = venues_within([dict(v) for v in venue_rows], lat, lng, radius_km)
-        if not near:
-            return []
+        near = venues_with_distance([dict(v) for v in venue_rows], lat, lng)
+        # LEFT JOIN so concerts at a venue with no known position are still listed
         near_join = (
-            f"JOIN unnest(${idx}::uuid[], ${idx + 1}::float8[], ${idx + 2}::boolean[]) "
+            f"LEFT JOIN unnest(${idx}::uuid[], ${idx + 1}::float8[], ${idx + 2}::boolean[]) "
             "AS nv(venue_id, dist_km, exact) ON nv.venue_id = v.id"
         )
         params += [
@@ -129,7 +128,11 @@ async def browse_shows(
             [n["exact"] for n in near],
         ]
         idx += 3
-        agg_order = "nv.dist_km ASC, s.start_time ASC"  # the card shows the NEAREST venue
+        # The radius applies to everything except concerts: every concert is listed
+        filters.append(f"(lower(e.event_type::text) = 'concert' OR nv.dist_km <= ${idx})")
+        params.append(float(radius_km))
+        idx += 1
+        agg_order = "nv.dist_km ASC NULLS LAST, s.start_time ASC"  # the card shows the NEAREST venue
         near_select = (
             ",\n                   MIN(nv.dist_km) as distance_km,"
             f"\n                   (ARRAY_AGG(nv.exact ORDER BY {agg_order}))[1] as distance_exact"
@@ -167,7 +170,7 @@ async def browse_shows(
         "seats_desc": "COUNT(ss.id) FILTER (WHERE ss.status='available') DESC, MIN(s.start_time) ASC",
     }
     if nearby:
-        order_map["distance_asc"] = "MIN(nv.dist_km) ASC, MIN(s.start_time) ASC"
+        order_map["distance_asc"] = "MIN(nv.dist_km) ASC NULLS LAST, MIN(s.start_time) ASC"
     order_clause = order_map.get(sort_by or "time_asc", "MIN(s.start_time) ASC")
 
     where = " AND ".join(filters)
@@ -208,7 +211,8 @@ async def browse_shows(
     results = [_with_dynamic_price(dict(r)) for r in rows]
     if nearby:
         for item in results:
-            item["distance_km"] = round(float(item["distance_km"]), 2)
+            d = item.get("distance_km")
+            item["distance_km"] = round(float(d), 2) if d is not None else None
 
     # Apply fuzzy spelling-tolerant search across title, venue, city, genre, and language
     if search and search.strip():
@@ -249,7 +253,7 @@ async def browse_shows(
     elif sort_by == "seats_desc":
         results.sort(key=lambda x: (-(x["available_seats"] or 0), x["start_time"]))
     elif sort_by == "distance_asc" and nearby:
-        results.sort(key=lambda x: (x["distance_km"], x["start_time"]))
+        results.sort(key=lambda x: (x["distance_km"] is None, x["distance_km"] or 0, x["start_time"]))
 
     return results[:100]
 

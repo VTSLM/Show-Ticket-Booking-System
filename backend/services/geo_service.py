@@ -128,6 +128,19 @@ def venue_point(venue: dict) -> Optional[tuple[float, float, bool]]:
     return (centre[0], centre[1], False) if centre else None
 
 
+def venues_with_distance(venues: Iterable[dict], lat: float, lng: float) -> list[dict]:
+    """Every venue whose position is known, with its distance from (lat, lng) in km."""
+    out = []
+    for v in venues:
+        point = venue_point(v)
+        if point is None:
+            continue
+        d = haversine_km(lat, lng, point[0], point[1])
+        out.append({"venue_id": v["id"], "distance_km": round(d, 2), "exact": point[2]})
+    out.sort(key=lambda x: x["distance_km"])
+    return out
+
+
 def venues_within(
     venues: Iterable[dict], lat: float, lng: float, radius_km: float = DEFAULT_RADIUS_KM
 ) -> list[dict]:
