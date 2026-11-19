@@ -1,7 +1,7 @@
 "use client";
 // TicketFlow assistant: a chat panel available on customer pages.
 // The conversation lives only in this tab's memory; nothing is saved.
-import { ReactNode, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,11 +11,17 @@ const MAX_LENGTH = 500;
 const HISTORY_SENT = 10;
 const HIDDEN_ON = ["/manager", "/admin", "/auth"];
 
+// Feature flag: defaults to enabled.
+// Set NEXT_PUBLIC_CHAT_ENABLED=false to hide the chatbot.
+const CHAT_ENABLED =
+  process.env.NEXT_PUBLIC_CHAT_ENABLED !== "false";
+
 function contextFromPath(path: string): ChatContext {
   const id = "([0-9a-fA-F-]{36})";
   const event = path.match(new RegExp(`^/events/${id}`));
   const show = path.match(new RegExp(`^/shows/${id}`));
   const booking = path.match(new RegExp(`^/bookings/${id}`));
+
   return {
     ...(event && { event_id: event[1] }),
     ...(show && { show_id: show[1] }),
@@ -23,150 +29,121 @@ function contextFromPath(path: string): ChatContext {
   };
 }
 
-function suggestionsFor(context: ChatContext, loggedIn: boolean): string[] {
+function suggestionsFor(
+  context: ChatContext,
+  loggedIn: boolean
+): string[] {
   if (context.event_id || context.show_id) {
-    return ["Are there seats left?", "What do people think of this?", "Suggest something similar"];
+    return [
+      "Are there seats left?",
+      "What do people think of this?",
+      "Suggest something similar",
+    ];
   }
+
   if (context.booking_id) {
-    return ["Can I still cancel this booking?", "How do I get my ticket?", "When is my show?"];
+    return [
+      "Can I still cancel this booking?",
+      "How do I get my ticket?",
+      "When is my show?",
+    ];
   }
+
   return loggedIn
-    ? ["My upcoming bookings", "What's on this weekend?", "Recommend something for me", "How do refunds work?"]
-    : ["What's on this weekend?", "Top rated movies", "How does booking work?", "How do refunds work?"];
+    ? [
+        "My upcoming bookings",
+        "What's on this weekend?",
+        "Recommend something for me",
+        "How do refunds work?",
+      ]
+    : [
+        "What's on this weekend?",
+        "Top rated movies",
+        "How does booking work?",
+        "How do refunds work?",
+      ];
 }
 
 // Pages the assistant may link to. Anything else is shown as plain text.
-const LINKABLE_PAGES = ["auth", "browse", "events", "shows", "bookings", "wishlist", "help", "support", "profile"] as const;
+const LINKABLE_PAGES = [
+  "auth",
+  "browse",
+  "events",
+  "shows",
+  "bookings",
+  "wishlist",
+  "help",
+  "support",
+  "profile",
+] as const;
 
 /** Rebuilds a link from known pages and plain id segments, or returns null. */
 function safeAppPath(path: string): string | null {
   const segments = path.split("/");
-  if (segments[0] !== "" || segments.length > 4) return null;
-  const page = LINKABLE_PAGES.find(p => p === segments[1]);
-  if (!page) return null;
+
+  if (segments[0] !== "" || segments.length > 4) {
+    return null;
+  }
+
+  const page = LINKABLE_PAGES.find((p) => p === segments[1]);
+
+  if (!page) {
+    return null;
+  }
+
   const rest = segments.slice(2);
-  if (!rest.every(s => /^[A-Za-z0-9-]+$/.test(s))) return null;
+
+  if (!rest.every((s) => /^[A-Za-z0-9-]+$/.test(s))) {
+    return null;
+  }
+
   return ["", page, ...rest.map(encodeURIComponent)].join("/");
 }
 
 /** Renders text with markdown-style [label](/path) links. Only in-app paths become links. */
-function RichText({ text, onNavigate }: { text: string; onNavigate: () => void }) {
-  const lines = text.split("\n");
+function RichText({
+  text,
+  onNavigate,
+}: {
+  text: string;
+  onNavigate: () => void;
+}) {
+  const parts = text.split(/(\[[^\]]+\]\([^) \s]+\))/g);
 
-  const renderInline = (content: string, keyPrefix: string) => {
-    const parts = content.split(
-      /(\[[^\]]+\]\([^)\s]+\)|\*\*[^*]+\*\*)/g
-    );
+  return (
+    <>
+      {parts.map((part, i) => {
+        const m = part.match(/^\[([^\]]+)\]\(([^) \s]+)\)$/);
+        const href = m ? safeAppPath(m[2]) : null;
 
-    return parts.map((part, i) => {
-      const key = `${keyPrefix}-${i}`;
-
-      const link = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
-      if (link) {
-        const href = safeAppPath(link[2]);
-
-        if (href) {
+        if (m && href) {
           return (
             <Link
-              key={key}
+              key={i}
               href={href}
               onClick={onNavigate}
               className="font-semibold text-[#4a91ff] underline underline-offset-2 hover:text-white"
             >
-              {link[1]}
+              {m[1]}
             </Link>
           );
         }
 
-        return <Fragment key={key}>{part}</Fragment>;
-      }
-
-      const bold = part.match(/^\*\*(.+)\*\*$/);
-      if (bold) {
+        // Drop markdown bold markers, keep everything else as plain text
         return (
-          <strong key={key} className="font-semibold text-white">
-            {bold[1]}
-          </strong>
+          <Fragment key={i}>
+            {(m ? m[1] : part).replace(/\*\*/g, "")}
+          </Fragment>
         );
-      }
-
-      return <Fragment key={key}>{part}</Fragment>;
-    });
-  };
-
-  const rendered: ReactNode[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // Unordered list
-    if (/^\s*[-*]\s+/.test(line)) {
-      const items: string[] = [];
-
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*[-*]\s+/, ""));
-        i++;
-      }
-
-      rendered.push(
-        <ul key={`ul-${i}`} className="my-2 list-disc space-y-1 pl-5">
-          {items.map((item, index) => (
-            <li key={index}>
-              {renderInline(item, `ul-${i}-${index}`)}
-            </li>
-          ))}
-        </ul>
-      );
-
-      continue;
-    }
-
-    // Ordered list
-    if (/^\s*\d+\.\s+/.test(line)) {
-      const items: string[] = [];
-
-      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
-        i++;
-      }
-
-      rendered.push(
-        <ol key={`ol-${i}`} className="my-2 list-decimal space-y-1 pl-5">
-          {items.map((item, index) => (
-            <li key={index}>
-              {renderInline(item, `ol-${i}-${index}`)}
-            </li>
-          ))}
-        </ol>
-      );
-
-      continue;
-    }
-
-    // Empty line
-    if (!line.trim()) {
-      rendered.push(<div key={`space-${i}`} className="h-2" />);
-      i++;
-      continue;
-    }
-
-    // Normal paragraph/text line
-    rendered.push(
-      <div key={`line-${i}`}>
-        {renderInline(line, `line-${i}`)}
-      </div>
-    );
-
-    i++;
-  }
-
-  return <>{rendered}</>;
+      })}
+    </>
+  );
 }
 
 export default function ChatWidget() {
   const pathname = usePathname() || "/";
   const { profile } = useAuth();
+
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [resultCards, setResultCards] = useState<ChatResultCard[]>([]);
@@ -174,91 +151,130 @@ export default function ChatWidget() {
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [replyIds, setReplyIds] = useState<Record<number, string>>({});
-  const [feedbackByReply, setFeedbackByReply] = useState<Record<string, 1 | -1>>({});
-  const [feedbackSubmitting, setFeedbackSubmitting] = useState<Record<string, boolean>>({});
+
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const assistantIndexRef = useRef<number | null>(null);
 
-  const context = useMemo(() => contextFromPath(pathname), [pathname]);
+  const context = useMemo(
+    () => contextFromPath(pathname),
+    [pathname]
+  );
+
   const suggestions = suggestionsFor(context, !!profile);
 
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+    listRef.current?.scrollTo({
+      top: listRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [messages, sending]);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    if (open) {
+      inputRef.current?.focus();
+    }
+
+    const onKey = (e: KeyboardEvent) =>
+      e.key === "Escape" && setOpen(false);
+
     window.addEventListener("keydown", onKey);
+
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  if (HIDDEN_ON.some(prefix => pathname.startsWith(prefix))) return null;
+  // Feature flag:
+  // When disabled, do not render the chatbot at all.
+  if (!CHAT_ENABLED) {
+    return null;
+  }
+
+  // Existing page restrictions.
+  if (HIDDEN_ON.some((prefix) => pathname.startsWith(prefix))) {
+    return null;
+  }
 
   const send = async (text: string) => {
     const message = text.trim().slice(0, MAX_LENGTH);
-    if (!message || sending) return;
+
+    if (!message || sending) {
+      return;
+    }
+
     const history = messages.slice(-HISTORY_SENT);
-    setMessages(m => [...m, { role: "user", content: message }]);
+
+    setMessages((m) => [
+      ...m,
+      {
+        role: "user",
+        content: message,
+      },
+    ]);
+
     setInput("");
     setError(null);
     setResultCards([]);
     setSending(true);
-    assistantIndexRef.current = null;
+
     let started = false;
+
     // Updaters stay pure (React may run them twice in development)
     const appendText = (text: string) => {
       if (!started) {
         started = true;
-        assistantIndexRef.current = messages.length + 1;
-        setMessages(m => [...m, { role: "assistant", content: text }]);
+
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            content: text,
+          },
+        ]);
       } else {
-        setMessages(m => {
+        setMessages((m) => {
           const last = m[m.length - 1];
-          return [...m.slice(0, -1), { ...last, content: last.content + text }];
+
+          return [
+            ...m.slice(0, -1),
+            {
+              ...last,
+              content: last.content + text,
+            },
+          ];
         });
       }
     };
+
     try {
-      await chatApi.stream(message, history, context, event => {
-        if (event.type === "status") {
-          setStatus(event.text);
-        } else if (event.type === "delta") {
-          setStatus(null);
-          appendText(event.text);
-        } else if (event.type === "cards") {
-          setResultCards(event.cards);
-        } else if (event.type === "done") {
-          const index = assistantIndexRef.current;
-          if (index !== null) {
-            setReplyIds(prev => ({ ...prev, [index]: event.reply_id }));
+      await chatApi.stream(
+        message,
+        history,
+        context,
+        (event) => {
+          if (event.type === "status") {
+            setStatus(event.text);
+          } else if (event.type === "delta") {
+            setStatus(null);
+            appendText(event.text);
+          } else if (event.type === "cards") {
+            setResultCards(event.cards);
+          } else if (event.type === "error") {
+            setError(event.message);
           }
-        } else if (event.type === "error") {
-          setError(event.message);
         }
-      });
+      );
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "";
-      setError(detail.startsWith("Too many requests") || detail.includes("available")
-        ? detail : "Something went wrong. Please try again.");
+      const detail =
+        err instanceof Error ? err.message : "";
+
+      setError(
+        detail.startsWith("Too many requests") ||
+          detail.includes("available")
+          ? detail
+          : "Something went wrong. Please try again."
+      );
     } finally {
       setSending(false);
       setStatus(null);
-    }
-  };
-
-  const submitFeedback = async (replyId: string, rating: 1 | -1) => {
-    if (feedbackByReply[replyId] || feedbackSubmitting[replyId]) return;
-    setFeedbackSubmitting(prev => ({ ...prev, [replyId]: true }));
-    try {
-      await chatApi.feedback(replyId, rating);
-      setFeedbackByReply(prev => ({ ...prev, [replyId]: rating }));
-    } catch {
-      setError("Could not save your feedback. Please try again.");
-    } finally {
-      setFeedbackSubmitting(prev => ({ ...prev, [replyId]: false }));
     }
   };
 
@@ -282,98 +298,105 @@ export default function ChatWidget() {
         >
           <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-raised)] px-4 py-3">
             <div>
-              <p className="font-bold text-white">TicketFlow Assistant</p>
-              <p className="text-xs text-[var(--muted)]">Find shows, check bookings, get help</p>
+              <p className="font-bold text-white">
+                TicketFlow Assistant
+              </p>
+
+              <p className="text-xs text-[var(--muted)]">
+                Find shows, check bookings, get help
+              </p>
             </div>
+
             <div className="flex items-center gap-1">
               {messages.length > 0 && (
-                <button onClick={() => {
-                  setMessages([]);
-                  setResultCards([]);
-                  setReplyIds({});
-                  setFeedbackByReply({});
-                  setFeedbackSubmitting({});
-                  assistantIndexRef.current = null;
-                  setError(null);
-                }}
-                        className="rounded-lg px-2 py-1 text-xs text-[var(--muted)] hover:bg-white/5 hover:text-white">
+                <button
+                  onClick={() => {
+                    setMessages([]);
+                    setResultCards([]);
+                    setError(null);
+                  }}
+                  className="rounded-lg px-2 py-1 text-xs text-[var(--muted)] hover:bg-white/5 hover:text-white"
+                >
                   New chat
                 </button>
               )}
-              <button onClick={() => setOpen(false)} aria-label="Close assistant"
-                      className="rounded-lg px-2 py-1 text-lg leading-none text-[var(--muted)] hover:bg-white/5 hover:text-white">
+
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="Close assistant"
+                className="rounded-lg px-2 py-1 text-lg leading-none text-[var(--muted)] hover:bg-white/5 hover:text-white"
+              >
                 ×
               </button>
             </div>
           </header>
 
-          <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4" aria-live="polite">
+          <div
+            ref={listRef}
+            className="flex-1 space-y-3 overflow-y-auto px-4 py-4"
+            aria-live="polite"
+          >
             {messages.length === 0 && (
               <div className="text-sm text-[var(--muted)]">
                 <p className="mb-1 text-base text-white">
-                  Hi{profile?.name ? ` ${String(profile.name).split(" ")[0]}` : ""}! 👋
+                  Hi
+                  {profile?.name
+                    ? ` ${String(profile.name).split(" ")[0]}`
+                    : ""}
+                  ! 👋
                 </p>
-                <p>Ask me about shows, prices, seats, reviews{profile ? ", your bookings" : ""} or how TicketFlow works. You can write in English, Hindi or Gujarati.</p>
+
+                <p>
+                  Ask me about shows, prices, seats, reviews
+                  {profile ? ", your bookings" : ""} or how TicketFlow
+                  works. You can write in English, Hindi or Gujarati.
+                </p>
+
                 {!profile && (
                   <p className="mt-2">
-                    <Link href="/auth/login" className="text-[#4a91ff] underline">Log in</Link> to ask about your own bookings.
+                    <Link
+                      href="/auth/login"
+                      className="text-[#4a91ff] underline"
+                    >
+                      Log in
+                    </Link>{" "}
+                    to ask about your own bookings.
                   </p>
                 )}
               </div>
             )}
 
-            {messages.map((m, i) => {
-              const replyId = replyIds[i];
-              const submittedRating = replyId ? feedbackByReply[replyId] : undefined;
-              const submitting = replyId ? !!feedbackSubmitting[replyId] : false;
-
-              return (
-                <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                  <div className="max-w-[85%]">
-                    <div className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                      m.role === "user"
-                        ? "rounded-br-sm bg-[var(--blue)] text-white"
-                        : "rounded-bl-sm border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--foreground)]"
-                    }`}>
-                      {m.role === "assistant" ? <RichText text={m.content} onNavigate={() => setOpen(false)} /> : m.content}
-                    </div>
-
-                    {m.role === "assistant" && replyId && (
-                      <div className="mt-1.5 flex items-center gap-2 px-1 text-xs text-[var(--muted)]" aria-label="Reply feedback">
-                        {submittedRating ? (
-                          <span role="status">Thanks for your feedback! {submittedRating === 1 ? "👍" : "👎"}</span>
-                        ) : (
-                          <>
-                            <span>Was this helpful?</span>
-                            <button
-                              type="button"
-                              aria-label="Helpful"
-                              disabled={submitting}
-                              onClick={() => submitFeedback(replyId, 1)}
-                              className="rounded-md px-1.5 py-1 hover:bg-white/5 disabled:opacity-50"
-                            >
-                              👍
-                            </button>
-                            <button
-                              type="button"
-                              aria-label="Not helpful"
-                              disabled={submitting}
-                              onClick={() => submitFeedback(replyId, -1)}
-                              className="rounded-md px-1.5 py-1 hover:bg-white/5 disabled:opacity-50"
-                            >
-                              👎
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
+            {messages.map((m, i) => (
+              <div
+                key={i}
+                className={
+                  m.role === "user"
+                    ? "flex justify-end"
+                    : "flex justify-start"
+                }
+              >
+                <div
+                  className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                    m.role === "user"
+                      ? "rounded-br-sm bg-[var(--blue)] text-white"
+                      : "rounded-bl-sm border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--foreground)]"
+                  }`}
+                >
+                  {m.role === "assistant" ? (
+                    <RichText
+                      text={m.content}
+                      onNavigate={() => setOpen(false)}
+                    />
+                  ) : (
+                    m.content
+                  )}
                 </div>
-              );
-            })}
+              </div>
+            ))}
+
             {resultCards.length > 0 && (
               <div className="space-y-3">
-                {resultCards.map(card => (
+                {resultCards.map((card) => (
                   <div
                     key={card.show_id}
                     className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-raised)]"
@@ -387,7 +410,9 @@ export default function ChatWidget() {
                     )}
 
                     <div className="p-3">
-                      <p className="font-semibold text-white">{card.title}</p>
+                      <p className="font-semibold text-white">
+                        {card.title}
+                      </p>
 
                       <p className="mt-1 text-xs text-[var(--muted)]">
                         🕐 {card.time}
@@ -404,7 +429,13 @@ export default function ChatWidget() {
                             : "Price unavailable"}
                         </span>
 
-                        <span className={card.seats_left > 0 ? "text-green-400" : "text-red-400"}>
+                        <span
+                          className={
+                            card.seats_left > 0
+                              ? "text-green-400"
+                              : "text-red-400"
+                          }
+                        >
                           {card.seats_left > 0
                             ? `${card.seats_left} seats left`
                             : "Sold out"}
@@ -429,21 +460,32 @@ export default function ChatWidget() {
                 ))}
               </div>
             )}
-            {sending && messages[messages.length - 1]?.role !== "assistant" && (
-              <div className="flex justify-start">
-                <div className="rounded-2xl rounded-bl-sm border border-[var(--border)] bg-[var(--surface-raised)] px-3.5 py-2.5 text-sm text-[var(--muted)]">
-                  {status || "Thinking…"}
+
+            {sending &&
+              messages[messages.length - 1]?.role !== "assistant" && (
+                <div className="flex justify-start">
+                  <div className="rounded-2xl rounded-bl-sm border border-[var(--border)] bg-[var(--surface-raised)] px-3.5 py-2.5 text-sm text-[var(--muted)]">
+                    {status || "Thinking…"}
+                  </div>
                 </div>
-              </div>
+              )}
+
+            {error && (
+              <p role="alert" className="text-sm text-red-400">
+                {error}
+              </p>
             )}
-            {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
           </div>
 
           {messages.length === 0 && (
             <div className="flex flex-wrap gap-2 px-4 pb-2">
-              {suggestions.map(s => (
-                <button key={s} onClick={() => send(s)} disabled={sending}
-                        className="rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-1.5 text-xs text-[var(--foreground)] transition hover:border-[var(--blue)] disabled:opacity-50">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => send(s)}
+                  disabled={sending}
+                  className="rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-1.5 text-xs text-[var(--foreground)] transition hover:border-[var(--blue)] disabled:opacity-50"
+                >
                   {s}
                 </button>
               ))}
@@ -451,29 +493,46 @@ export default function ChatWidget() {
           )}
 
           <form
-            onSubmit={e => { e.preventDefault(); send(input); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              send(input);
+            }}
             className="flex items-end gap-2 border-t border-[var(--border)] px-3 py-3"
           >
-            <label htmlFor="chat-input" className="sr-only">Message</label>
+            <label htmlFor="chat-input" className="sr-only">
+              Message
+            </label>
+
             <textarea
               id="chat-input"
               ref={inputRef}
               rows={1}
               value={input}
               maxLength={MAX_LENGTH}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send(input);
+                }
               }}
               placeholder="Ask anything about shows or bookings…"
               className="input max-h-28 min-h-[44px] resize-none text-sm"
             />
-            <button type="submit" disabled={sending || !input.trim()} className="btn-primary px-4 disabled:opacity-50">
+
+            <button
+              type="submit"
+              disabled={sending || !input.trim()}
+              className="btn-primary px-4 disabled:opacity-50"
+            >
               Send
             </button>
           </form>
+
           {input.length > MAX_LENGTH - 50 && (
-            <p className="px-4 pb-2 text-right text-xs text-[var(--muted)]">{input.length}/{MAX_LENGTH}</p>
+            <p className="px-4 pb-2 text-right text-xs text-[var(--muted)]">
+              {input.length}/{MAX_LENGTH}
+            </p>
           )}
         </section>
       )}

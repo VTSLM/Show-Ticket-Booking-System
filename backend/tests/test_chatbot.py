@@ -18,7 +18,7 @@ from services import chatbot, chatbot_tools as tools
 
 @pytest.fixture(autouse=True)
 def default_provider_settings(monkeypatch):
-    """Tests must not depend on a developer's local .env (e.g. CHAT_PROVIDER=gemini)."""
+    """Tests must not depend on a developer's local .env."""
     for name in (
         "CHAT_PROVIDER",
         "CHAT_MODEL",
@@ -28,7 +28,20 @@ def default_provider_settings(monkeypatch):
         "OPENAI_CHAT_MODEL",
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(chatbot, "_clients", {})
+
+    # Chat is enabled by default for the existing test suite.
+    # Individual tests can explicitly disable it.
+    monkeypatch.setattr(
+        chat_router.config,
+        "CHAT_ENABLED",
+        True,
+    )
+
+    monkeypatch.setattr(
+        chatbot,
+        "_clients",
+        {},
+    )
 
 
 USER = {
