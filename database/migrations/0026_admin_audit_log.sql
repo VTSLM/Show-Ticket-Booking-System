@@ -1,4 +1,4 @@
--- 0024: audit log for admin actions on user accounts (#138).
+-- 0026: audit log for admin actions on user accounts (#138).
 -- One row per change: who did it, to whom, what changed, why and when.
 CREATE TABLE IF NOT EXISTS public.admin_audit_log (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

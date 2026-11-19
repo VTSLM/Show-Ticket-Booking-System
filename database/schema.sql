@@ -1,10 +1,10 @@
--- Generated snapshot of the full schema after database/migrations/0024. Do not edit by hand.
+-- Generated snapshot of the full schema after database/migrations/0026. Do not edit by hand.
 -- Regenerate with the steps in database/README.md.
 --
 -- PostgreSQL database dump
 --
 
-\restrict 91SaOmLBBahfsveXUeDdURvUusAfa32HcZEcnw5MBlx5QgVdwnFIGgS12UNji3g
+\restrict 27ZYt0d4y7Bl12tPJqlmu4Nio4LSpuvmIhItiAlTc1gBtdNyQoTQsTQgioWZ1nu
 
 -- Dumped from database version 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
 -- Dumped by pg_dump version 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
@@ -1026,6 +1026,23 @@ CREATE TABLE public.user_roles (
 
 
 --
+-- Name: user_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_sessions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    role character varying(50) DEFAULT 'customer'::character varying NOT NULL,
+    timeout_seconds integer NOT NULL,
+    last_activity_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    ip_address character varying(100),
+    user_agent text
+);
+
+
+--
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1662,6 +1679,14 @@ ALTER TABLE ONLY public.user_roles
 
 
 --
+-- Name: user_sessions user_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sessions
+    ADD CONSTRAINT user_sessions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2228,6 +2253,27 @@ CREATE INDEX idx_tickets_user_id ON public.tickets USING btree (user_id);
 --
 
 CREATE INDEX idx_user_roles_role_id ON public.user_roles USING btree (role_id);
+
+
+--
+-- Name: idx_user_sessions_last_activity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_sessions_last_activity ON public.user_sessions USING btree (last_activity_at);
+
+
+--
+-- Name: idx_user_sessions_revoked_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_sessions_revoked_at ON public.user_sessions USING btree (revoked_at);
+
+
+--
+-- Name: idx_user_sessions_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_sessions_user_id ON public.user_sessions USING btree (user_id);
 
 
 --
@@ -2952,6 +2998,14 @@ ALTER TABLE ONLY public.user_roles
 
 
 --
+-- Name: user_sessions user_sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sessions
+    ADD CONSTRAINT user_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: venue_case_documents venue_case_documents_case_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3077,6 +3131,15 @@ ALTER TABLE ONLY public.wishlists
 
 ALTER TABLE ONLY public.wishlists
     ADD CONSTRAINT wishlists_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_sessions Users can view their own sessions; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Users can view their own sessions" ON public.user_sessions FOR SELECT USING (((auth.uid())::text = (( SELECT users.firebase_uid
+   FROM public.users
+  WHERE (users.id = user_sessions.user_id)))::text));
 
 
 --
@@ -3260,6 +3323,12 @@ ALTER TABLE public.support_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.trust_tier_rules ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: user_sessions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.user_sessions ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: users; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3317,5 +3386,5 @@ ALTER TABLE public.wishlists ENABLE ROW LEVEL SECURITY;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 91SaOmLBBahfsveXUeDdURvUusAfa32HcZEcnw5MBlx5QgVdwnFIGgS12UNji3g
+\unrestrict 27ZYt0d4y7Bl12tPJqlmu4Nio4LSpuvmIhItiAlTc1gBtdNyQoTQsTQgioWZ1nu
 
