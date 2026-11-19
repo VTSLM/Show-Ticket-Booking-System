@@ -1,7 +1,7 @@
 "use client";
 // TicketFlow assistant: a chat panel available on customer pages.
 // The conversation lives only in this tab's memory; nothing is saved.
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -51,25 +51,117 @@ function safeAppPath(path: string): string | null {
 
 /** Renders text with markdown-style [label](/path) links. Only in-app paths become links. */
 function RichText({ text, onNavigate }: { text: string; onNavigate: () => void }) {
-  const parts = text.split(/(\[[^\]]+\]\([^)\s]+\))/g);
-  return (
-    <>
-      {parts.map((part, i) => {
-        const m = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
-        const href = m ? safeAppPath(m[2]) : null;
-        if (m && href) {
+  const lines = text.split("\n");
+
+  const renderInline = (content: string, keyPrefix: string) => {
+    const parts = content.split(
+      /(\[[^\]]+\]\([^)\s]+\)|\*\*[^*]+\*\*)/g
+    );
+
+    return parts.map((part, i) => {
+      const key = `${keyPrefix}-${i}`;
+
+      const link = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+      if (link) {
+        const href = safeAppPath(link[2]);
+
+        if (href) {
           return (
-            <Link key={i} href={href} onClick={onNavigate}
-                  className="font-semibold text-[#4a91ff] underline underline-offset-2 hover:text-white">
-              {m[1]}
+            <Link
+              key={key}
+              href={href}
+              onClick={onNavigate}
+              className="font-semibold text-[#4a91ff] underline underline-offset-2 hover:text-white"
+            >
+              {link[1]}
             </Link>
           );
         }
-        // Drop markdown bold markers, keep everything else as plain text
-        return <Fragment key={i}>{(m ? m[1] : part).replace(/\*\*/g, "")}</Fragment>;
-      })}
-    </>
-  );
+
+        return <Fragment key={key}>{part}</Fragment>;
+      }
+
+      const bold = part.match(/^\*\*(.+)\*\*$/);
+      if (bold) {
+        return (
+          <strong key={key} className="font-semibold text-white">
+            {bold[1]}
+          </strong>
+        );
+      }
+
+      return <Fragment key={key}>{part}</Fragment>;
+    });
+  };
+
+  const rendered: ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Unordered list
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items: string[] = [];
+
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*]\s+/, ""));
+        i++;
+      }
+
+      rendered.push(
+        <ul key={`ul-${i}`} className="my-2 list-disc space-y-1 pl-5">
+          {items.map((item, index) => (
+            <li key={index}>
+              {renderInline(item, `ul-${i}-${index}`)}
+            </li>
+          ))}
+        </ul>
+      );
+
+      continue;
+    }
+
+    // Ordered list
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
+        i++;
+      }
+
+      rendered.push(
+        <ol key={`ol-${i}`} className="my-2 list-decimal space-y-1 pl-5">
+          {items.map((item, index) => (
+            <li key={index}>
+              {renderInline(item, `ol-${i}-${index}`)}
+            </li>
+          ))}
+        </ol>
+      );
+
+      continue;
+    }
+
+    // Empty line
+    if (!line.trim()) {
+      rendered.push(<div key={`space-${i}`} className="h-2" />);
+      i++;
+      continue;
+    }
+
+    // Normal paragraph/text line
+    rendered.push(
+      <div key={`line-${i}`}>
+        {renderInline(line, `line-${i}`)}
+      </div>
+    );
+
+    i++;
+  }
+
+  return <>{rendered}</>;
 }
 
 export default function ChatWidget() {
