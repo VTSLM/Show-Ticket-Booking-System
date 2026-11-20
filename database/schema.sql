@@ -1,4 +1,4 @@
--- Generated snapshot of the full schema after database/migrations/0027. Do not edit by hand.
+-- Generated snapshot of the full schema after database/migrations/0026. Do not edit by hand.
 -- Regenerate with the steps in database/README.md.
 --
 -- PostgreSQL database dump
@@ -326,6 +326,22 @@ $$;
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: admin_audit_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.admin_audit_log (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    admin_id uuid,
+    target_user_id uuid,
+    action text NOT NULL,
+    details jsonb DEFAULT '{}'::jsonb NOT NULL,
+    reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT admin_audit_log_action_check CHECK ((action = ANY (ARRAY['role_added'::text, 'role_removed'::text, 'status_changed'::text, 'manager_approved'::text, 'manager_rejected'::text])))
+);
+
 
 --
 -- Name: ai_review_summaries; Type: TABLE; Schema: public; Owner: -
@@ -1218,6 +1234,14 @@ CREATE TABLE public.wishlists (
 
 
 --
+-- Name: admin_audit_log admin_audit_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_audit_log
+    ADD CONSTRAINT admin_audit_log_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: ai_review_summaries ai_review_summaries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1791,6 +1815,20 @@ ALTER TABLE ONLY public.wishlists
 
 ALTER TABLE ONLY public.wishlists
     ADD CONSTRAINT wishlists_user_id_event_id_key UNIQUE (user_id, event_id);
+
+
+--
+-- Name: idx_admin_audit_log_admin; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_admin_audit_log_admin ON public.admin_audit_log USING btree (admin_id, created_at DESC);
+
+
+--
+-- Name: idx_admin_audit_log_target; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_admin_audit_log_target ON public.admin_audit_log USING btree (target_user_id, created_at DESC);
 
 
 --
@@ -2459,6 +2497,22 @@ CREATE TRIGGER venue_audit_no_update BEFORE UPDATE ON public.venue_verification_
 
 
 --
+-- Name: admin_audit_log admin_audit_log_admin_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_audit_log
+    ADD CONSTRAINT admin_audit_log_admin_id_fkey FOREIGN KEY (admin_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: admin_audit_log admin_audit_log_target_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_audit_log
+    ADD CONSTRAINT admin_audit_log_target_user_id_fkey FOREIGN KEY (target_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
 -- Name: ai_review_summaries ai_review_summaries_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3090,6 +3144,12 @@ CREATE POLICY "Users can view their own sessions" ON public.user_sessions FOR SE
    FROM public.users
   WHERE (users.id = user_sessions.user_id)))::text));
 
+
+--
+-- Name: admin_audit_log; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.admin_audit_log ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: audit_log; Type: ROW SECURITY; Schema: public; Owner: -

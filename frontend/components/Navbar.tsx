@@ -89,6 +89,9 @@ export default function Navbar() {
                 <Link href="/admin/organizers" className="hover:text-red-300">
                   Organizers
                 </Link>
+                <Link href="/admin/users" className="hover:text-red-300">
+                  Users
+                </Link>
                 <Link href="/admin/cancellations" className="hover:text-red-300">
                   Cancellations & Refunds
                 </Link>
