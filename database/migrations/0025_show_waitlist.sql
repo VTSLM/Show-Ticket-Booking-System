@@ -1,4 +1,4 @@
--- 0023: FIFO waitlist for sold-out shows.
+-- 0025: FIFO waitlist for sold-out shows.
 CREATE TABLE IF NOT EXISTS public.show_waitlist (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     show_id uuid NOT NULL REFERENCES public.shows(id) ON DELETE CASCADE,
@@ -16,3 +16,7 @@ CREATE INDEX IF NOT EXISTS idx_show_waitlist_fifo
 CREATE INDEX IF NOT EXISTS idx_show_waitlist_user
     ON public.show_waitlist (user_id, created_at DESC)
     WHERE status = 'waiting';
+
+-- The API connects as the database owner, so it is unaffected. With no
+-- policies, this blocks direct access through Supabase's public API.
+ALTER TABLE public.show_waitlist ENABLE ROW LEVEL SECURITY;
