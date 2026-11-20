@@ -273,7 +273,13 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
                   v.id as venue_id, v.name as venue_name, v.city, v.address,
                   sc.id as screen_id, sc.name as screen_name, sc.capacity,
                   sc.layout_type, sc.stage_position, sc.layout_config,
-                  COUNT(ss.id) FILTER (WHERE ss.status='available') as available_seats,
+                  (
+                      COUNT(ss.id) FILTER (WHERE ss.status='available')
+                      + COALESCE((
+                          SELECT SUM(GREATEST(0, sz.total_capacity - sz.booked_count - sz.locked_count))
+                          FROM show_zones sz WHERE sz.show_id = s.id
+                      ), 0)
+                  ) as available_seats,
                   COUNT(ss.id) FILTER (WHERE ss.status='booked') as sold_seats,
                   COUNT(ss.id) as total_seats
            FROM shows s
@@ -336,7 +342,13 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
             """SELECT s.id as show_id, s.start_time, s.end_time, s.base_price, s.status as show_status,
                       v.id as venue_id, v.name as venue_name, v.city, v.address,
                       sc.id as screen_id, sc.name as screen_name, sc.layout_type, sc.stage_position,
-                      COUNT(ss.id) FILTER (WHERE ss.status='available') as available_seats,
+                      (
+                      COUNT(ss.id) FILTER (WHERE ss.status='available')
+                      + COALESCE((
+                          SELECT SUM(GREATEST(0, sz.total_capacity - sz.booked_count - sz.locked_count))
+                          FROM show_zones sz WHERE sz.show_id = s.id
+                      ), 0)
+                  ) as available_seats,
                       COUNT(ss.id) as total_seats
                FROM shows s
                JOIN screens sc ON sc.id = s.screen_id
@@ -398,7 +410,13 @@ async def get_event_details(event_id: str, conn: asyncpg.Connection = Depends(ge
         """SELECT s.id as show_id, s.start_time, s.end_time, s.base_price, s.status as show_status,
                   v.id as venue_id, v.name as venue_name, v.city, v.address,
                   sc.id as screen_id, sc.name as screen_name, sc.layout_type, sc.stage_position,
-                  COUNT(ss.id) FILTER (WHERE ss.status='available') as available_seats,
+                  (
+                      COUNT(ss.id) FILTER (WHERE ss.status='available')
+                      + COALESCE((
+                          SELECT SUM(GREATEST(0, sz.total_capacity - sz.booked_count - sz.locked_count))
+                          FROM show_zones sz WHERE sz.show_id = s.id
+                      ), 0)
+                  ) as available_seats,
                   COUNT(ss.id) as total_seats
            FROM shows s
            JOIN screens sc ON sc.id = s.screen_id
