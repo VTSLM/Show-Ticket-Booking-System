@@ -108,6 +108,8 @@ export const browseApi = {
   showDetail: (id: string) => api.get<any>(`/api/browse/shows/${id}`, false),
   eventDetail: (id: string) => api.get<any>(`/api/browse/events/${id}`, false),
   cities: () => api.get<string[]>("/api/browse/cities", false),
+  indiaCities: () =>
+    api.get<{ name: string; state: string; lat: number; lng: number }[]>("/api/browse/india-cities", false),
 };
 
 export const wishlistApi = {

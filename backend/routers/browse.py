@@ -7,6 +7,7 @@ from database import get_conn
 from services.dynamic_pricing import pricing_summary, apply_multiplier
 import json
 from services.terms_service import resolve_show_terms
+from services.geo_service import DEFAULT_RADIUS_KM, INDIA_CITIES, venues_with_distance
 
 router = APIRouter(prefix="/api/browse", tags=["browse"])
 
@@ -90,12 +91,52 @@ async def browse_shows(
     genre: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     date: Optional[str] = Query(None),  # YYYY-MM-DD
-    sort_by: Optional[str] = Query("time_asc"),  # time_asc | price_asc | price_desc | seats_desc | rating_desc
+    sort_by: Optional[str] = Query("time_asc"),  # time_asc | price_asc | price_desc | seats_desc | rating_desc | distance_asc
+    # "Near me": send lat + lng to get only shows at venues within radius_km (default 100 km)
+    lat: Optional[float] = Query(None, ge=-90, le=90),
+    lng: Optional[float] = Query(None, ge=-180, le=180),
+    radius_km: float = Query(DEFAULT_RADIUS_KM, gt=0, le=500),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
+    # (when called directly, unset Query() defaults are not numbers: treat them as "not sent")
+    lat = lat if isinstance(lat, (int, float)) else None
+    lng = lng if isinstance(lng, (int, float)) else None
+    radius_km = radius_km if isinstance(radius_km, (int, float)) else DEFAULT_RADIUS_KM
+    if (lat is None) != (lng is None):
+        raise HTTPException(status_code=400, detail="Send both lat and lng")
+
     filters = ["s.status='scheduled'", "e.status='published'", "s.start_time > now()"]
     params = []
     idx = 1
+
+    # Nearby mode: find the venues inside the radius, then join their distances into the query
+    nearby = lat is not None
+    near_join = ""
+    near_select = ""
+    agg_order = "s.start_time ASC"
+    if nearby:
+        venue_rows = await conn.fetch("SELECT id, city, latitude, longitude FROM venues")
+        near = venues_with_distance([dict(v) for v in venue_rows], lat, lng)
+        # LEFT JOIN so concerts at a venue with no known position are still listed
+        near_join = (
+            f"LEFT JOIN unnest(${idx}::uuid[], ${idx + 1}::float8[], ${idx + 2}::boolean[]) "
+            "AS nv(venue_id, dist_km, exact) ON nv.venue_id = v.id"
+        )
+        params += [
+            [str(n["venue_id"]) for n in near],
+            [n["distance_km"] for n in near],
+            [n["exact"] for n in near],
+        ]
+        idx += 3
+        # The radius applies to everything except concerts: every concert is listed
+        filters.append(f"(lower(e.event_type::text) = 'concert' OR nv.dist_km <= ${idx})")
+        params.append(float(radius_km))
+        idx += 1
+        agg_order = "nv.dist_km ASC NULLS LAST, s.start_time ASC"  # the card shows the NEAREST venue
+        near_select = (
+            ",\n                   MIN(nv.dist_km) as distance_km,"
+            f"\n                   (ARRAY_AGG(nv.exact ORDER BY {agg_order}))[1] as distance_exact"
+        )
 
     if city:
         filters.append(f"lower(v.city) = lower(${idx})")
@@ -128,6 +169,8 @@ async def browse_shows(
         "price_desc": "MIN(ss.price) DESC NULLS LAST, MIN(s.start_time) ASC",
         "seats_desc": "COUNT(ss.id) FILTER (WHERE ss.status='available') DESC, MIN(s.start_time) ASC",
     }
+    if nearby:
+        order_map["distance_asc"] = "MIN(nv.dist_km) ASC NULLS LAST, MIN(s.start_time) ASC"
     order_clause = order_map.get(sort_by or "time_asc", "MIN(s.start_time) ASC")
 
     where = " AND ".join(filters)
@@ -143,19 +186,20 @@ async def browse_shows(
                    op.legal_name as organizer_name,
                    COUNT(DISTINCT v.id) as theatres_count,
                    COUNT(DISTINCT s.id) as shows_count,
-                   (ARRAY_AGG(v.name ORDER BY s.start_time ASC))[1] as venue_name,
-                   (ARRAY_AGG(v.city ORDER BY s.start_time ASC))[1] as city,
-                   (ARRAY_AGG(v.address ORDER BY s.start_time ASC))[1] as address,
-                   (ARRAY_AGG(sc.name ORDER BY s.start_time ASC))[1] as screen_name,
+                   (ARRAY_AGG(v.name ORDER BY {agg_order}))[1] as venue_name,
+                   (ARRAY_AGG(v.city ORDER BY {agg_order}))[1] as city,
+                   (ARRAY_AGG(v.address ORDER BY {agg_order}))[1] as address,
+                   (ARRAY_AGG(sc.name ORDER BY {agg_order}))[1] as screen_name,
                    SUM(DISTINCT sc.capacity) as capacity,
                    COUNT(ss.id) FILTER (WHERE ss.status='available') as available_seats,
                    COUNT(ss.id) FILTER (WHERE ss.status='booked') as sold_seats,
-                   COUNT(ss.id) as total_seats
+                   COUNT(ss.id) as total_seats{near_select}
             FROM shows s
             JOIN events e ON e.id = s.event_id
             LEFT JOIN organizer_profiles op ON op.id = e.organizer_id
             JOIN screens sc ON sc.id = s.screen_id
             JOIN venues v ON v.id = sc.venue_id
+            {near_join}
             LEFT JOIN show_seats ss ON ss.show_id = s.id
             WHERE {where}
             GROUP BY e.id, op.legal_name
@@ -165,6 +209,10 @@ async def browse_shows(
     )
 
     results = [_with_dynamic_price(dict(r)) for r in rows]
+    if nearby:
+        for item in results:
+            d = item.get("distance_km")
+            item["distance_km"] = round(float(d), 2) if d is not None else None
 
     # Apply fuzzy spelling-tolerant search across title, venue, city, genre, and language
     if search and search.strip():
@@ -204,6 +252,8 @@ async def browse_shows(
         results.sort(key=lambda x: (x["current_price"] is None, -(x["current_price"] or 0), x["start_time"]))
     elif sort_by == "seats_desc":
         results.sort(key=lambda x: (-(x["available_seats"] or 0), x["start_time"]))
+    elif sort_by == "distance_asc" and nearby:
+        results.sort(key=lambda x: (x["distance_km"] is None, x["distance_km"] or 0, x["start_time"]))
 
     return results[:100]
 
@@ -380,6 +430,12 @@ async def get_event_details(event_id: str, conn: asyncpg.Connection = Depends(ge
     res["upcoming_shows"] = [dict(s) for s in shows]
 
     return res
+
+
+@router.get("/india-cities")
+async def india_cities():
+    """Indian cities with their centre point, for the location picker."""
+    return INDIA_CITIES
 
 
 @router.get("/cities")
