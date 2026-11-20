@@ -131,6 +131,11 @@ export const seatsApi = {
 };
 
 export const bookingsApi = {
+  joinWaitlist: (showId: string) =>
+    api.post<{ status: string; position: number }>(`/api/bookings/waitlist/${showId}`),
+  myWaitlist: () => api.get<any[]>("/api/bookings/waitlist"),
+  leaveWaitlist: (showId: string) =>
+    api.delete<{ status: string }>(`/api/bookings/waitlist/${showId}`),
   create: (data: { show_id: string; seat_ids?: string[]; zone_id?: string; zone_quantity?: number; terms_accepted?: boolean; terms_hash?: string; terms_text?: string } | string, maybeSeatIds?: string[]) => {
     if (typeof data === "string") {
       return api.post<any>("/api/bookings", { show_id: data, seat_ids: maybeSeatIds || [] });
