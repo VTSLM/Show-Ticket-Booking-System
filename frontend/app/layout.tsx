@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { LocationProvider } from "@/contexts/LocationContext";
+import LocationPicker from "@/components/LocationPicker";
 import { Toaster } from "react-hot-toast";
 import Navbar from "@/components/Navbar";
 import ChatWidget from "@/components/ChatWidget";
@@ -18,10 +20,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className={inter.className}>
         <AuthProvider>
-          <Navbar />
-          <main className="min-h-screen bg-transparent">{children}</main>
-          <ChatWidget />
-          <Toaster position="top-right" />
+          <LocationProvider>
+            <Navbar />
+            <main className="min-h-screen bg-transparent">{children}</main>
+            <LocationPicker />
+            <ChatWidget />
+            <Toaster position="top-right" />
+          </LocationProvider>
         </AuthProvider>
       </body>
     </html>

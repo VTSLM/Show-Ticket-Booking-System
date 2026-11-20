@@ -5,6 +5,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 ## [Unreleased] (Sprint 3)
 
 ### Added
+- Admin → Users: list and search all users, give or remove the manager and admin roles, block and unblock accounts with a required reason; every change, including manager approvals, is recorded in an audit log (#138)
 - TicketFlow Assistant: a chat widget that finds shows, shows details, seats, reviews and recommendations, answers questions about the user's own bookings and wishlist, explains policies, and replies in English, Hindi or Gujarati. Read-only; nothing is stored
 - Wishlist for saving shows (#79)
 - Single app layout at the repo root, ordered database migrations, Terraform layout for Azure (#83)
@@ -19,6 +20,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 
 ### Fixed
 - Events without a working poster show a neutral placeholder for their event type instead of the Ramayana poster (#170)
+- Booking seats or standing-zone tickets no longer fails with a server error: bookings now store their subtotal and discount, and the zone booking query is fixed (#174)
 - Malformed ids in URLs return 404 instead of a server error, and the seat map of an unknown show returns 404 instead of an empty map (#140)
 
 ### Security

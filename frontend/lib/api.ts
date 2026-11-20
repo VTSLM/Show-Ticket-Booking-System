@@ -108,6 +108,8 @@ export const browseApi = {
   showDetail: (id: string) => api.get<any>(`/api/browse/shows/${id}`, false),
   eventDetail: (id: string) => api.get<any>(`/api/browse/events/${id}`, false),
   cities: () => api.get<string[]>("/api/browse/cities", false),
+  indiaCities: () =>
+    api.get<{ name: string; state: string; lat: number; lng: number }[]>("/api/browse/india-cities", false),
 };
 
 export const wishlistApi = {
@@ -131,6 +133,11 @@ export const seatsApi = {
 };
 
 export const bookingsApi = {
+  joinWaitlist: (showId: string) =>
+    api.post<{ status: string; position: number }>(`/api/bookings/waitlist/${showId}`),
+  myWaitlist: () => api.get<any[]>("/api/bookings/waitlist"),
+  leaveWaitlist: (showId: string) =>
+    api.delete<{ status: string }>(`/api/bookings/waitlist/${showId}`),
   create: (data: { show_id: string; seat_ids?: string[]; zone_id?: string; zone_quantity?: number; terms_accepted?: boolean; terms_hash?: string; terms_text?: string } | string, maybeSeatIds?: string[]) => {
     if (typeof data === "string") {
       return api.post<any>("/api/bookings", { show_id: data, seat_ids: maybeSeatIds || [] });
@@ -194,6 +201,55 @@ export const adminApi = {
   pending: () => api.get<any[]>("/admin/pending"),
   approve: (user_id: string, action: string) =>
     api.post(`/admin/pending/${user_id}`, { action }),
+};
+
+export type AdminUserRole = "customer" | "manager" | "admin";
+export type AdminUserStatus = "active" | "inactive" | "blocked";
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  status: AdminUserStatus;
+  roles: AdminUserRole[];
+  created_at: string;
+}
+
+export interface AdminAuditEntry {
+  id: string;
+  action: "role_added" | "role_removed" | "status_changed" | "manager_approved" | "manager_rejected";
+  details: Record<string, string>;
+  reason: string | null;
+  created_at: string;
+  admin_name: string | null;
+  admin_email: string | null;
+}
+
+export interface AdminUserList {
+  users: AdminUser[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export const adminUsersApi = {
+  list: (params: { q?: string; role?: string; status?: string; page?: number; page_size?: number }) => {
+    const sp = new URLSearchParams();
+    if (params.q) sp.append("q", params.q);
+    if (params.role) sp.append("role", params.role);
+    if (params.status) sp.append("status", params.status);
+    if (params.page) sp.append("page", String(params.page));
+    if (params.page_size) sp.append("page_size", String(params.page_size));
+    const qs = sp.toString();
+    return api.get<AdminUserList>(`/api/admin/users${qs ? `?${qs}` : ""}`);
+  },
+  get: (userId: string) =>
+    api.get<AdminUser & { history: AdminAuditEntry[] }>(`/api/admin/users/${userId}`),
+  changeRole: (userId: string, role: "manager" | "admin", action: "add" | "remove", reason: string) =>
+    api.patch<AdminUser>(`/api/admin/users/${userId}/roles`, { role, action, reason }),
+  changeStatus: (userId: string, status: "active" | "blocked", reason: string) =>
+    api.patch<AdminUser>(`/api/admin/users/${userId}/status`, { status, reason }),
 };
 
 export const organizerVerificationApi = {
