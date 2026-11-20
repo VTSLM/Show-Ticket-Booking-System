@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import NotificationBell from "@/components/NotificationBell";
+import { useLocation } from "@/contexts/LocationContext";
 
 export default function Navbar() {
   const { profile, loading, logout, isManager, isAdmin } = useAuth();
   const router = useRouter();
+  const { location, openPicker } = useLocation();
 
   const handleLogout = async () => {
     await logout();
@@ -21,6 +23,16 @@ export default function Navbar() {
       </Link>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+        <button
+          type="button"
+          onClick={openPicker}
+          title="Set your location to see shows within 100 km"
+          className="flex max-w-[11rem] items-center gap-1.5 rounded-full border border-slate-600 px-3 py-1 text-xs font-medium transition-colors hover:border-[#287cff] hover:text-white"
+        >
+          <span aria-hidden="true">📍</span>
+          <span className="truncate">{location ? location.label : "Set location"}</span>
+          <span aria-hidden="true" className="text-[10px] text-slate-400">▾</span>
+        </button>
         <Link href="/browse" className="transition-colors hover:text-red-300">
           Browse Shows
         </Link>
@@ -76,6 +88,9 @@ export default function Navbar() {
                 </Link>
                 <Link href="/admin/organizers" className="hover:text-red-300">
                   Organizers
+                </Link>
+                <Link href="/admin/users" className="hover:text-red-300">
+                  Users
                 </Link>
                 <Link href="/admin/cancellations" className="hover:text-red-300">
                   Cancellations & Refunds

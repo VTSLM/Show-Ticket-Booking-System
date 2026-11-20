@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useWishlist } from "@/components/useWishlist";
+import { bookingsApi } from "@/lib/api";
 
 interface ShowDetailsProps {
   showData: any;
@@ -34,7 +35,67 @@ export default function ShowDetailsView({
   const [selectedFormat, setSelectedFormat] = useState<string>("all");
   const [isFormatModalOpen, setIsFormatModalOpen] = useState<boolean>(false);
   const [copied, setCopied] = useState(false);
+  const [waitlistPositions, setWaitlistPositions] = useState<Record<string, number>>({});
+  const [waitlistLoadingId, setWaitlistLoadingId] = useState<string | null>(null);
   const wishlist = useWishlist();
+
+  useEffect(() => {
+    bookingsApi.myWaitlist()
+      .then((entries) => {
+        const positions: Record<string, number> = {};
+        entries.forEach((entry: any) => {
+          positions[entry.show_id] = Number(entry.position);
+        });
+        setWaitlistPositions(positions);
+      })
+      .catch(() => {
+        // Guests and signed-out users simply see the normal booking controls.
+      });
+  }, []);
+
+  const handleJoinWaitlist = async (showId: string) => {
+    if (!showId || waitlistLoadingId) return;
+    setWaitlistLoadingId(showId);
+    try {
+      const result = await bookingsApi.joinWaitlist(showId);
+      setWaitlistPositions((current) => ({
+        ...current,
+        [showId]: result.position,
+      }));
+      toast.success(
+        result.status === "already_joined"
+          ? `You are already on the waitlist (position ${result.position}).`
+          : `Added to waitlist. Your position is ${result.position}.`
+      );
+    } catch (error: any) {
+      if (error?.message === "Not authenticated") {
+        toast.error("Please log in to join the waitlist.");
+        router.push("/auth/login");
+      } else {
+        toast.error(error?.message || "Could not join the waitlist.");
+      }
+    } finally {
+      setWaitlistLoadingId(null);
+    }
+  };
+
+  const handleLeaveWaitlist = async (showId: string) => {
+    if (!showId || waitlistLoadingId) return;
+    setWaitlistLoadingId(showId);
+    try {
+      await bookingsApi.leaveWaitlist(showId);
+      setWaitlistPositions((current) => {
+        const next = { ...current };
+        delete next[showId];
+        return next;
+      });
+      toast.success("You have left the waitlist.");
+    } catch (error: any) {
+      toast.error(error?.message || "Could not leave the waitlist.");
+    } finally {
+      setWaitlistLoadingId(null);
+    }
+  };
 
   // Upcoming shows and distinct cities
   const upcomingShows: any[] = Array.isArray(showData?.upcoming_shows) ? showData.upcoming_shows : [];
@@ -822,22 +883,20 @@ export default function ShowDetailsView({
                             const isAvail = availCount > 0;
                             const isFastFilling = availCount > 0 && availCount <= 25;
 
-                            return (
-                              <Link
-                                key={s.show_id}
-                                href={`/shows/${s.show_id}/seats`}
-                                className={`group flex flex-col items-center justify-center rounded-xl border px-5 py-3 transition active:scale-95 ${
-                                  !isAvail
-                                    ? "border-slate-800 bg-slate-950/40 opacity-40 cursor-not-allowed pointer-events-none"
-                                    : isFastFilling
-                                    ? "border-amber-500/40 bg-slate-900/90 hover:border-amber-400 hover:bg-amber-950/20"
-                                    : "border-slate-700/80 bg-slate-900 hover:border-blue-500 hover:bg-blue-950/30 hover:shadow-lg"
-                                }`}
-                              >
-                                <span className="text-base font-extrabold text-white group-hover:text-blue-400">
-                                  {formatTime(s.start_time)}
-                                </span>
-                                <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+                            return isAvail ? (
+                                <Link
+                                  key={s.show_id}
+                                  href={`/shows/${s.show_id}/seats`}
+                                  className={`group flex flex-col items-center justify-center rounded-xl border px-5 py-3 transition active:scale-95 ${
+                                    isFastFilling
+                                      ? "border-amber-500/40 bg-slate-900/90 hover:border-amber-400 hover:bg-amber-950/20"
+                                      : "border-slate-700/80 bg-slate-900 hover:border-blue-500 hover:bg-blue-950/30 hover:shadow-lg"
+                                  }`}
+                                >
+                                  <span className="text-base font-extrabold text-white group-hover:text-blue-400">
+                                    {formatTime(s.start_time)}
+                                  </span>
+                                  <div className="mt-1 flex items-center gap-1.5 text-[11px]">
                                   <span className="font-bold text-slate-300 uppercase">
                                     {s.screen_name || (isMovie ? "2D" : "Stage")}
                                   </span>
@@ -848,26 +907,51 @@ export default function ShowDetailsView({
                                 </div>
                                 <span
                                   className={`mt-1 flex items-center gap-1 text-[10px] font-bold ${
-                                    !isAvail
-                                      ? "text-red-400"
-                                      : isFastFilling
+                                    isFastFilling
                                       ? "text-amber-400"
                                       : "text-emerald-400"
                                   }`}
                                 >
                                   <span
                                     className={`h-1.5 w-1.5 rounded-full ${
-                                      !isAvail
-                                        ? "bg-red-400"
-                                        : isFastFilling
+                                      isFastFilling
                                         ? "bg-amber-400"
                                         : "bg-emerald-400"
                                     }`}
                                   />
-                                  {isAvail ? (isFastFilling ? "FAST FILLING" : "AVAILABLE") : "SOLD OUT"}
-                                </span>
-                              </Link>
-                            );
+                                  {isFastFilling ? "FAST FILLING" : "AVAILABLE"}
+                                  </span>
+                                </Link>
+                              ) : (
+                                <button
+                                  key={s.show_id}
+                                  type="button"
+                                  onClick={() =>
+                                    waitlistPositions[s.show_id] !== undefined
+                                      ? handleLeaveWaitlist(s.show_id)
+                                      : handleJoinWaitlist(s.show_id)
+                                  }
+                                  disabled={waitlistLoadingId === s.show_id}
+                                  className="group flex flex-col items-center justify-center rounded-xl border border-slate-700 bg-slate-950/70 px-5 py-3 transition hover:border-purple-500 hover:bg-purple-950/20 disabled:cursor-not-allowed disabled:opacity-70"
+                                >
+                                  <span className="text-base font-extrabold text-white">
+                                    {formatTime(s.start_time)}
+                                  </span>
+                                  <span className="mt-1 text-[11px] font-bold text-purple-300">
+                                    {waitlistLoadingId === s.show_id
+                                      ? "Please wait..."
+                                      : waitlistPositions[s.show_id] !== undefined
+                                      ? `Waitlist #${waitlistPositions[s.show_id]}`
+                                      : "Join Waitlist"}
+                                  </span>
+                                  {waitlistPositions[s.show_id] !== undefined &&
+                                    waitlistLoadingId !== s.show_id && (
+                                      <span className="mt-0.5 text-[10px] text-slate-400 group-hover:text-red-400">
+                                        Click to leave
+                                      </span>
+                                    )}
+                                </button>
+                              );
                           })}
                         </div>
                       </div>
