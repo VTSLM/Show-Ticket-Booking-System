@@ -275,8 +275,9 @@ async def test_public_verify_returns_minimal_info_without_name_or_email():
     assert result["valid"] is True
     assert result["used"] is False
     assert result["status"] == "valid"
-    assert result["ticket_id"] == SAMPLE_TICKET_ID
     assert "ready for entry" in result["message"]
+    # The public check needs no internal ids
+    assert "ticket_id" not in result
 
     # Verify no PII leak in public response
     assert "name" not in result

@@ -328,11 +328,6 @@ export default function ShowDetailsView({
                   {eventType === "concert" ? "🎵" : eventType === "theatre" ? "🎭" : "🎬"}
                 </div>
               )}
-              {showData.status && (
-                <div className="border-t border-slate-800 bg-slate-950/80 px-4 py-2.5 text-center text-xs font-semibold capitalize tracking-wide text-slate-300">
-                  Status: <span className="text-emerald-400">{showData.status}</span>
-                </div>
-              )}
             </div>
 
             {/* Right: Event Information */}
@@ -456,11 +451,11 @@ export default function ShowDetailsView({
                         <div className="flex items-center gap-2">
                           <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                           <p className="text-xs font-bold uppercase tracking-wider text-blue-400">
-                            Now Showing Across Theatres
+                            {eventType === "movie" ? "Now Showing Across Theatres" : "Happening Across Venues"}
                           </p>
                         </div>
                         <p className="mt-1 text-base font-bold text-white">
-                          📍 In {totalDistinctTheatres} Theatres ({uniqueCities.length ? uniqueCities.join(", ") : "Available Cities"})
+                          📍 In {totalDistinctTheatres} {eventType === "movie" ? "Theatre" : "Venue"}{totalDistinctTheatres === 1 ? "" : "s"} ({uniqueCities.length ? uniqueCities.join(", ") : "Available Cities"})
                         </p>
                         <p className="mt-0.5 text-xs text-slate-300">
                           🕒 {upcomingShows.length} Scheduled Showtimes Available

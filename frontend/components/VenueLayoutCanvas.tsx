@@ -1049,7 +1049,7 @@ export default function VenueLayoutCanvas({
               <div className="flex flex-wrap items-center gap-2.5">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="font-bold text-white text-sm">
-                  {seat.section_name || "Grandstand"} • Row {seat.row_label}, Seat {seat.seat_number}
+                  {seat.section_name ? `${seat.section_name} • ` : ""}Row {seat.row_label}, Seat {seat.seat_number}
                 </span>
                 <span className="text-slate-500">•</span>
                 <span className="text-slate-300 capitalize">{seat.seat_type} Tier</span>
