@@ -5,6 +5,9 @@ import Link from "next/link";
 import toast from "react-hot-toast";
 import { browseApi } from "@/lib/api";
 import { useWishlist } from "@/components/useWishlist";
+import ShowCarousel from "@/components/ShowCarousel";
+import { useLocation } from "@/contexts/LocationContext";
+import { NEARBY_RADIUS_KM, formatDistance } from "@/lib/geo";
 
 const EVENT_TYPES = [
   { label: "All", value: "" },
@@ -12,6 +15,14 @@ const EVENT_TYPES = [
   { label: "🎵 Concerts", value: "concert" },
   { label: "🎭 Theatre", value: "theatre" },
   { label: "✨ Other", value: "other" },
+];
+
+// Rows on the page (one swipeable row per kind of show)
+const SECTIONS = [
+  { type: "movie", title: "🎬 Movies near you" },
+  { type: "concert", title: "🎵 Concerts (all, any distance)" },
+  { type: "theatre", title: "🎭 Theatre near you" },
+  { type: "other", title: "✨ More near you" },
 ];
 
 const LANGUAGES = ["Hindi", "English", "Gujarati", "Tamil", "Telugu", "Marathi"];
@@ -77,8 +88,12 @@ function sortShows(list: any[], sortBy: string): any[] {
   const price = shownPrice; // sort by the price customers see on the card
   const time = (s: any) => new Date(s.start_time).getTime() || 0;
   const seats = (s: any) => Number(s.available_seats ?? 0);
+  const dist = (s: any) => (s.distance_km == null ? Infinity : Number(s.distance_km));
 
   return [...list].sort((a, b) => {
+    if (sortBy === "distance_asc") {
+      return dist(a) - dist(b) || time(a) - time(b); // nearest first
+    }
     if (sortBy === "rating_desc") {
       // best rating first, more reviews break ties, unrated shows go last
       const ra = hasRating(a) ? Number(a.avg_rating) : -1;
@@ -105,9 +120,9 @@ function sortShows(list: any[], sortBy: string): any[] {
 
 export default function BrowsePage() {
   const wishlist = useWishlist();
+  const { location, ready: locationReady, openPicker } = useLocation();
   const [shows, setShows] = useState<any[]>([]);
   const [allShowsCache, setAllShowsCache] = useState<any[]>([]);
-  const [cities, setCities] = useState<string[]>([]);
   const [trending, setTrending] = useState<string[]>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,11 +132,10 @@ export default function BrowsePage() {
   const searchBoxRef = useRef<HTMLDivElement>(null);
 
   const [filters, setFilters] = useState({
-    city: "",
     event_type: "",
     language: "",
     date: "",
-    sort_by: "time_asc",
+    sort_by: "distance_asc",
     search: "",
   });
 
@@ -158,10 +172,21 @@ export default function BrowsePage() {
   }, []);
 
   const load = useCallback(async () => {
+    // Without a location only concerts are listed (they have no distance limit)
+    if (!location && filters.event_type && filters.event_type !== "concert") {
+      setShows([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const params: Record<string, string> = {};
-      if (filters.city) params.city = filters.city;
+      const params: Record<string, string> = location
+        ? {
+            lat: String(location.lat),
+            lng: String(location.lng),
+            radius_km: String(NEARBY_RADIUS_KM),
+          }
+        : { event_type: "concert" };
       if (filters.event_type) params.event_type = filters.event_type;
       if (filters.language) params.language = filters.language;
       if (filters.date) params.date = filters.date;
@@ -224,15 +249,12 @@ export default function BrowsePage() {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, location]);
 
   useEffect(() => {
-    browseApi.cities().then(setCities).catch(() => {});
-  }, []);
-
-  useEffect(() => {
+    if (!locationReady) return; // wait until the saved location has been read
     load();
-  }, [load]);
+  }, [load, locationReady]);
 
   const updateFilter = (key: keyof typeof filters, value: string) => {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -262,11 +284,10 @@ export default function BrowsePage() {
   const resetAllFilters = () => {
     setSearchInput("");
     setFilters({
-      city: "",
       event_type: "",
       language: "",
       date: "",
-      sort_by: "time_asc",
+      sort_by: "distance_asc",
       search: "",
     });
   };
@@ -287,7 +308,6 @@ export default function BrowsePage() {
     : [];
 
   const activeFilterCount = [
-    filters.city,
     filters.event_type,
     filters.language,
     filters.date,
@@ -308,9 +328,154 @@ export default function BrowsePage() {
   const todayStr = getDateOffset(0);
   const tomorrowStr = getDateOffset(1);
 
-  // Shared grid classes: 1 col on phones, up to 5 on very wide monitors
-  const gridClasses =
-    "grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5";
+  // One show card (fixed width so cards sit side by side in a swipeable row)
+  const renderCard = (show: any) => {
+    const away = formatDistance(show.distance_km, show.distance_exact !== false);
+    return (
+      <div
+        key={show.event_id || show.show_id}
+        className="relative flex w-[270px] shrink-0 snap-start flex-col sm:w-[290px]"
+      >
+        {show.event_id && (
+          <button
+            type="button"
+            onClick={() => wishlist.toggle(show.event_id)}
+            aria-label={wishlist.has(show.event_id) ? "Remove from wishlist" : "Add to wishlist"}
+            title={wishlist.has(show.event_id) ? "Remove from wishlist" : "Add to wishlist"}
+            className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-lg backdrop-blur transition hover:scale-110 hover:bg-black/80"
+          >
+            {wishlist.has(show.event_id) ? "❤️" : "🤍"}
+          </button>
+        )}
+        <Link
+          href={show.event_id ? `/events/${show.event_id}` : `/shows/${show.show_id}`}
+          draggable={false}
+          className="group flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-950/30"
+        >
+          <div className="relative">
+            <Poster
+              src={show.poster_url}
+              alt={`${show.title} poster`}
+              className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+              fallbackClassName="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950"
+            />
+            {away && (
+              <span
+                title={
+                  show.distance_exact === false
+                    ? `This venue's exact spot isn't pinned yet, so the distance is measured to the centre of ${show.city}`
+                    : "Straight-line distance from your location"
+                }
+                className="absolute bottom-3 left-3 rounded-full bg-black/75 px-2.5 py-1 text-xs font-semibold text-emerald-300 backdrop-blur"
+              >
+                📍 {away}
+              </span>
+            )}
+          </div>
+
+          <div className="p-5">
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <h3 className="text-lg font-bold text-white transition group-hover:text-blue-400">
+                {show.title}
+              </h3>
+              <span className="shrink-0 rounded-md border border-slate-700 px-2 py-1 text-xs capitalize text-slate-300">
+                {show.event_type || "Show"}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+              <span>{show.language || "Language N/A"}</span>
+              {show.genre && (
+                <>
+                  <span>•</span>
+                  <span className="text-slate-300">{show.genre}</span>
+                </>
+              )}
+              {show.duration_minutes && (
+                <>
+                  <span>•</span>
+                  <span>{show.duration_minutes} mins</span>
+                </>
+              )}
+            </div>
+
+            <p className="mt-2 text-sm font-medium">
+              {hasRating(show) ? (
+                <span className="text-amber-400">
+                  ★ {Number(show.avg_rating).toFixed(1)}
+                  <span className="font-normal text-slate-400">
+                    {" "}
+                    · {show.review_count} {Number(show.review_count) === 1 ? "review" : "reviews"}
+                  </span>
+                </span>
+              ) : (
+                <span className="font-normal text-slate-500">★ No ratings yet</span>
+              )}
+            </p>
+
+            <p className="mt-3 text-sm text-slate-300">
+              <span aria-hidden="true">📍 </span>
+              {`${show.venue_name || "Venue"}${show.city ? `, ${show.city}` : ""}`}
+            </p>
+            {show.theatres_count && show.theatres_count > 1 ? (
+              <p className="mt-0.5 text-xs text-slate-400">
+                + {show.theatres_count - 1} more {show.theatres_count - 1 === 1 ? "theatre" : "theatres"} nearby
+              </p>
+            ) : null}
+            <p className="mt-1 text-sm text-slate-400">
+              <span aria-hidden="true">◷ </span>
+              {show.shows_count && show.shows_count > 1
+                ? `${show.shows_count} Showtimes Available`
+                : formatTime(show.start_time)}
+            </p>
+
+            <div className="mt-5 flex items-center justify-between border-t border-slate-800 pt-4">
+              <span className="flex flex-col">
+                <span className="flex items-baseline gap-2">
+                  <span className="text-lg font-bold text-blue-400">
+                    {show.shows_count && show.shows_count > 1 ? "From " : ""}₹{show.current_price ?? show.base_price ?? "—"}
+                  </span>
+                  {show.price_change_pct ? (
+                    <span className="text-xs text-slate-500 line-through">₹{show.base_price}</span>
+                  ) : null}
+                </span>
+                {show.pricing_reasons?.length ? (
+                  <span
+                    className={`text-xs font-medium ${
+                      show.price_change_pct > 0 ? "text-amber-400" : show.price_change_pct < 0 ? "text-emerald-400" : "text-slate-400"
+                    }`}
+                  >
+                    ⚡ {show.pricing_reasons.join(" · ")}
+                  </span>
+                ) : null}
+              </span>
+              <span
+                className={`text-sm font-medium ${
+                  (show.available_seats ?? 0) > 0 ? "text-emerald-400" : "text-red-400"
+                }`}
+              >
+                {show.available_seats ?? "—"} seats
+              </span>
+            </div>
+          </div>
+        </Link>
+
+        <div className="px-1 pb-2 pt-3">
+          {show.event_id ? (
+            <Link
+              href={`/events/${show.event_id}/reviews`}
+              draggable={false}
+              className="inline-flex items-center rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 transition hover:border-blue-400 hover:bg-blue-500/20"
+            >
+              ★ Reviews &amp; Ratings
+            </Link>
+          ) : (
+            <span className="text-xs text-slate-500">Reviews unavailable for this show</span>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="mx-auto min-h-screen w-full max-w-[1800px] px-4 py-8 sm:px-6 lg:px-10 2xl:px-16">
@@ -324,26 +489,26 @@ export default function BrowsePage() {
             Movies &amp; Shows
           </h1>
           <p className="mt-1 text-sm text-slate-400 sm:text-base">
-            Search by movie, venue, genre, language, or city.
+            Shows within {NEARBY_RADIUS_KM} km of you, plus every concert. Search by movie, venue, genre, or language.
           </p>
         </div>
 
-        {/* City Selector in Header */}
-        <div className="w-full sm:w-52">
-          <select
-            className="input w-full"
-            aria-label="Filter by city"
-            value={filters.city}
-            onChange={(e) => updateFilter("city", e.target.value)}
-          >
-            <option value="">📍 All Cities</option>
-            {cities.map((city) => (
-              <option key={city} value={city}>
-                📍 {city}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Your location (same picker as the navbar) */}
+        <button
+          type="button"
+          onClick={openPicker}
+          className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-left transition hover:border-blue-500 sm:w-64"
+        >
+          <span className="min-w-0">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              Your location
+            </span>
+            <span className="block truncate text-sm font-semibold text-white">
+              📍 {location ? location.label : "Set your location"}
+            </span>
+          </span>
+          <span className="text-xs text-blue-400">Change</span>
+        </button>
       </header>
 
       {/* Main Search & Filter Panel */}
@@ -547,6 +712,7 @@ export default function BrowsePage() {
             value={filters.sort_by}
             onChange={(e) => updateFilter("sort_by", e.target.value)}
           >
+            <option value="distance_asc">Sort: Nearest First</option>
             <option value="time_asc">Sort: Soonest First</option>
             <option value="price_asc">Price: Low to High</option>
             <option value="price_desc">Price: High to Low</option>
@@ -628,6 +794,8 @@ export default function BrowsePage() {
           <h2 className="text-xl font-semibold text-white">
             {filters.search.trim()
               ? `Results for "${filters.search.trim()}"`
+              : location
+              ? `Now showing near ${location.label}`
               : "Now showing"}
           </h2>
           {activeFilterCount > 0 && (
@@ -648,164 +816,81 @@ export default function BrowsePage() {
         )}
       </div>
 
-      {/* Show Cards Grid */}
-      {loading ? (
-        <div className={gridClasses}>
+      {/* No location yet: only concerts are listed until one is chosen */}
+      {locationReady && !location && (
+        <div className="mb-8 rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-12 text-center">
+          <p className="mb-3 text-4xl" aria-hidden="true">
+            📍
+          </p>
+          <p className="font-semibold text-white">Choose your location</p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-slate-400">
+            Movies, theatre and other shows are listed within {NEARBY_RADIUS_KM} km of you. Set your
+            location on the map or use your current location. Concerts are always shown below.
+          </p>
+          <button type="button" onClick={openPicker} className="btn-primary mt-5">
+            Set my location
+          </button>
+        </div>
+      )}
+
+      {!locationReady ? null : loading ? (
+        <div className="flex gap-4 overflow-hidden">
           {[1, 2, 3, 4, 5].map((n) => (
             <div
               key={n}
-              className="h-96 animate-pulse rounded-2xl border border-slate-800 bg-slate-900/60"
+              className="h-96 w-[270px] shrink-0 animate-pulse rounded-2xl border border-slate-800 bg-slate-900/60 sm:w-[290px]"
             />
           ))}
         </div>
       ) : shows.length === 0 ? (
+        !location ? null : (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-16 text-center">
           <p className="mb-3 text-4xl" aria-hidden="true">
             🎬
           </p>
-          <p className="font-semibold text-white">No shows matched your search</p>
-          <p className="mt-1 text-sm text-slate-400">
-            Try clearing some filters or searching for another title, city, or venue.
+          <p className="font-semibold text-white">
+            {activeFilterCount > 0
+              ? "No shows matched your search"
+              : `No shows within ${NEARBY_RADIUS_KM} km of ${location?.label ?? "you"}`}
           </p>
-          {activeFilterCount > 0 && (
-            <button
-              type="button"
-              onClick={resetAllFilters}
-              className="btn-primary mt-4"
-            >
-              Reset All Filters
+          <p className="mt-1 text-sm text-slate-400">
+            {activeFilterCount > 0
+              ? "Try clearing some filters or searching for another title or venue."
+              : "Try a different location, or check back soon."}
+          </p>
+          <div className="mt-4 flex justify-center gap-3">
+            {activeFilterCount > 0 && (
+              <button type="button" onClick={resetAllFilters} className="btn-primary">
+                Reset All Filters
+              </button>
+            )}
+            <button type="button" onClick={openPicker} className="btn-secondary">
+              Change location
             </button>
-          )}
+          </div>
         </div>
+        )
       ) : (
-        <div className={gridClasses}>
-          {shows.map((show) => (
-            <div key={show.event_id || show.show_id} className="relative flex flex-col">
-              {show.event_id && (
-                <button
-                  type="button"
-                  onClick={() => wishlist.toggle(show.event_id)}
-                  aria-label={wishlist.has(show.event_id) ? "Remove from wishlist" : "Add to wishlist"}
-                  title={wishlist.has(show.event_id) ? "Remove from wishlist" : "Add to wishlist"}
-                  className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-lg backdrop-blur transition hover:scale-110 hover:bg-black/80"
-                >
-                  {wishlist.has(show.event_id) ? "❤️" : "🤍"}
-                </button>
-              )}
-              <Link
-                href={show.event_id ? `/events/${show.event_id}` : `/shows/${show.show_id}`}
-                className="group flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-950/30"
-              >
-                <Poster
-                  src={show.poster_url}
-                  alt={`${show.title} poster`}
-                  className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                  fallbackClassName="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950"
-                />
-
-                <div className="p-5">
-                  <div className="mb-2 flex items-start justify-between gap-3">
-                    <h3 className="text-lg font-bold text-white transition group-hover:text-blue-400">
-                      {show.title}
-                    </h3>
-                    <span className="shrink-0 rounded-md border border-slate-700 px-2 py-1 text-xs capitalize text-slate-300">
-                      {show.event_type || "Show"}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                    <span>{show.language || "Language N/A"}</span>
-                    {show.genre && (
-                      <>
-                        <span>•</span>
-                        <span className="text-slate-300">{show.genre}</span>
-                      </>
-                    )}
-                    {show.duration_minutes && (
-                      <>
-                        <span>•</span>
-                        <span>{show.duration_minutes} mins</span>
-                      </>
-                    )}
-                  </div>
-
-                  <p className="mt-2 text-sm font-medium">
-                    {hasRating(show) ? (
-                      <span className="text-amber-400">
-                        ★ {Number(show.avg_rating).toFixed(1)}
-                        <span className="font-normal text-slate-400">
-                          {" "}
-                          · {show.review_count} {Number(show.review_count) === 1 ? "review" : "reviews"}
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="font-normal text-slate-500">★ No ratings yet</span>
-                    )}
-                  </p>
-
-                  <p className="mt-3 text-sm text-slate-300">
-                    <span aria-hidden="true">📍 </span>
-                    {show.theatres_count && show.theatres_count > 1
-                      ? `In ${show.theatres_count} Theatres (${show.city || "Multiple Venues"})`
-                      : `${show.venue_name || "Venue"}${show.city ? `, ${show.city}` : ""}`}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    <span aria-hidden="true">◷ </span>
-                    {show.shows_count && show.shows_count > 1
-                      ? `${show.shows_count} Showtimes Available`
-                      : formatTime(show.start_time)}
-                  </p>
-
-                  <div className="mt-5 flex items-center justify-between border-t border-slate-800 pt-4">
-                    <span className="flex flex-col">
-                      <span className="flex items-baseline gap-2">
-                        <span className="text-lg font-bold text-blue-400">
-                          {show.shows_count && show.shows_count > 1 ? "From " : ""}₹{show.current_price ?? show.base_price ?? "—"}
-                        </span>
-                        {show.price_change_pct ? (
-                          <span className="text-xs text-slate-500 line-through">₹{show.base_price}</span>
-                        ) : null}
-                      </span>
-                      {show.pricing_reasons?.length ? (
-                        <span
-                          className={`text-xs font-medium ${
-                            show.price_change_pct > 0 ? "text-amber-400" : show.price_change_pct < 0 ? "text-emerald-400" : "text-slate-400"
-                          }`}
-                        >
-                          ⚡ {show.pricing_reasons.join(" · ")}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span
-                      className={`text-sm font-medium ${
-                        (show.available_seats ?? 0) > 0
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                      }`}
-                    >
-                      {show.available_seats ?? "—"} seats
-                    </span>
-                  </div>
-                </div>
-              </Link>
-
-              <div className="px-5 pb-5">
-                {show.event_id ? (
-                  <Link
-                    href={`/events/${show.event_id}/reviews`}
-                    className="inline-flex items-center rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 transition hover:border-blue-400 hover:bg-blue-500/20"
-                  >
-                    ★ Reviews &amp; Ratings
-                  </Link>
-                ) : (
-                  <span className="text-xs text-slate-500">
-                    Reviews unavailable for this show
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+        <>
+          {(filters.search.trim() || filters.event_type
+            ? [{ key: "all", title: filters.search.trim() ? "Search results" : filters.event_type === "concert" ? "🎵 All concerts" : "Near you", items: shows }]
+            : SECTIONS.map((sec) => ({
+                key: sec.type,
+                title: sec.title,
+                items: shows.filter((x) =>
+                  sec.type === "other"
+                    ? !["movie", "concert", "theatre"].includes(String(x.event_type))
+                    : String(x.event_type) === sec.type
+                ),
+              }))
+          )
+            .filter((row) => row.items.length > 0)
+            .map((row) => (
+              <ShowCarousel key={row.key} title={row.title} count={row.items.length}>
+                {row.items.map((show) => renderCard(show))}
+              </ShowCarousel>
+            ))}
+        </>
       )}
     </div>
   );

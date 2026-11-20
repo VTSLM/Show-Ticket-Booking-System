@@ -4,7 +4,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 27ZYt0d4y7Bl12tPJqlmu4Nio4LSpuvmIhItiAlTc1gBtdNyQoTQsTQgioWZ1nu
+\restrict q4TXmfvpxgUc9vT0jq5w5h8w2mt9TNGrhmoMGwzpfQvjhYv9szSbn1JhE75W2zT
 
 -- Dumped from database version 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
 -- Dumped by pg_dump version 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
@@ -451,6 +451,9 @@ CREATE TABLE public.bookings (
     cancellation_charge numeric(10,2) DEFAULT 0.00,
     refund_amount numeric(10,2) DEFAULT 0.00,
     refund_status character varying(50) DEFAULT 'NOT_APPLICABLE'::character varying,
+    subtotal_amount numeric(10,2) NOT NULL,
+    discount_amount numeric(10,2) DEFAULT 0 NOT NULL,
+    coupon_id uuid,
     CONSTRAINT bookings_total_amount_check CHECK ((total_amount >= (0)::numeric))
 );
 
@@ -3386,5 +3389,5 @@ ALTER TABLE public.wishlists ENABLE ROW LEVEL SECURITY;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 27ZYt0d4y7Bl12tPJqlmu4Nio4LSpuvmIhItiAlTc1gBtdNyQoTQsTQgioWZ1nu
+\unrestrict q4TXmfvpxgUc9vT0jq5w5h8w2mt9TNGrhmoMGwzpfQvjhYv9szSbn1JhE75W2zT
 
