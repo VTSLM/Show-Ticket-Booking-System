@@ -440,7 +440,16 @@ async def india_cities():
 
 @router.get("/cities")
 async def list_cities(conn: asyncpg.Connection = Depends(get_conn)):
-    rows = await conn.fetch("SELECT DISTINCT city FROM venues WHERE city IS NOT NULL ORDER BY city")
+    # Only cities with something bookable, so empty or test venues never show up.
+    rows = await conn.fetch(
+        """SELECT DISTINCT v.city FROM venues v
+           JOIN screens sc ON sc.venue_id = v.id
+           JOIN shows s ON s.screen_id = sc.id
+           JOIN events e ON e.id = s.event_id
+           WHERE v.city IS NOT NULL AND s.status = 'scheduled'
+             AND e.status = 'published' AND s.start_time > now()
+           ORDER BY v.city"""
+    )
     return [r["city"] for r in rows]
 
 

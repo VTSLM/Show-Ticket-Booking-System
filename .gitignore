@@ -56,3 +56,6 @@ TEAM-UPDATE.md
 
 # Runtime uploads written by the backend
 backend/private_uploads/
+
+# Generated demo posters (upload to the demo-posters bucket)
+demo-posters/

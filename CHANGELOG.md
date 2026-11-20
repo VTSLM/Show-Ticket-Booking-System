@@ -5,6 +5,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 ## [Unreleased] (Sprint 3)
 
 ### Added
+- Demo catalogue seed: 10 cities, multiplexes, arenas, auditoriums and comedy clubs with matching seat maps, 10 movies, live events and a week of showtimes; posters are served from the `demo-posters` storage bucket (`database/seeds/005_demo_catalogue.py`, #191)
 - Admin → Users: list and search all users, give or remove the manager and admin roles, block and unblock accounts with a required reason; every change, including manager approvals, is recorded in an audit log (#138)
 - TicketFlow Assistant: a chat widget that finds shows, shows details, seats, reviews and recommendations, answers questions about the user's own bookings and wishlist, explains policies, and replies in English, Hindi or Gujarati. Read-only; nothing is stored
 - Wishlist for saving shows (#79)
@@ -25,6 +26,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Cinema seats are no longer labelled "Grandstand"
 - Events without a working poster show a neutral placeholder for their event type instead of the Ramayana poster (#170)
 - Notifications have a close button; the red icon on error toasts looked like one but did nothing
+- Browse city list shows only cities with upcoming shows, so empty or test venues no longer appear (#191)
 - Booking seats or standing-zone tickets no longer fails with a server error: bookings now store their subtotal and discount, and the zone booking query is fixed (#174)
 - Malformed ids in URLs return 404 instead of a server error, and the seat map of an unknown show returns 404 instead of an empty map (#140)
 - Concerts, theatre, comedy and sports events no longer show cinema formats (2D, IMAX) or a cinema screen on the seat map; movies offer only the formats their showtimes have, and managers are warned when a screen's layout does not fit the event (#168)
