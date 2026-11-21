@@ -320,26 +320,13 @@ export default function ShowDetailsView({
           <div className="flex flex-col gap-8 md:flex-row md:items-start md:gap-12">
             {/* Left: Poster Card */}
             <div className="mx-auto w-60 shrink-0 overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-900/90 shadow-2xl shadow-black/80 md:mx-0 md:w-72">
-<EventPoster
-  src={
-    poster ||
-    (title?.toLowerCase().includes("ramayana")
-      ? "/posters/ramayana.jpg"
-      : undefined)
-  }
-  alt={`${title} poster`}
-  eventType={eventType}
-  className="aspect-[2/3] w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
-  placeholderClassName="flex aspect-[2/3] w-full items-center justify-center bg-slate-800"
-/>
-
-{showData.status && (
-  <div className="border-t border-slate-800 bg-slate-950/80 px-4 py-2.5 text-center text-xs font-semibold capitalize tracking-wide text-slate-300">
-    Status: <span className="text-emerald-400">{showData.status}</span>
-  </div>
-)}
-                </div>
-              )}
+              <EventPoster
+                src={poster}
+                alt={`${title} poster`}
+                eventType={eventType}
+                className="aspect-[2/3] w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
+                placeholderClassName="flex aspect-[2/3] w-full items-center justify-center bg-slate-800"
+              />
             </div>
 
             {/* Right: Event Information */}
@@ -467,7 +454,7 @@ export default function ShowDetailsView({
                           </p>
                         </div>
                         <p className="mt-1 text-base font-bold text-white">
-                          📍 In {totalDistinctTheatres} {isMovie ? "Theatres" : "Venues"} ({uniqueCities.length ? uniqueCities.join(", ") : "Available Cities"})
+                          📍 In {totalDistinctTheatres} {isMovie ? "Theatre" : "Venue"}{totalDistinctTheatres === 1 ? "" : "s"} ({uniqueCities.length ? uniqueCities.join(", ") : "Available Cities"})
                         </p>
                         <p className="mt-0.5 text-xs text-slate-300">
                           🕒 {upcomingShows.length} Scheduled Showtimes Available

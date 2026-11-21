@@ -24,6 +24,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Customers no longer see the internal event status, and live events say "venues" instead of "theatres"
 - Cinema seats are no longer labelled "Grandstand"
 - Events without a working poster show a neutral placeholder for their event type instead of the Ramayana poster (#170)
+- Notifications have a close button; the red icon on error toasts looked like one but did nothing
 - Booking seats or standing-zone tickets no longer fails with a server error: bookings now store their subtotal and discount, and the zone booking query is fixed (#174)
 - Malformed ids in URLs return 404 instead of a server error, and the seat map of an unknown show returns 404 instead of an empty map (#140)
 - Concerts, theatre, comedy and sports events no longer show cinema formats (2D, IMAX) or a cinema screen on the seat map; movies offer only the formats their showtimes have, and managers are warned when a screen's layout does not fit the event (#168)
