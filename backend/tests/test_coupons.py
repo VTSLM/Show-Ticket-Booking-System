@@ -13,7 +13,7 @@ async def test_first20_applies_twenty_percent():
     conn.fetchrow.return_value = {
         "id": "coupon-id",
         "code": "FIRST20",
-        "percent_off": Decimal("20.00"),
+        "discount_percent": Decimal("20.00"),
     }
 
     result = await _price_with_coupon(conn, Decimal("100.00"), " first20 ")

@@ -258,7 +258,7 @@ async def list_screens(
             venue_id, user["id"],
         )
         if not visible:
-            _not_found("Venue")
+            raise _not_found("Venue")
     rows = await conn.fetch("SELECT * FROM screens WHERE venue_id=$1::uuid ORDER BY name", venue_id)
     return [dict(r) for r in rows]
 
