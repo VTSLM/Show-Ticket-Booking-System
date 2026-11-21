@@ -1,0 +1,91 @@
+name: Deploy backend to Azure
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-backend-azure
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ github.token }}
+      IMAGE: ticketflow319974.azurecr.io/ticketflow-backend
+    steps:
+      - name: Check out tested commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
+      - name: Check current main
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$DEPLOY_SHA"
+      - name: Sign in to Azure
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Build and upload image
+        env:
+          SUPABASE_CA_CERT: ${{ secrets.SUPABASE_CA_CERT }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_CA_CERT"
+          mkdir -p "$RUNNER_TEMP/ticketflow-cert"
+          printf '%s\n' "$SUPABASE_CA_CERT" > "$RUNNER_TEMP/ticketflow-cert/prod-ca-2021.crt"
+          openssl x509 -in "$RUNNER_TEMP/ticketflow-cert/prod-ca-2021.crt" -noout -checkend 0
+          docker build -t ticketflow-backend-base:$DEPLOY_SHA ./backend
+          printf 'FROM ticketflow-backend-base:%s\nCOPY --chmod=644 prod-ca-2021.crt /app/supabase-ca.crt\n' "$DEPLOY_SHA" > "$RUNNER_TEMP/ticketflow-cert/Dockerfile"
+          docker build -t "$IMAGE:$DEPLOY_SHA" "$RUNNER_TEMP/ticketflow-cert"
+          az acr login --name ticketflow319974
+          docker push "$IMAGE:$DEPLOY_SHA"
+      - name: Save current image
+        id: previous-image
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$DEPLOY_SHA"
+          PREVIOUS_IMAGE=$(az containerapp show --name ticketflow-backend --resource-group ticketflow-staging --query 'properties.template.containers[0].image' -o tsv)
+          test -n "$PREVIOUS_IMAGE"
+          echo "PREVIOUS_IMAGE=$PREVIOUS_IMAGE" >> "$GITHUB_ENV"
+      - name: Check current main before deployment
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$DEPLOY_SHA"
+      - name: Deploy tested commit
+        id: deploy
+        run: |
+          set -euo pipefail
+          az containerapp update --name ticketflow-backend --resource-group ticketflow-staging --image "$IMAGE:$DEPLOY_SHA" --output none
+      - name: Check backend health
+        id: health
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            STATUS=$(az containerapp show --name ticketflow-backend --resource-group ticketflow-staging --query 'properties.runningStatus' -o tsv)
+            IMAGE_IN_USE=$(az containerapp show --name ticketflow-backend --resource-group ticketflow-staging --query 'properties.template.containers[0].image' -o tsv)
+            if [ "$STATUS" = Running ] && [ "$IMAGE_IN_USE" = "$IMAGE:$DEPLOY_SHA" ] && curl --fail --silent --show-error --max-time 10 --output /dev/null https://ticketflow-backend.wittycliff-c9bcd275.uaenorth.azurecontainerapps.io/health; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+      - name: Restore previous image after a failed deployment
+        if: failure() && steps.previous-image.outcome == 'success' && (steps.deploy.outcome == 'failure' || steps.health.outcome == 'failure')
+        run: |
+          az containerapp update --name ticketflow-backend --resource-group ticketflow-staging --image "$PREVIOUS_IMAGE" --output none

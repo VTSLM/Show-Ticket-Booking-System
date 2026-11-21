@@ -88,11 +88,12 @@ async def _fetch_booking_for_cancellation(
             import inspect
             res = conn.fetch(
                 """
-                SELECT ss.id, ss.row_label, ss.seat_number, ss.seat_type, bs.price
+                SELECT ss.id, st.row_label, st.seat_number, st.seat_type, bs.unit_price AS price
                 FROM booking_seats bs
                 JOIN show_seats ss ON ss.id = bs.show_seat_id
+                JOIN seats st ON st.id = ss.seat_id
                 WHERE bs.booking_id = $1::uuid
-                ORDER BY ss.row_label, ss.seat_number
+                ORDER BY st.row_label, st.seat_number
                 """,
                 booking_id,
             )
@@ -102,6 +103,21 @@ async def _fetch_booking_for_cancellation(
                     booking_dict["seats_info"] = [dict(s) for s in seats]
         except Exception:
             booking_dict["seats_info"] = []
+
+    # Standing / general-admission passes are stored per zone, not per seat.
+    booking_dict["zone_tickets"] = 0
+    if hasattr(conn, "fetchval") and callable(getattr(conn, "fetchval", None)):
+        try:
+            import inspect
+            res = conn.fetchval(
+                "SELECT COALESCE(SUM(quantity), 0) FROM booking_zones WHERE booking_id = $1::uuid",
+                booking_id,
+            )
+            if inspect.isawaitable(res):
+                count = await res
+                booking_dict["zone_tickets"] = int(count) if isinstance(count, (int, float)) else 0
+        except Exception:
+            booking_dict["zone_tickets"] = 0
 
     booking_dict["refund_info"] = None
     return booking_dict
@@ -138,7 +154,7 @@ async def check_cancel_eligibility(
         "venue_city": booking["venue_city"],
         "start_time": booking["start_time"].isoformat() if booking["start_time"] else None,
         "seats": seats_list,
-        "total_seats": len(seats_list),
+        "total_seats": len(seats_list) + int(booking.get("zone_tickets") or 0),
         "total_paid": float(booking.get("paid_amount") or booking.get("total_amount") or 0.0),
         "breakdown": breakdown,
     }

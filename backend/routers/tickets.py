@@ -273,7 +273,6 @@ async def verify_ticket(
     return {
         "valid": is_valid,
         "status": row["status"],
-        "ticket_id": str(row["id"]),
         "used": row["is_used"],
         "message": msg
     }

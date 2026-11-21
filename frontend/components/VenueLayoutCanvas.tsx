@@ -597,8 +597,9 @@ export default function VenueLayoutCanvas({
               </linearGradient>
             </defs>
 
-            {/* 3. MAIN LIVE STAGE (Distinct, Separated, Clear) */}
-            {stagePosition === "center" ? (
+            {/* 3. MAIN LIVE STAGE (Distinct, Separated, Clear). The backend picks layoutType
+                from the event type: only movies get "cinema" (a screen), live events a stage. */}
+            {stagePosition === "center" && layoutType !== "cinema" ? (
               // 360° Arena Center Stage
               <g transform={`translate(${contentWidth / 2}, 160)`}>
                 <circle r="75" fill="#1e1b4b" stroke="#818cf8" strokeWidth="2.5" />
@@ -618,7 +619,7 @@ export default function VenueLayoutCanvas({
                   IN-THE-ROUND
                 </text>
               </g>
-            ) : layoutType === "concert" || isConcertWithZones ? (
+            ) : layoutType === "concert" ? (
               // Live Concert Main Stage with Sound PA Wings
               <g transform={`translate(${contentWidth / 2 - stageW / 2}, ${stageY})`}>
                 {/* Main Stage Rectangle */}
@@ -680,8 +681,34 @@ export default function VenueLayoutCanvas({
                   🎭 PROSCENIUM THEATRE STAGE 🎭
                 </text>
               </g>
+            ) : layoutType === "stage" ? (
+              // Plain stage for comedy and other live events
+              <g transform={`translate(${contentWidth / 2 - stageW / 2}, ${stageY})`}>
+                <rect
+                  x="0"
+                  y="0"
+                  width={stageW}
+                  height="50"
+                  rx="8"
+                  fill="#1e293b"
+                  stroke="#a78bfa"
+                  strokeWidth="2"
+                  filter="drop-shadow(0px 0px 12px rgba(167, 139, 250, 0.3))"
+                />
+                <text
+                  x={stageW / 2}
+                  y="31"
+                  textAnchor="middle"
+                  fill="#ffffff"
+                  fontSize="12.5"
+                  fontWeight="800"
+                  letterSpacing="3"
+                >
+                  🎤 STAGE
+                </text>
+              </g>
             ) : (
-              // Cinema Curved Screen
+              // Cinema Curved Screen (movies only)
               <g transform={`translate(${contentWidth / 2 - stageW / 2}, ${stageY})`}>
                 <polygon
                   points={`20,32 ${stageW - 20},32 ${stageW + 20},160 -20,160`}
@@ -1049,7 +1076,7 @@ export default function VenueLayoutCanvas({
               <div className="flex flex-wrap items-center gap-2.5">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="font-bold text-white text-sm">
-                  {seat.section_name || "Grandstand"} • Row {seat.row_label}, Seat {seat.seat_number}
+                  {seat.section_name ? `${seat.section_name} • ` : ""}Row {seat.row_label}, Seat {seat.seat_number}
                 </span>
                 <span className="text-slate-500">•</span>
                 <span className="text-slate-300 capitalize">{seat.seat_type} Tier</span>
