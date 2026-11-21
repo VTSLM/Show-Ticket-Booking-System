@@ -8,6 +8,7 @@ import { browseApi, seatsApi, bookingsApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import VenueLayoutCanvas, { SeatItem, ZoneItem } from "@/components/VenueLayoutCanvas";
 import TermsAndConditionsModal from "@/components/TermsAndConditionsModal";
+import EventPoster from "@/components/EventPoster";
 
 export default function SeatsPage() {
   const { showId } = useParams<{ showId: string }>();
@@ -347,13 +348,14 @@ export default function SeatsPage() {
         <div className="border-b border-slate-800 bg-[#0d101a] px-4 py-5 sm:px-8">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              {show.poster_url && (
-                <img
-                  src={show.poster_url}
-                  alt={show.title}
-                  className="h-16 w-12 sm:h-20 sm:w-14 shrink-0 rounded-lg border border-slate-700 object-cover shadow-md"
-                />
-              )}
+              <EventPoster
+                src={show.poster_url}
+                alt={show.title}
+                eventType={show.event_type}
+                className="h-16 w-12 sm:h-20 sm:w-14 shrink-0 rounded-lg border border-slate-700 object-cover shadow-md"
+                placeholderClassName="flex h-16 w-12 sm:h-20 sm:w-14 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800"
+                iconClassName="text-xl"
+              />
               <div>
                 <div className="flex items-center gap-2 text-xs text-blue-400 font-bold uppercase tracking-wider">
                   <Link href={`/shows/${showId}`} className="hover:underline">

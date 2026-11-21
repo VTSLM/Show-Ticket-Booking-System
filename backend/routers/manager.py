@@ -268,6 +268,17 @@ class EventCreate(BaseModel):
     release_date: Optional[str] = None
     terms_and_conditions: Optional[str] = None
 
+def event_formats(event_type: Optional[str], formats: Optional[List[str]]) -> List[str]:
+    """Cinema formats (2D, 3D, IMAX, 4DX) apply to movies only (#168).
+
+    Movies keep the formats given, or 2D by default. Every other event type has none.
+    """
+    if (event_type or "movie").lower() != "movie":
+        return []
+    cleaned = [f.strip() for f in (formats or []) if isinstance(f, str) and f.strip()]
+    return list(dict.fromkeys(cleaned)) or ["2D"]
+
+
 @router.get("/events")
 async def list_events(
     user: dict = Depends(MANAGER_ROLES),
@@ -331,7 +342,7 @@ async def create_event(
            RETURNING *""",
         body.title, body.description, body.event_type, body.duration_minutes,
         body.language, body.genre, body.poster_url, body.backdrop_url, body.status, organizer_id,
-        cast_json, artist_json, body.formats or ["2D"], body.certificate or "UA", rel_date, body.terms_and_conditions
+        cast_json, artist_json, event_formats(body.event_type, body.formats), body.certificate or "UA", rel_date, body.terms_and_conditions
     )
     return dict(row)
 
@@ -360,6 +371,14 @@ async def update_event(
 
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
+    if "event_type" in updates or "formats" in updates:
+        current = await conn.fetchrow("SELECT event_type, formats FROM events WHERE id=$1::uuid", event_id)
+        if not current:
+            raise HTTPException(status_code=404, detail="Event not found")
+        updates["formats"] = event_formats(
+            updates.get("event_type", current["event_type"]),
+            updates.get("formats", current["formats"]),
+        )
     set_clause = ", ".join(f"{k}=${i+2}" for i, k in enumerate(updates))
     vals = list(updates.values())
     row = await conn.fetchrow(

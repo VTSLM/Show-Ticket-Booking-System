@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import asyncpg
 import json
 from datetime import datetime, timezone
@@ -39,6 +39,29 @@ manager = ConnectionManager()
 
 
 LOCK_DURATION_MINUTES = 10
+
+# Venue layouts that already draw a stage
+STAGE_LAYOUTS = {"concert", "theatre"}
+
+
+def display_layout(event_type: Optional[str], venue_layout: Optional[str]) -> str:
+    """Which arrangement the seat map draws (#168).
+
+    Movies always get a cinema screen. Live events never do: they keep a venue's
+    concert or theatre stage, and in a cinema or general-admission venue they get the
+    stage that fits the event (concert stage, theatre stage, or a plain stage for
+    comedy and other events).
+    """
+    event_type = (event_type or "movie").lower()
+    venue_layout = (venue_layout or "").lower()
+    if event_type == "movie":
+        return "cinema"
+    if venue_layout in STAGE_LAYOUTS:
+        return venue_layout
+    if event_type in STAGE_LAYOUTS:
+        return event_type
+    return "stage"
+
 
 # ---- REST endpoints ----
 @router.get("/{show_id}/map")
@@ -85,9 +108,8 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
         show_id
     )
 
-    layout_type = show_meta.get("layout_type") if show_meta and show_meta.get("layout_type") else (
-        show_meta.get("event_type") if show_meta else "cinema"
-    )
+    venue_layout = show_meta.get("layout_type")
+    layout_type = display_layout(show_meta.get("event_type"), venue_layout)
     stage_pos = show_meta.get("stage_position") if show_meta and show_meta.get("stage_position") else "front"
     event_type = show_meta.get("event_type") if show_meta else "movie"
     layout_cfg = show_meta.get("layout_config") if show_meta and show_meta.get("layout_config") else None
@@ -129,6 +151,7 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
 
     return {
         "layout_type": layout_type,
+        "venue_layout_type": venue_layout,
         "stage_position": stage_pos,
         "event_type": event_type,
         "layout_config": layout_cfg,
