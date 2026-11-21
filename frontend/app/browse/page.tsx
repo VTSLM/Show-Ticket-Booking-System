@@ -5,10 +5,7 @@ import Link from "next/link";
 import toast from "react-hot-toast";
 import { browseApi } from "@/lib/api";
 import { useWishlist } from "@/components/useWishlist";
-<<<<<<< HEAD
-=======
 import EventPoster from "@/components/EventPoster";
->>>>>>> origin/main
 import ShowCarousel from "@/components/ShowCarousel";
 import { useLocation } from "@/contexts/LocationContext";
 import { NEARBY_RADIUS_KM, formatDistance } from "@/lib/geo";
@@ -317,20 +314,12 @@ export default function BrowsePage() {
           className="group flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-950/30"
         >
           <div className="relative">
-<<<<<<< HEAD
-            <Poster
-              src={show.poster_url}
-              alt={`${show.title} poster`}
-              className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-              fallbackClassName="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950"
-=======
             <EventPoster
               src={show.poster_url}
               alt={`${show.title} poster`}
               eventType={show.event_type}
               className="h-64 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
               placeholderClassName="flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950"
->>>>>>> origin/main
             />
             {away && (
               <span

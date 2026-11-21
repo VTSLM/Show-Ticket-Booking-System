@@ -4,11 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 import LocationPicker from "@/components/LocationPicker";
-<<<<<<< HEAD
-import { Toaster } from "react-hot-toast";
-=======
 import AppToaster from "@/components/AppToaster";
->>>>>>> origin/main
 import Navbar from "@/components/Navbar";
 import ChatWidget from "@/components/ChatWidget";
 
@@ -29,11 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <main className="min-h-screen bg-transparent">{children}</main>
             <LocationPicker />
             <ChatWidget />
-<<<<<<< HEAD
-            <Toaster position="top-right" />
-=======
             <AppToaster />
->>>>>>> origin/main
           </LocationProvider>
         </AuthProvider>
       </body>
