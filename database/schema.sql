@@ -1,13 +1,11 @@
--- Generated snapshot of the full schema after database/migrations/0026. Do not edit by hand.
--- Regenerate with the steps in database/README.md.
 --
 -- PostgreSQL database dump
 --
 
-\restrict q4TXmfvpxgUc9vT0jq5w5h8w2mt9TNGrhmoMGwzpfQvjhYv9szSbn1JhE75W2zT
+\restrict IPDIK6J2FeWwmdFnyD9fnRtdqAh8DyaNmBCpBhkmdqtgNZPciYGoeUuLNSPD4kL
 
--- Dumped from database version 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
--- Dumped by pg_dump version 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
+-- Dumped from database version 16.16
+-- Dumped by pg_dump version 16.16
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -328,22 +326,6 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
--- Name: admin_audit_log; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.admin_audit_log (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    admin_id uuid,
-    target_user_id uuid,
-    action text NOT NULL,
-    details jsonb DEFAULT '{}'::jsonb NOT NULL,
-    reason text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT admin_audit_log_action_check CHECK ((action = ANY (ARRAY['role_added'::text, 'role_removed'::text, 'status_changed'::text, 'manager_approved'::text, 'manager_rejected'::text])))
-);
-
-
---
 -- Name: ai_review_summaries; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -446,32 +428,11 @@ CREATE TABLE public.bookings (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     cancelled_at timestamp with time zone,
-    cancellation_reason text,
-    cancellation_notes text,
-    cancellation_charge numeric(10,2) DEFAULT 0.00,
-    refund_amount numeric(10,2) DEFAULT 0.00,
-    refund_status character varying(50) DEFAULT 'NOT_APPLICABLE'::character varying,
     subtotal_amount numeric(10,2) NOT NULL,
     discount_amount numeric(10,2) DEFAULT 0 NOT NULL,
     coupon_id uuid,
+    CONSTRAINT bookings_discount_amount_check CHECK ((discount_amount >= (0)::numeric)),
     CONSTRAINT bookings_total_amount_check CHECK ((total_amount >= (0)::numeric))
-);
-
-
---
--- Name: cancellation_policies; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.cancellation_policies (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    name character varying(100) NOT NULL,
-    description text,
-    cutoff_hours integer DEFAULT 2 NOT NULL,
-    deduction_percentage numeric(5,2) DEFAULT 0.00 NOT NULL,
-    flat_cancellation_fee numeric(10,2) DEFAULT 0.00 NOT NULL,
-    is_refundable boolean DEFAULT true NOT NULL,
-    is_default boolean DEFAULT false NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -488,6 +449,23 @@ CREATE TABLE public.checklist_templates (
     updated_by uuid,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT checklist_templates_case_type_check CHECK (((case_type)::text = ANY ((ARRAY['ORGANIZER'::character varying, 'VENUE'::character varying, 'LISTING'::character varying])::text[])))
+);
+
+
+--
+-- Name: coupons; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.coupons (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    event_id uuid NOT NULL,
+    created_by uuid NOT NULL,
+    code character varying(30) NOT NULL,
+    discount_percent numeric(5,2) NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT coupons_discount_percent_check CHECK (((discount_percent > (0)::numeric) AND (discount_percent < (100)::numeric)))
 );
 
 
@@ -672,32 +650,6 @@ CREATE TABLE public.receipts (
     payment_id uuid NOT NULL,
     issued_at timestamp with time zone DEFAULT now() NOT NULL,
     pdf_url text
-);
-
-
---
--- Name: refunds; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.refunds (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    booking_id uuid NOT NULL,
-    payment_id uuid,
-    user_id uuid NOT NULL,
-    amount numeric(10,2) NOT NULL,
-    cancellation_charge numeric(10,2) DEFAULT 0.00 NOT NULL,
-    currency character varying(10) DEFAULT 'INR'::character varying NOT NULL,
-    status character varying(50) DEFAULT 'PENDING'::character varying NOT NULL,
-    razorpay_payment_id character varying(100),
-    razorpay_refund_id character varying(100),
-    failure_reason text,
-    retry_count integer DEFAULT 0 NOT NULL,
-    last_retried_at timestamp with time zone,
-    retried_by uuid,
-    policy_snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    completed_at timestamp with time zone
 );
 
 
@@ -924,7 +876,6 @@ CREATE TABLE public.shows (
     dynamic_pricing boolean DEFAULT false NOT NULL,
     terms_and_conditions text,
     base_price numeric(10,2) DEFAULT 0 NOT NULL,
-    cancellation_policy_id uuid,
     CONSTRAINT shows_check CHECK ((end_time > start_time))
 );
 
@@ -1025,23 +976,6 @@ CREATE TABLE public.user_roles (
     user_id uuid NOT NULL,
     role_id uuid NOT NULL,
     assigned_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: user_sessions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.user_sessions (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    user_id uuid NOT NULL,
-    role character varying(50) DEFAULT 'customer'::character varying NOT NULL,
-    timeout_seconds integer NOT NULL,
-    last_activity_at timestamp with time zone DEFAULT now() NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    revoked_at timestamp with time zone,
-    ip_address character varying(100),
-    user_agent text
 );
 
 
@@ -1234,14 +1168,6 @@ CREATE TABLE public.wishlists (
 
 
 --
--- Name: admin_audit_log admin_audit_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.admin_audit_log
-    ADD CONSTRAINT admin_audit_log_pkey PRIMARY KEY (id);
-
-
---
 -- Name: ai_review_summaries ai_review_summaries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1314,14 +1240,6 @@ ALTER TABLE ONLY public.bookings
 
 
 --
--- Name: cancellation_policies cancellation_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.cancellation_policies
-    ADD CONSTRAINT cancellation_policies_pkey PRIMARY KEY (id);
-
-
---
 -- Name: checklist_templates checklist_templates_case_type_state_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1335,6 +1253,14 @@ ALTER TABLE ONLY public.checklist_templates
 
 ALTER TABLE ONLY public.checklist_templates
     ADD CONSTRAINT checklist_templates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: coupons coupons_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.coupons
+    ADD CONSTRAINT coupons_pkey PRIMARY KEY (id);
 
 
 --
@@ -1439,22 +1365,6 @@ ALTER TABLE ONLY public.receipts
 
 ALTER TABLE ONLY public.receipts
     ADD CONSTRAINT receipts_receipt_number_key UNIQUE (receipt_number);
-
-
---
--- Name: refunds refunds_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.refunds
-    ADD CONSTRAINT refunds_pkey PRIMARY KEY (id);
-
-
---
--- Name: refunds refunds_razorpay_refund_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.refunds
-    ADD CONSTRAINT refunds_razorpay_refund_id_key UNIQUE (razorpay_refund_id);
 
 
 --
@@ -1682,14 +1592,6 @@ ALTER TABLE ONLY public.user_roles
 
 
 --
--- Name: user_sessions user_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.user_sessions
-    ADD CONSTRAINT user_sessions_pkey PRIMARY KEY (id);
-
-
---
 -- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1818,20 +1720,6 @@ ALTER TABLE ONLY public.wishlists
 
 
 --
--- Name: idx_admin_audit_log_admin; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_admin_audit_log_admin ON public.admin_audit_log USING btree (admin_id, created_at DESC);
-
-
---
--- Name: idx_admin_audit_log_target; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_admin_audit_log_target ON public.admin_audit_log USING btree (target_user_id, created_at DESC);
-
-
---
 -- Name: idx_ai_review_summaries_generated_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1892,6 +1780,20 @@ CREATE INDEX idx_bookings_show_id ON public.bookings USING btree (show_id);
 --
 
 CREATE INDEX idx_bookings_user_id ON public.bookings USING btree (user_id);
+
+
+--
+-- Name: idx_coupons_created_by; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_coupons_created_by ON public.coupons USING btree (created_by);
+
+
+--
+-- Name: idx_coupons_event_code; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_coupons_event_code ON public.coupons USING btree (event_id, lower((code)::text));
 
 
 --
@@ -2018,34 +1920,6 @@ CREATE INDEX idx_payments_payment_order_id ON public.payments USING btree (payme
 --
 
 CREATE INDEX idx_payments_transaction_id ON public.payments USING btree (transaction_id);
-
-
---
--- Name: idx_refunds_booking_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_refunds_booking_id ON public.refunds USING btree (booking_id);
-
-
---
--- Name: idx_refunds_rzp_refund_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_refunds_rzp_refund_id ON public.refunds USING btree (razorpay_refund_id);
-
-
---
--- Name: idx_refunds_status; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_refunds_status ON public.refunds USING btree (status);
-
-
---
--- Name: idx_refunds_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_refunds_user_id ON public.refunds USING btree (user_id);
 
 
 --
@@ -2256,27 +2130,6 @@ CREATE INDEX idx_tickets_user_id ON public.tickets USING btree (user_id);
 --
 
 CREATE INDEX idx_user_roles_role_id ON public.user_roles USING btree (role_id);
-
-
---
--- Name: idx_user_sessions_last_activity; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_user_sessions_last_activity ON public.user_sessions USING btree (last_activity_at);
-
-
---
--- Name: idx_user_sessions_revoked_at; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_user_sessions_revoked_at ON public.user_sessions USING btree (revoked_at);
-
-
---
--- Name: idx_user_sessions_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_user_sessions_user_id ON public.user_sessions USING btree (user_id);
 
 
 --
@@ -2497,22 +2350,6 @@ CREATE TRIGGER venue_audit_no_update BEFORE UPDATE ON public.venue_verification_
 
 
 --
--- Name: admin_audit_log admin_audit_log_admin_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.admin_audit_log
-    ADD CONSTRAINT admin_audit_log_admin_id_fkey FOREIGN KEY (admin_id) REFERENCES public.users(id) ON DELETE SET NULL;
-
-
---
--- Name: admin_audit_log admin_audit_log_target_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.admin_audit_log
-    ADD CONSTRAINT admin_audit_log_target_user_id_fkey FOREIGN KEY (target_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
-
-
---
 -- Name: ai_review_summaries ai_review_summaries_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2569,6 +2406,14 @@ ALTER TABLE ONLY public.booking_zones
 
 
 --
+-- Name: bookings bookings_coupon_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bookings
+    ADD CONSTRAINT bookings_coupon_id_fkey FOREIGN KEY (coupon_id) REFERENCES public.coupons(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: bookings bookings_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2590,6 +2435,22 @@ ALTER TABLE ONLY public.bookings
 
 ALTER TABLE ONLY public.checklist_templates
     ADD CONSTRAINT checklist_templates_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: coupons coupons_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.coupons
+    ADD CONSTRAINT coupons_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: coupons coupons_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.coupons
+    ADD CONSTRAINT coupons_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id) ON DELETE RESTRICT;
 
 
 --
@@ -2710,38 +2571,6 @@ ALTER TABLE ONLY public.payments
 
 ALTER TABLE ONLY public.receipts
     ADD CONSTRAINT receipts_payment_id_fkey FOREIGN KEY (payment_id) REFERENCES public.payments(id) ON DELETE RESTRICT;
-
-
---
--- Name: refunds refunds_booking_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.refunds
-    ADD CONSTRAINT refunds_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id) ON DELETE CASCADE;
-
-
---
--- Name: refunds refunds_payment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.refunds
-    ADD CONSTRAINT refunds_payment_id_fkey FOREIGN KEY (payment_id) REFERENCES public.payments(id) ON DELETE SET NULL;
-
-
---
--- Name: refunds refunds_retried_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.refunds
-    ADD CONSTRAINT refunds_retried_by_fkey FOREIGN KEY (retried_by) REFERENCES public.users(id) ON DELETE SET NULL;
-
-
---
--- Name: refunds refunds_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.refunds
-    ADD CONSTRAINT refunds_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -2881,14 +2710,6 @@ ALTER TABLE ONLY public.show_zones
 
 
 --
--- Name: shows shows_cancellation_policy_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.shows
-    ADD CONSTRAINT shows_cancellation_policy_id_fkey FOREIGN KEY (cancellation_policy_id) REFERENCES public.cancellation_policies(id) ON DELETE SET NULL;
-
-
---
 -- Name: shows shows_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2998,14 +2819,6 @@ ALTER TABLE ONLY public.user_roles
 
 ALTER TABLE ONLY public.user_roles
     ADD CONSTRAINT user_roles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: user_sessions user_sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.user_sessions
-    ADD CONSTRAINT user_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -3137,21 +2950,6 @@ ALTER TABLE ONLY public.wishlists
 
 
 --
--- Name: user_sessions Users can view their own sessions; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "Users can view their own sessions" ON public.user_sessions FOR SELECT USING (((auth.uid())::text = (( SELECT users.firebase_uid
-   FROM public.users
-  WHERE (users.id = user_sessions.user_id)))::text));
-
-
---
--- Name: admin_audit_log; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.admin_audit_log ENABLE ROW LEVEL SECURITY;
-
---
 -- Name: audit_log; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3176,16 +2974,16 @@ ALTER TABLE public.booking_seats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: cancellation_policies; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.cancellation_policies ENABLE ROW LEVEL SECURITY;
-
---
 -- Name: checklist_templates; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
 ALTER TABLE public.checklist_templates ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: coupons; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: duplicate_fingerprints; Type: ROW SECURITY; Schema: public; Owner: -
@@ -3240,12 +3038,6 @@ ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.receipts ENABLE ROW LEVEL SECURITY;
-
---
--- Name: refunds; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.refunds ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: review_comments; Type: ROW SECURITY; Schema: public; Owner: -
@@ -3326,12 +3118,6 @@ ALTER TABLE public.support_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.trust_tier_rules ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: user_sessions; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.user_sessions ENABLE ROW LEVEL SECURITY;
-
---
 -- Name: users; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3389,5 +3175,5 @@ ALTER TABLE public.wishlists ENABLE ROW LEVEL SECURITY;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict q4TXmfvpxgUc9vT0jq5w5h8w2mt9TNGrhmoMGwzpfQvjhYv9szSbn1JhE75W2zT
+\unrestrict IPDIK6J2FeWwmdFnyD9fnRtdqAh8DyaNmBCpBhkmdqtgNZPciYGoeUuLNSPD4kL
 

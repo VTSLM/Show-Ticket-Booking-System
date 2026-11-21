@@ -32,6 +32,7 @@ export default function SeatsPage() {
   const [selectedSeatIds, setSelectedSeatIds] = useState<string[]>([]);
   const [selectedZone, setSelectedZone] = useState<ZoneItem | null>(null);
   const [selectedZoneQty, setSelectedZoneQty] = useState<number>(1);
+  const [couponCode, setCouponCode] = useState("");
 
   // Hold timer countdown (10 minutes = 600s)
   const [holdSecondsLeft, setHoldSecondsLeft] = useState<number>(600);
@@ -286,6 +287,7 @@ export default function SeatsPage() {
           terms_accepted: true,
           terms_hash: acceptedHash,
           terms_text: acceptedText,
+          coupon_code: couponCode.trim() || undefined,
         });
       } else {
         result = await bookingsApi.create({
@@ -294,6 +296,7 @@ export default function SeatsPage() {
           terms_accepted: true,
           terms_hash: acceptedHash,
           terms_text: acceptedText,
+          coupon_code: couponCode.trim() || undefined,
         });
       }
 
@@ -435,6 +438,18 @@ export default function SeatsPage() {
             <p className="mt-0.5 text-xl font-extrabold text-blue-400">
               ₹{grandTotal.toLocaleString("en-IN")}
             </p>
+            <label htmlFor="coupon-code" className="mt-2 block text-xs text-slate-300">
+              Coupon code
+            </label>
+            <input
+              id="coupon-code"
+              value={couponCode}
+              onChange={(event) => setCouponCode(event.target.value)}
+              maxLength={40}
+              placeholder="Enter coupon code"
+              autoComplete="off"
+              className="mt-1 w-44 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white"
+            />
           </div>
 
           {/* If zone selected, show quantity increment/decrement */}

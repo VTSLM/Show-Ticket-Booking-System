@@ -1,7 +1,9 @@
 from datetime import datetime
 
+import re
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 import asyncpg
 from database import get_conn
@@ -103,6 +105,29 @@ class VenueCreate(BaseModel):
     state: Optional[str] = None
     pincode: Optional[str] = None
 
+
+class CouponCreate(BaseModel):
+    code: str = Field(min_length=3, max_length=30)
+    percent_off: Decimal = Field(
+        gt=0,
+        lt=100,
+        max_digits=5,
+        decimal_places=2,
+    )
+
+    @field_validator("code")
+    @classmethod
+    def normalize_code(cls, value: str) -> str:
+        code = value.strip().upper()
+        if not re.fullmatch(r"[A-Z0-9_-]{3,30}", code):
+            raise ValueError("Use 3–30 letters, numbers, hyphens, or underscores")
+        return code
+
+
+class CouponStatusUpdate(BaseModel):
+    is_active: bool
+
+
 @router.get("/venues")
 async def list_venues(
     user: dict = Depends(MANAGER_ROLES),
@@ -121,6 +146,69 @@ async def list_venues(
             user["id"],
         )
     return [dict(r) for r in rows]
+
+
+@router.get("/coupons")
+async def list_coupons(
+    user: dict = Depends(MANAGER_ROLES),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    rows = await conn.fetch(
+        """SELECT id, code, discount_percent AS percent_off,
+                  is_active, created_at
+           FROM coupons
+           WHERE event_id IS NULL
+           ORDER BY created_at DESC"""
+    )
+    return [dict(row) for row in rows]
+
+
+@router.post("/coupons")
+async def create_coupon(
+    body: CouponCreate,
+    user: dict = Depends(MANAGER_ROLES),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    row = await conn.fetchrow(
+        """INSERT INTO coupons
+               (event_id, code, discount_percent, created_by)
+           VALUES (NULL, $1, $2, $3)
+           ON CONFLICT DO NOTHING
+           RETURNING id, code, discount_percent AS percent_off,
+                     is_active, created_at""",
+        body.code,
+        body.percent_off,
+        user["id"],
+    )
+    if not row:
+        raise HTTPException(
+            status_code=409,
+            detail="A coupon with this code already exists",
+        )
+    return dict(row)
+
+
+@router.patch("/coupons/{code}")
+async def update_coupon_status(
+    code: str,
+    body: CouponStatusUpdate,
+    user: dict = Depends(MANAGER_ROLES),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    row = await conn.fetchrow(
+        """UPDATE coupons
+           SET is_active = $2, updated_at = now()
+           WHERE lower(code) = lower($1) AND event_id IS NULL
+           RETURNING id, code, discount_percent AS percent_off,
+                     is_active, created_at""",
+        code.strip(),
+        body.is_active,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    return dict(row)
+   
+
 
 @router.post("/venues")
 async def create_venue(
