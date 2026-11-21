@@ -19,6 +19,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Duplicated `sprint1/`, `sprint2/` and `sprint3/` folders. Earlier sprints are available as the `v0.1.0` and `v0.2.0` tags.
 
 ### Fixed
+- Event page city buttons no longer run past the card or put the pin above the name, and the page starts on the user's own city instead of the first city in the list (#193)
 - Cancel dialog showed "0 Ticket(s)" and "General Admission" for seated bookings; it now lists the seats and counts standing passes
 - Guests no longer see a hold timer for seats that are not actually held; they are asked to log in to hold them
 - Customers no longer see the internal event status, and live events say "venues" instead of "theatres"
