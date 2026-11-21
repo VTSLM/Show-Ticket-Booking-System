@@ -138,7 +138,16 @@ export const bookingsApi = {
   myWaitlist: () => api.get<any[]>("/api/bookings/waitlist"),
   leaveWaitlist: (showId: string) =>
     api.delete<{ status: string }>(`/api/bookings/waitlist/${showId}`),
-  create: (data: { show_id: string; seat_ids?: string[]; zone_id?: string; zone_quantity?: number; terms_accepted?: boolean; terms_hash?: string; terms_text?: string } | string, maybeSeatIds?: string[]) => {
+  create: (data: {
+    show_id: string;
+    seat_ids?: string[];
+    zone_id?: string;
+    zone_quantity?: number;
+    terms_accepted?: boolean;
+    terms_hash?: string;
+    terms_text?: string;
+    coupon_code?: string;
+  } | string, maybeSeatIds?: string[]) => {
     if (typeof data === "string") {
       return api.post<any>("/api/bookings", { show_id: data, seat_ids: maybeSeatIds || [] });
     }
@@ -182,10 +191,16 @@ export const managerApi = {
   updateEvent: (id: string, data: object) => api.patch<any>("/api/manager/events/" + id, data),
 
   shows: () => api.get<any[]>("/api/manager/shows"),
-  createShow: (data: object) => api.post("/api/manager/shows", data),
+  createShow: (data: object) => api.post<any>("/api/manager/shows", data),
   deleteShow: (id: string) => api.delete(`/api/manager/shows/${id}`),
   setDynamicPricing: (id: string, enabled: boolean) =>
     api.patch<any>(`/api/manager/shows/${id}`, { dynamic_pricing: enabled }),
+
+  coupons: () => api.get<any[]>("/api/manager/coupons"),
+  createCoupon: (data: { code: string; percent_off: number }) =>
+    api.post<any>("/api/manager/coupons", data),
+  setCouponActive: (code: string, is_active: boolean) =>
+    api.patch<any>(`/api/manager/coupons/${encodeURIComponent(code)}`, { is_active }),
 
   updateSeatTier: (screenId: string, data: { row_label?: string; seat_ids?: string[]; seat_type: string }) =>
     api.put<any>(`/api/manager/screens/${screenId}/seats/tier`, data),

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 import uuid as uuid_module
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from pydantic import BaseModel
 from typing import List, Optional
 import asyncpg
@@ -14,17 +14,47 @@ router = APIRouter(prefix="/api/bookings", tags=["bookings"])
 
 class CreateBookingRequest(BaseModel):
     show_id: str
-    seat_ids: Optional[List[str]] = None  # show_seat_ids
+    seat_ids: Optional[List[str]] = None
     zone_id: Optional[str] = None
     zone_quantity: Optional[int] = None
     terms_accepted: Optional[bool] = False
     terms_hash: Optional[str] = None
     terms_text: Optional[str] = None
+    coupon_code: Optional[str] = None
 
 
 class AcceptTermsRequest(BaseModel):
     terms_hash: str
     terms_text: str
+
+
+async def _price_with_coupon(
+    conn: asyncpg.Connection,
+    subtotal: Decimal,
+    requested_code: Optional[str],
+):
+    subtotal = Decimal(str(subtotal)).quantize(Decimal("0.01"))
+    code = (requested_code or "").strip().upper()
+
+    if not code:
+        return None, None, subtotal, Decimal("0.00"), subtotal
+
+    coupon = await conn.fetchrow(
+        """SELECT id, code, discount_percent
+           FROM coupons
+           WHERE lower(code) = lower($1)
+             AND is_active = true
+             AND event_id IS NULL""",
+        code
+    )
+    if not coupon:
+        raise HTTPException(status_code=400, detail="Invalid or inactive coupon code")
+
+    discount = (
+        subtotal * Decimal(str(coupon["discount_percent"])) / Decimal("100")
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    return coupon["id"], coupon["code"], subtotal, discount, subtotal - discount
 
 
 @router.post("/{booking_id}/accept-terms")
@@ -34,9 +64,6 @@ async def accept_terms(
     current_user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    """
-    Explicitly records customer acceptance of the show's Terms & Conditions.
-    """
     user_id = str(current_user["id"])
     booking = await conn.fetchrow(
         "SELECT id, show_id, user_id FROM bookings WHERE id = $1::uuid AND user_id = $2::uuid",
@@ -45,7 +72,6 @@ async def accept_terms(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found for current user")
 
-    # Verify that the accepted terms_hash matches active terms for the show
     show_meta = await conn.fetchrow(
         """SELECT sh.terms_and_conditions as show_terms, e.terms_and_conditions as event_terms
            FROM shows sh JOIN events e ON e.id = sh.event_id WHERE sh.id = $1::uuid""",
@@ -77,20 +103,24 @@ async def accept_terms(
         "terms_hash": acceptance["terms_hash"]
     }
 
-async def _insert_booking(
-    conn: asyncpg.Connection, booking_number: str, user_id: str, show_id: str, subtotal: Decimal
-):
-    """Create the pending booking row with its price breakdown.
 
-    There are no discounts or fees yet, so the total equals the subtotal. The coupon
-    columns exist for the coming offers feature and stay at their defaults.
-    """
-    discount = Decimal("0")
+async def _insert_booking(
+    conn: asyncpg.Connection,
+    booking_number: str,
+    user_id: str,
+    show_id: str,
+    subtotal: Decimal,
+    discount: Decimal,
+    coupon_id: Optional[uuid_module.UUID],
+):
+    total = subtotal - discount
     return await conn.fetchval(
         """INSERT INTO bookings
-               (booking_number, user_id, show_id, status, subtotal_amount, discount_amount, total_amount)
-           VALUES ($1, $2, $3, 'pending', $4, $5, $6) RETURNING id""",
-        booking_number, user_id, show_id, subtotal, discount, subtotal - discount,
+               (booking_number, user_id, show_id, status, subtotal_amount,
+                discount_amount, coupon_id, total_amount)
+           VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7)
+           RETURNING id""",
+        booking_number, user_id, show_id, subtotal, discount, coupon_id, total
     )
 
 
@@ -103,7 +133,6 @@ async def create_booking(
     user_id = str(current_user["id"])
     booking_number = f"TF-{datetime.now().strftime('%Y%m%d')}-{str(uuid_module.uuid4())[:6].upper()}"
 
-    # Mode 1: Zone Booking (Concerts / Standing / Passes)
     if req.zone_id and req.zone_quantity and req.zone_quantity > 0:
         zone = await conn.fetchrow(
             """SELECT * FROM show_zones WHERE id=$1::uuid AND show_id=$2::uuid""",
@@ -112,10 +141,13 @@ async def create_booking(
         if not zone:
             raise HTTPException(status_code=404, detail="Selected zone not found")
 
-        total = Decimal(str(zone["price"])) * req.zone_quantity
+        subtotal = Decimal(str(zone["price"])) * req.zone_quantity
 
         async with conn.transaction():
-            # Atomically decrement locked/increase booked
+            coupon_id, coupon_code, subtotal, discount, total = await _price_with_coupon(
+                conn, subtotal, req.coupon_code
+            )
+
             updated = await conn.execute(
                 """UPDATE show_zones
                    SET booked_count = booked_count + $3,
@@ -127,7 +159,10 @@ async def create_booking(
             if updated != "UPDATE 1":
                 raise HTTPException(status_code=409, detail="Not enough tickets available in this zone")
 
-            booking_id = await _insert_booking(conn, booking_number, user_id, req.show_id, total)
+            booking_id = await _insert_booking(
+                conn, booking_number, user_id, req.show_id,
+                subtotal, discount, coupon_id
+            )
             await conn.execute(
                 """INSERT INTO booking_zones (booking_id, zone_id, quantity, unit_price)
                    VALUES ($1, $2, $3, $4)""",
@@ -146,17 +181,18 @@ async def create_booking(
         return {
             "booking_id": str(booking_id),
             "booking_number": booking_number,
+            "subtotal_amount": float(subtotal),
+            "discount_amount": float(discount),
             "total_amount": float(total),
+            "coupon_code": coupon_code,
             "status": "pending",
             "zone_name": zone["name"],
             "quantity": req.zone_quantity
         }
 
-    # Mode 2: Reserved Seat Booking (Cinema, Theatre, Stadium)
     if not req.seat_ids:
         raise HTTPException(status_code=400, detail="Either seat_ids or zone_id with quantity must be provided")
 
-    # Verify all seats are locked by this user
     seats = await conn.fetch(
         """SELECT ss.id, COALESCE(ss.locked_price, ss.price) AS price, ss.status, ss.locked_by
            FROM show_seats ss
@@ -169,10 +205,17 @@ async def create_booking(
         if s["status"] != "locked" or str(s["locked_by"]) != user_id:
             raise HTTPException(status_code=409, detail=f"Seat {s['id']} is not locked by you")
 
-    total = sum((Decimal(str(s["price"])) for s in seats), Decimal("0"))
+    subtotal = sum((Decimal(str(s["price"])) for s in seats), Decimal("0"))
 
     async with conn.transaction():
-        booking_id = await _insert_booking(conn, booking_number, user_id, req.show_id, total)
+        coupon_id, coupon_code, subtotal, discount, total = await _price_with_coupon(
+            conn, subtotal, req.coupon_code
+        )
+
+        booking_id = await _insert_booking(
+            conn, booking_number, user_id, req.show_id,
+            subtotal, discount, coupon_id
+        )
         for s in seats:
             await conn.execute(
                 "INSERT INTO booking_seats (booking_id, show_seat_id, unit_price) VALUES ($1,$2,$3)",
@@ -188,7 +231,15 @@ async def create_booking(
                 booking_id=str(booking_id)
             )
 
-    return {"booking_id": str(booking_id), "booking_number": booking_number, "total_amount": float(total), "status": "pending"}
+    return {
+        "booking_id": str(booking_id),
+        "booking_number": booking_number,
+        "subtotal_amount": float(subtotal),
+        "discount_amount": float(discount),
+        "total_amount": float(total),
+        "coupon_code": coupon_code,
+        "status": "pending"
+    }
 
 
 @router.post("/waitlist/{show_id}")
@@ -197,12 +248,9 @@ async def join_waitlist(
     current_user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    """Add the current user to a sold-out show's FIFO waitlist."""
     user_id = str(current_user["id"])
 
     async with conn.transaction():
-        # Lock the show row so simultaneous requests cannot create ambiguous
-        # queue positions or join while another request changes its capacity.
         show = await conn.fetchrow(
             """SELECT s.id, s.status, e.status AS event_status,
                       (SELECT COUNT(*) FROM show_seats ss
@@ -265,7 +313,6 @@ async def list_my_waitlist(
     current_user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    """List the current user's active waitlist entries."""
     rows = await conn.fetch(
         """SELECT w.id, w.show_id, w.created_at,
                   e.title AS event_title, s.start_time,
@@ -291,7 +338,6 @@ async def leave_waitlist(
     current_user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
-    """Remove the current user's active entry from a show's waitlist."""
     result = await conn.execute(
         """UPDATE show_waitlist SET status = 'cancelled'
            WHERE show_id = $1::uuid AND user_id = $2::uuid AND status = 'waiting'""",
@@ -310,6 +356,7 @@ async def get_booking(
 ):
     row = await conn.fetchrow(
         """SELECT b.*,
+                  MAX(c.code) AS coupon_code,
                   e.title        AS event_title,
                   e.poster_url,
                   sh.start_time,
@@ -325,6 +372,7 @@ async def get_booking(
            JOIN events    e  ON e.id  = sh.event_id
            JOIN screens   sc ON sc.id = sh.screen_id
            JOIN venues    v  ON v.id  = sc.venue_id
+           LEFT JOIN coupons c ON c.id = b.coupon_id
            LEFT JOIN (
              SELECT bs2.booking_id, ss.id AS show_seat_id,
                     s.row_label, s.seat_number, s.seat_type, ss.price
