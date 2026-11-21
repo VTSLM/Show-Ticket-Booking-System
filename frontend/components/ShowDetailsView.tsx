@@ -7,6 +7,8 @@ import toast from "react-hot-toast";
 import { useWishlist } from "@/components/useWishlist";
 import EventPoster from "@/components/EventPoster";
 import { bookingsApi } from "@/lib/api";
+import { useLocation } from "@/contexts/LocationContext";
+import { formatDistance, haversineKm } from "@/lib/geo";
 
 interface ShowDetailsProps {
   showData: any;
@@ -39,6 +41,7 @@ export default function ShowDetailsView({
   const [waitlistPositions, setWaitlistPositions] = useState<Record<string, number>>({});
   const [waitlistLoadingId, setWaitlistLoadingId] = useState<string | null>(null);
   const wishlist = useWishlist();
+  const { location } = useLocation();
 
   useEffect(() => {
     bookingsApi.myWaitlist()
@@ -268,7 +271,7 @@ export default function ShowDetailsView({
   });
 
   // Group by Theatre / Venue
-  const theatreMap = new Map<string, { venue_name: string; address?: string; city?: string; shows: any[] }>();
+  const theatreMap = new Map<string, { venue_name: string; address?: string; city?: string; latitude?: number | null; longitude?: number | null; shows: any[] }>();
   dateAndCityFilteredShows.forEach((s: any) => {
     const key = s.venue_id || s.venue_name;
     if (!theatreMap.has(key)) {
@@ -276,6 +279,8 @@ export default function ShowDetailsView({
         venue_name: s.venue_name,
         address: s.address,
         city: s.city,
+        latitude: s.latitude,
+        longitude: s.longitude,
         shows: [],
       });
     }
@@ -481,6 +486,11 @@ export default function ShowDetailsView({
                           {showData.city ? `, ${showData.city}` : ""}
                           {showData.screen_name ? ` — ${showData.screen_name}` : ""}
                         </p>
+                        {location && showData.latitude != null && showData.longitude != null && (
+                          <p className="mt-0.5 text-xs font-medium text-emerald-400">
+                            📍 {formatDistance(haversineKm(location.lat, location.lng, showData.latitude, showData.longitude), true)}
+                          </p>
+                        )}
                         {showData.start_time && (
                           <p className="mt-0.5 text-xs text-blue-400">
                             🗓 {formatDate(showData.start_time)} at {formatTime(showData.start_time)}
@@ -850,6 +860,11 @@ export default function ShowDetailsView({
                               {theatre.city && (
                                 <span className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-300">
                                   {theatre.city}
+                                </span>
+                              )}
+                              {location && theatre.latitude != null && theatre.longitude != null && (
+                                <span className="rounded bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                                  📍 {formatDistance(haversineKm(location.lat, location.lng, theatre.latitude, theatre.longitude), true)}
                                 </span>
                               )}
                               <span className="text-[11px] text-emerald-400 font-medium">

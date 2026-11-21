@@ -336,6 +336,8 @@ type VenueVerificationDraft = {
   licensed_capacity?: number | null;
   license_expiry?: string | null;
   noc_expiry?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 export const venueVerificationApi = {

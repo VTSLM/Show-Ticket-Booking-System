@@ -28,13 +28,20 @@ async def my_wishlist(
         SELECT e.id AS event_id, e.title, e.event_type, e.language, e.genre,
                e.duration_minutes, e.poster_url, e.status AS event_status,
                w.created_at AS added_at,
-               ns.next_show_time, ns.shows_count
+               ns.next_show_time, ns.shows_count,
+               ns.venue_name, ns.city, ns.latitude, ns.longitude
         FROM wishlists w
         JOIN events e ON e.id = w.event_id
         LEFT JOIN LATERAL (
-            SELECT MIN(s.start_time) AS next_show_time, COUNT(*) AS shows_count
+            SELECT s.start_time AS next_show_time,
+                   (SELECT COUNT(*) FROM shows s2 WHERE s2.event_id = e.id AND s2.status = 'scheduled' AND s2.start_time > now()) AS shows_count,
+                   v.name AS venue_name, v.city, v.latitude, v.longitude
             FROM shows s
+            JOIN screens sc ON sc.id = s.screen_id
+            JOIN venues v ON v.id = sc.venue_id
             WHERE s.event_id = e.id AND s.status = 'scheduled' AND s.start_time > now()
+            ORDER BY s.start_time ASC
+            LIMIT 1
         ) ns ON true
         WHERE w.user_id = $1
         ORDER BY w.created_at DESC

@@ -5,6 +5,8 @@ import Link from "next/link";
 import toast from "react-hot-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { wishlistApi } from "@/lib/api";
+import { useLocation } from "@/contexts/LocationContext";
+import { formatDistance, haversineKm } from "@/lib/geo";
 
 const fmt = (d: string) =>
   new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
@@ -34,6 +36,7 @@ function WishPoster({ src, alt }: { src?: string | null; alt: string }) {
 
 export default function WishlistPage() {
   const { profile, loading: authLoading } = useAuth();
+  const { location } = useLocation();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -112,6 +115,11 @@ export default function WishlistPage() {
                       <>
                         ◷ Next show: {fmt(it.next_show_time)}
                         <span className="text-slate-500"> · {it.shows_count} upcoming</span>
+                        {location && it.latitude != null && it.longitude != null && (
+                          <span className="mt-1 block text-xs font-semibold text-emerald-400">
+                            📍 {it.venue_name ? `${it.venue_name} (${formatDistance(haversineKm(location.lat, location.lng, it.latitude, it.longitude), true)})` : formatDistance(haversineKm(location.lat, location.lng, it.latitude, it.longitude), true)}
+                          </span>
+                        )}
                       </>
                     ) : (
                       <span className="text-amber-400">No upcoming shows right now</span>

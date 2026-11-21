@@ -102,6 +102,8 @@ class VenueCreate(BaseModel):
     city: str
     state: Optional[str] = None
     pincode: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 @router.get("/venues")
 async def list_venues(
@@ -133,9 +135,9 @@ async def create_venue(
 
     async with conn.transaction():
         row = await conn.fetchrow(
-            """INSERT INTO venues (name, address, city, state, pincode, verification_status)
-               VALUES ($1,$2,$3,$4,$5,$6) RETURNING *""",
-            body.name, body.address, body.city, body.state, body.pincode, v_status
+            """INSERT INTO venues (latitude, longitude, name, address, city, state, pincode, verification_status)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *""",
+            body.latitude, body.longitude, body.name, body.address, body.city, body.state, body.pincode, v_status
         )
         if not is_admin:
             await conn.execute(

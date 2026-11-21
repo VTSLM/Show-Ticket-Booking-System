@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { venueDocumentsApi, venueVerificationApi } from "@/lib/api";
+import VenueMapPicker from "@/components/VenueMapPicker";
 
 type VenueDraft = {
   name: string;
@@ -15,6 +16,8 @@ type VenueDraft = {
   licensed_capacity: number | null;
   license_expiry: string;
   noc_expiry: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 type Application = VenueDraft & {
@@ -33,6 +36,8 @@ const emptyDraft: VenueDraft = {
   licensed_capacity: null,
   license_expiry: "",
   noc_expiry: "",
+  latitude: null,
+  longitude: null,
 };
 
 const inputClass =
@@ -92,6 +97,8 @@ export default function VenueVerificationPage() {
       licensed_capacity: application.licensed_capacity ?? null,
       license_expiry: application.license_expiry || "",
       noc_expiry: application.noc_expiry || "",
+      latitude: application.latitude ?? null,
+      longitude: application.longitude ?? null,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -296,6 +303,20 @@ export default function VenueVerificationPage() {
                 onChange={(event) => updateField("noc_expiry", event.target.value)}
               />
             </label>
+
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-slate-300">
+                Pin venue coordinates on map
+              </label>
+              <VenueMapPicker
+                lat={draft.latitude}
+                lng={draft.longitude}
+                city={draft.city}
+                onChange={(lat, lng) => {
+                  setDraft((c) => ({ ...c, latitude: lat, longitude: lng }));
+                }}
+              />
+            </div>
 
             <div className="flex items-end gap-3 md:col-span-2">
               <button
