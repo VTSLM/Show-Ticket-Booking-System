@@ -43,6 +43,12 @@ const FIREBASE_MESSAGES: Record<string, string> = {
     "This link is invalid or has already been used.",
 };
 
+function logForDebugging(context: string, error: unknown) {
+  if (process.env.NODE_ENV !== "production") {
+    console.error(`[TicketFlow] ${context}`, error);
+  }
+}
+
 /**
  * Extract a user-friendly message from a Firebase Auth error.
  *
@@ -54,6 +60,7 @@ export function friendlyFirebaseMessage(
   error: unknown,
   fallback = "Something went wrong. Please try again."
 ): string {
+  logForDebugging("Firebase authentication error", error);
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code: string }).code;
     if (FIREBASE_MESSAGES[code]) return FIREBASE_MESSAGES[code];
@@ -105,6 +112,7 @@ export function friendlyApiMessage(
   detail?: unknown
 ): string {
   if (status >= 500) {
+    logForDebugging(`API request failed with status ${status}`, detail);
     return HTTP_MESSAGES[status] || "Something went wrong on our end. Please try again later.";
   }
 
@@ -162,6 +170,7 @@ export function friendlyApiMessage(
   ) {
     return detail;
   }
+  if (typeof detail === "string") logForDebugging(`API request failed with status ${status}`, detail);
   return HTTP_MESSAGES[status] || "Something went wrong. Please try again.";
 }
 
@@ -221,6 +230,7 @@ function isInternalError(detail: string): boolean {
  * user-friendly message.
  */
 export function friendlyNetworkMessage(error: unknown): string {
+  logForDebugging("Network request failed", error);
   if (error instanceof TypeError) {
     // `TypeError: Failed to fetch` is the standard browser error for network
     // failures (CORS, DNS, offline, etc.).
