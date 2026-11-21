@@ -85,11 +85,41 @@ export interface AiReviewSummary {
   critic_disliked: string[];
 }
 
+export interface CriticProfile {
+  id: string;
+  name: string;
+  publication?: string | null;
+  avatar_url?: string | null;
+  bio?: string | null;
+  role: string;
+  total_reviews: number;
+  average_rating: number;
+  fresh_percentage: number;
+  rating_history: Record<string, number>;
+  reviews: {
+    id: string;
+    event_id: string;
+    event_title: string;
+    event_poster?: string | null;
+    event_genre?: string | null;
+    rating: number;
+    headline: string;
+    content: string;
+    sections?: Record<string, string> | null;
+    media_url?: string | null;
+    is_spoiler: boolean;
+    published_at: string;
+    upvotes_count: number;
+  }[];
+}
+
 export interface MyReview {
   id: string;
   rating: number;
   headline: string;
   content: string;
+  sections?: Record<string, string> | null;
+  media_url?: string | null;
   is_spoiler: boolean;
   is_draft: boolean;
   version: number;
@@ -178,6 +208,8 @@ export const reviewsApi = {
       rating: number;
       headline: string;
       content: string;
+      sections?: Record<string, string> | null;
+      media_url?: string | null;
       is_spoiler?: boolean;
       scheduled_for?: string | null; // ISO date-time; omit to publish now
       is_draft?: boolean; // save as a private draft instead of publishing
@@ -193,6 +225,8 @@ export const reviewsApi = {
       rating?: number;
       headline?: string;
       content?: string;
+      sections?: Record<string, string> | null;
+      media_url?: string | null;
       is_spoiler?: boolean;
       scheduled_for?: string | null; // reschedule (only while still scheduled)
       publish_now?: boolean; // publish a draft / scheduled review immediately
@@ -200,6 +234,10 @@ export const reviewsApi = {
     }
   ) {
     return request<Review>(`/${reviewId}`, { method: "PATCH", token, body });
+  },
+
+  criticProfile(criticId: string) {
+    return request<CriticProfile>(`/critics/${criticId}`);
   },
 
   remove(token: string, reviewId: string) {

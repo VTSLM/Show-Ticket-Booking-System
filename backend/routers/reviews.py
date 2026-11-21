@@ -27,10 +27,30 @@ from schemas.reviews import (
     ReviewVersionOut,
     MovieAggregatesOut,
     EventReviewsResponse,
+    CriticProfileOut,
 )
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 optional_security = HTTPBearer(auto_error=False)
+
+CRITIC_MIN_WORDS = int(os.getenv("CRITIC_MIN_WORDS", "10"))
+CRITIC_MAX_WORDS = int(os.getenv("CRITIC_MAX_WORDS", "1000"))
+
+
+def is_approved_critic(user: Optional[dict]) -> bool:
+    if not user:
+        return False
+    roles = user.get("roles") or []
+    return "critic" in roles or "admin" in roles
+
+
+def count_words(content: str, sections: Optional[dict] = None) -> int:
+    words = len(content.split())
+    if sections and isinstance(sections, dict):
+        for val in sections.values():
+            if isinstance(val, str):
+                words += len(val.split())
+    return words
 
 # A review is PUBLIC once it is not a draft and its scheduled time (if any) has passed.
 # No cron job needed: reviews whose time has not come are simply filtered out.
@@ -138,7 +158,7 @@ async def get_event_reviews(
     user_scores = []
     for row in all_reviews_rows:
         roles = row["roles"] or []
-        is_critic = row["is_verified"] or ("critic" in roles) or ("admin" in roles)
+        is_critic = ("critic" in roles) or ("admin" in roles)
         rating_val = float(row["rating"])
         if is_critic:
             critic_scores.append(rating_val)
@@ -171,13 +191,13 @@ async def get_event_reviews(
     params = [event_id]
     if critic_only is True:
         filters.append(
-            "(u.is_verified = true OR EXISTS ("
+            "(EXISTS ("
             "SELECT 1 FROM user_roles urc JOIN roles rc ON rc.id = urc.role_id "
             "WHERE urc.user_id = r.user_id AND rc.code IN ('critic', 'admin')))"
         )
     elif audience_only is True:
         filters.append(
-            "(u.is_verified = false AND NOT EXISTS ("
+            "(NOT EXISTS ("
             "SELECT 1 FROM user_roles ura JOIN roles ra ON ra.id = ura.role_id "
             "WHERE ura.user_id = r.user_id AND ra.code IN ('critic', 'admin')))"
         )
@@ -269,7 +289,7 @@ async def get_event_reviews(
         )
         for crow in comment_rows:
             croles = crow["roles"] or []
-            is_c_critic = crow["is_verified"] or ("critic" in croles) or ("admin" in croles)
+            is_c_critic = ("critic" in croles) or ("admin" in croles)
             cmt = CommentOut(
                 id=str(crow["id"]),
                 review_id=str(crow["review_id"]),
@@ -289,7 +309,7 @@ async def get_event_reviews(
     for r in reviews_rows:
         rid_str = str(r["id"])
         roles = r["author_roles"] or []
-        primary_role = "critic" if ("critic" in roles or "admin" in roles or r["author_verified"]) else "customer"
+        primary_role = "critic" if ("critic" in roles or "admin" in roles) else "customer"
 
         # Parse sections json
         sections_dict = None
@@ -437,7 +457,7 @@ async def get_ai_review_summary(
         f"""
         SELECT r.rating, r.headline, r.content, r.is_spoiler,
                CASE
-                 WHEN u.is_verified = true OR EXISTS (
+                 WHEN EXISTS (
                    SELECT 1 FROM user_roles ur
                    JOIN roles ro ON ro.id=ur.role_id
                    WHERE ur.user_id=r.user_id AND ro.code IN ('critic','admin')
@@ -531,6 +551,43 @@ async def submit_review(
         raise HTTPException(status_code=404, detail="Event not found")
 
     user_id = current_user["id"]
+    user_critic = is_approved_critic(current_user)
+
+    if not user_critic:
+        if body.sections:
+            raise HTTPException(
+                status_code=403,
+                detail="Only approved critics can author reviews with structured sections."
+            )
+        if body.media_url:
+            raise HTTPException(
+                status_code=403,
+                detail="Only approved critics can attach media to reviews."
+            )
+        if body.scheduled_for:
+            raise HTTPException(
+                status_code=403,
+                detail="Only approved critics can schedule reviews for future publishing."
+            )
+    else:
+        # Enforce configurable word count limits for critic reviews
+        total_words = count_words(body.content, body.sections)
+        if total_words < CRITIC_MIN_WORDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Critic review must be at least {CRITIC_MIN_WORDS} words (currently {total_words} words)."
+            )
+        if total_words > CRITIC_MAX_WORDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Critic review cannot exceed {CRITIC_MAX_WORDS} words (currently {total_words} words)."
+            )
+        if body.media_url and not (body.media_url.startswith("http://") or body.media_url.startswith("https://")):
+            raise HTTPException(
+                status_code=400,
+                detail="Media attachment must be a valid URL starting with http:// or https://"
+            )
+
     sections_json_str = json.dumps(body.sections) if body.sections else None
 
     # Scheduled publishing: the review stays hidden until `scheduled_for`
@@ -586,7 +643,7 @@ async def submit_review(
         id=str(user_id),
         name=current_user["name"],
         email=current_user["email"],
-        role="critic" if ("critic" in roles or "admin" in roles or current_user.get("is_verified")) else "customer",
+        role="critic" if ("critic" in roles or "admin" in roles) else "customer",
         is_verified=bool(current_user.get("is_verified")),
         publication=current_user.get("publication"),
         avatar_url=current_user.get("avatar_url"),
@@ -642,11 +699,51 @@ async def update_review(
     if review["user_id"] != user_id and "admin" not in roles:
         raise HTTPException(status_code=403, detail="Not authorized to edit this review (NFR-11)")
 
+    user_critic = is_approved_critic(current_user)
+    if not user_critic:
+        if body.sections is not None:
+            raise HTTPException(
+                status_code=403,
+                detail="Only approved critics can author reviews with structured sections."
+            )
+        if body.media_url is not None:
+            raise HTTPException(
+                status_code=403,
+                detail="Only approved critics can attach media to reviews."
+            )
+        if body.scheduled_for is not None:
+            raise HTTPException(
+                status_code=403,
+                detail="Only approved critics can schedule reviews for future publishing."
+            )
+
     new_rating = body.rating if body.rating is not None else float(review["rating"])
     new_headline = body.headline if body.headline is not None else review["headline"]
     new_content = body.content if body.content is not None else review["content"]
     new_sections_json = json.dumps(body.sections) if body.sections is not None else review["sections_json"]
+    new_media_url = body.media_url if body.media_url is not None else review["media_url"]
     new_spoiler = body.is_spoiler if body.is_spoiler is not None else review["is_spoiler"]
+
+    if user_critic:
+        sec_for_count = body.sections if body.sections is not None else (
+            json.loads(new_sections_json) if new_sections_json and isinstance(new_sections_json, str) else new_sections_json
+        )
+        total_words = count_words(new_content, sec_for_count)
+        if total_words < CRITIC_MIN_WORDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Critic review must be at least {CRITIC_MIN_WORDS} words (currently {total_words} words)."
+            )
+        if total_words > CRITIC_MAX_WORDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Critic review cannot exceed {CRITIC_MAX_WORDS} words (currently {total_words} words)."
+            )
+        if new_media_url and not (new_media_url.startswith("http://") or new_media_url.startswith("https://")):
+            raise HTTPException(
+                status_code=400,
+                detail="Media attachment must be a valid URL starting with http:// or https://"
+            )
 
     # Visibility. A review is in one of three states:
     #   draft      is_draft = true
@@ -688,11 +785,12 @@ async def update_review(
         new_published_at = new_scheduled_for
 
     # A new version is recorded only when the text/rating actually changed
-    content_changed = (
+        content_changed = (
         new_rating != float(review["rating"])
         or new_headline != review["headline"]
         or new_content != review["content"]
         or new_sections_json != review["sections_json"]
+        or new_media_url != review["media_url"]
         or new_spoiler != review["is_spoiler"]
     )
     new_version = review["version"] + 1 if content_changed else review["version"]
@@ -712,19 +810,19 @@ async def update_review(
         """
         UPDATE reviews
         SET rating=$1, headline=$2, content=$3, sections_json=$4, is_spoiler=$5, version=$6,
-            is_draft=$7, scheduled_for=$8, published_at=$9, updated_at=now()
-        WHERE id=$10
+            is_draft=$7, scheduled_for=$8, published_at=$9, media_url=$10, updated_at=now()
+        WHERE id=$11
         RETURNING *
         """,
         new_rating, new_headline, new_content, new_sections_json, new_spoiler, new_version,
-        new_is_draft, new_scheduled_for, new_published_at, review_id
+        new_is_draft, new_scheduled_for, new_published_at, new_media_url, review_id
     )
 
     author = ReviewAuthor(
         id=str(user_id),
         name=current_user["name"],
         email=current_user["email"],
-        role="critic" if ("critic" in roles or "admin" in roles or current_user.get("is_verified")) else "customer",
+        role="critic" if ("critic" in roles or "admin" in roles) else "customer",
         is_verified=bool(current_user.get("is_verified")),
         publication=current_user.get("publication"),
         avatar_url=current_user.get("avatar_url")
@@ -1193,3 +1291,102 @@ async def resolve_review_reports(
     if updated == 0:
         raise HTTPException(status_code=404, detail="No open reports for this review")
     return {"updated": updated, "status": body.status}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 16. GET /api/reviews/critics/{critic_id} — Public Critic Profile
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/critics/{critic_id}", response_model=CriticProfileOut)
+async def get_critic_profile(
+    critic_id: uuid_module.UUID,
+    conn: asyncpg.Connection = Depends(get_conn)
+):
+    """
+    Public profile showing the critic's photo, name, bio, publication,
+    published reviews, and rating history.
+    """
+    user_row = await conn.fetchrow(
+        """
+        SELECT u.id, u.name, u.email, u.publication, u.avatar_url, u.bio,
+               array_agg(r.code) FILTER (WHERE r.code IS NOT NULL) AS roles
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+        LEFT JOIN roles r ON r.id = ur.role_id
+        WHERE u.id = $1 AND u.status = 'active'
+        GROUP BY u.id
+        """,
+        critic_id
+    )
+    if not user_row:
+        raise HTTPException(status_code=404, detail="Critic not found")
+
+    roles = user_row["roles"] or []
+    if "critic" not in roles and "admin" not in roles:
+        raise HTTPException(status_code=404, detail="User is not an approved critic")
+
+    # Fetch published critic reviews with event info
+    review_rows = await conn.fetch(
+        f"""
+        SELECT r.id, r.event_id, r.rating, r.headline, r.content, r.sections_json,
+               r.media_url, r.is_spoiler, r.version, r.published_at, r.updated_at,
+               e.title as event_title, e.poster_url as event_poster, e.genre as event_genre,
+               COUNT(DISTINCT up.user_id) as upvotes_count
+        FROM reviews r
+        JOIN events e ON e.id = r.event_id
+        LEFT JOIN review_upvotes up ON up.review_id = r.id
+        WHERE r.user_id = $1 AND {PUBLIC_REVIEW_SQL}
+        GROUP BY r.id, e.id
+        ORDER BY r.published_at DESC
+        """,
+        critic_id
+    )
+
+    ratings = [float(r["rating"]) for r in review_rows]
+    total_reviews = len(ratings)
+    avg_rating = round(sum(ratings) / total_reviews, 1) if total_reviews > 0 else 0.0
+    fresh_count = sum(1 for s in ratings if s >= 6.0)
+    fresh_pct = int(round((fresh_count / total_reviews) * 100)) if total_reviews > 0 else 0
+
+    # Rating distribution 1..10
+    rating_history: Dict[str, int] = {str(i): 0 for i in range(1, 11)}
+    for s in ratings:
+        k = str(min(10, max(1, round(s))))
+        rating_history[k] = rating_history.get(k, 0) + 1
+
+    formatted_reviews = []
+    for r in review_rows:
+        sections_dict = None
+        if r["sections_json"]:
+            try:
+                sections_dict = json.loads(r["sections_json"]) if isinstance(r["sections_json"], str) else r["sections_json"]
+            except Exception:
+                sections_dict = None
+        formatted_reviews.append({
+            "id": str(r["id"]),
+            "event_id": str(r["event_id"]),
+            "event_title": r["event_title"],
+            "event_poster": r["event_poster"],
+            "event_genre": r["event_genre"],
+            "rating": float(r["rating"]),
+            "headline": r["headline"],
+            "content": r["content"],
+            "sections": sections_dict,
+            "media_url": r["media_url"],
+            "is_spoiler": r["is_spoiler"],
+            "published_at": r["published_at"].isoformat() if r["published_at"] else None,
+            "upvotes_count": r["upvotes_count"]
+        })
+
+    return CriticProfileOut(
+        id=str(user_row["id"]),
+        name=user_row["name"],
+        publication=user_row["publication"],
+        avatar_url=user_row["avatar_url"],
+        bio=user_row["bio"],
+        role="critic",
+        total_reviews=total_reviews,
+        average_rating=avg_rating,
+        fresh_percentage=fresh_pct,
+        rating_history=rating_history,
+        reviews=formatted_reviews
+    )
