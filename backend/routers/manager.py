@@ -473,6 +473,18 @@ async def create_show(
                 detail=f"Cannot schedule show: Venue '{guard_row['venue_name']}' is not verified (status: {guard_row['venue_status'] or 'unverified'}). Complete venue safety verification first."
             )
 
+    # Validate that the screen has seats configured or admission zones are provided
+    seat_count = await conn.fetchval(
+        "SELECT COUNT(*) FROM seats WHERE screen_id = $1::uuid",
+        body.screen_id
+    )
+    zones_capacity = sum(z.total_capacity for z in (body.zones or []) if z.total_capacity)
+    if seat_count == 0 and zones_capacity == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot create show: the selected screen has no seats configured and no admission zones were provided."
+        )
+
     show = await conn.fetchrow(
         """INSERT INTO shows
         (event_id, screen_id, start_time, end_time, base_price, status, terms_and_conditions, dynamic_pricing)
