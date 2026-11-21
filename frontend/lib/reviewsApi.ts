@@ -1,3 +1,5 @@
+import { friendlyApiMessage, friendlyNetworkMessage } from "./errorMessages";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export interface ReviewAuthor {
@@ -162,23 +164,30 @@ async function request<T>(
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   if (opts.token) headers["Authorization"] = `Bearer ${opts.token}`;
 
-  const res = await fetch(`${API_URL}/api/reviews${path}`, {
-    method: opts.method || "GET",
-    headers,
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/reviews${path}`, {
+      method: opts.method || "GET",
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch (error) {
+    throw new Error(friendlyNetworkMessage(error));
+  }
 
   if (!res.ok) {
-    let message = `Request failed (${res.status})`;
+    let message: unknown;
     try {
       const data = await res.json();
-      if (typeof data.detail === "string") message = data.detail;
-      else if (Array.isArray(data.detail))
-        message = data.detail.map((d: any) => d.msg).join(", ");
+      message = data.detail;
     } catch {}
-    throw new Error(message);
+    throw new Error(friendlyApiMessage(res.status, message));
   }
-  return res.json();
+  try {
+    return await res.json();
+  } catch {
+    throw new Error("We received an unexpected response. Please try again.");
+  }
 }
 
 export const reviewsApi = {

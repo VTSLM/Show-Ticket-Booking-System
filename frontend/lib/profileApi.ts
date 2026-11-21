@@ -1,6 +1,7 @@
 // Edit profile info — API helpers (backend: routers/profile.py)
 import { api } from "./api";
 import { auth } from "./firebase";
+import { friendlyApiMessage, friendlyFirebaseMessage, friendlyNetworkMessage } from "./errorMessages";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -31,20 +32,34 @@ export const profileApi = {
 
   // Multipart upload (the shared api helper always sends JSON)
   uploadPhoto: async (file: File): Promise<MyProfile> => {
-    const token = await auth.currentUser?.getIdToken();
+    let token: string | undefined;
+    try {
+      token = await auth.currentUser?.getIdToken();
+    } catch (error) {
+      throw new Error(friendlyFirebaseMessage(error));
+    }
     if (!token) throw new Error("Not authenticated");
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${API_URL}/api/profile/photo`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/api/profile/photo`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+    } catch (error) {
+      throw new Error(friendlyNetworkMessage(error));
+    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(typeof err.detail === "string" ? err.detail : "Could not upload photo");
+      throw new Error(friendlyApiMessage(res.status, err.detail));
     }
-    return res.json();
+    try {
+      return await res.json();
+    } catch {
+      throw new Error("We received an unexpected response. Please try again.");
+    }
   },
 };
 

@@ -3,6 +3,7 @@ TicketFlow — Critics Reviews & Ratings Router (Sprint 2 Module)
 Matches TicketFlow variables: events, shows, users, asyncpg, and UUIDs.
 """
 import json
+import logging
 import os
 import uuid as uuid_module
 from datetime import datetime, timedelta, timezone
@@ -31,6 +32,7 @@ from schemas.reviews import (
 )
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
+logger = logging.getLogger("uvicorn.error")
 optional_security = HTTPBearer(auto_error=False)
 
 CRITIC_MIN_WORDS = int(os.getenv("CRITIC_MIN_WORDS", "10"))
@@ -485,8 +487,12 @@ async def get_ai_review_summary(
 
     try:
         ai = await generate_summary(reviews)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    except RuntimeError:
+        logger.exception("AI review summary is unavailable for %s", event_id)
+        raise HTTPException(
+            status_code=503,
+            detail="AI review summaries are temporarily unavailable. Please try again later.",
+        )
     except Exception as exc:
         print(f"AI review summary generation failed for {event_id}: {exc!r}")
         raise HTTPException(status_code=502, detail="Unable to generate AI review summary")
