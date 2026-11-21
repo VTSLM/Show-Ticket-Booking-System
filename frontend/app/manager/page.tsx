@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { reviewsApi, ReportedReview } from "@/lib/reviewsApi";
+import { LAYOUT_LABELS, layoutFits, layoutWarning } from "@/lib/layouts";
 
 type Tab = "shows" | "events" | "venues" | "reports";
 
@@ -165,6 +166,13 @@ export default function ManagerPage() {
   const selectedVenue = venues.find(v => v.id === selectedVenueId);
 
   const eventMap = Object.fromEntries(events.map(ev => [ev.id, ev]));
+  // Screens whose layout suits the chosen event come first; a mismatch shows a warning (#168)
+  const selectedEvent = newShow.event_id ? eventMap[newShow.event_id] : null;
+  const sortedScreens = [...screens].sort(
+    (a, b) => Number(layoutFits(selectedEvent?.event_type, b.layout_type)) - Number(layoutFits(selectedEvent?.event_type, a.layout_type))
+  );
+  const selectedScreen = screens.find(sc => sc.id === newShow.screen_id);
+  const screenWarning = selectedEvent && selectedScreen ? layoutWarning(selectedEvent.event_type, selectedScreen.layout_type) : null;
 
   const loadReports = async (filter: "open" | "all" = reportFilter) => {
     if (!user) return;
@@ -421,8 +429,16 @@ export default function ManagerPage() {
                   <select style={inputStyle} value={newShow.screen_id}
                     onChange={e => setNewShow(s => ({ ...s, screen_id: e.target.value }))} required>
                     <option value="">Select screen</option>
-                    {screens.map(sc => <option key={sc.id} value={sc.id}>{sc.name}</option>)}
+                    {sortedScreens.map(sc => (
+                      <option key={sc.id} value={sc.id}>
+                        {sc.name} · {LAYOUT_LABELS[sc.layout_type] ?? sc.layout_type ?? "Cinema"}
+                        {selectedEvent && !layoutFits(selectedEvent.event_type, sc.layout_type) ? " (different layout)" : ""}
+                      </option>
+                    ))}
                   </select>
+                  {screenWarning && (
+                    <p role="alert" style={{ marginTop: 6, fontSize: 12, color: "#fbbf24" }}>⚠ {screenWarning}</p>
+                  )}
                 </Field>
                 <Field label="Start Time">
                   <input style={inputStyle} type="datetime-local" value={newShow.start_time}
