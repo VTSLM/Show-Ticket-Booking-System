@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { useWishlist } from "@/components/useWishlist";
 import EventPoster from "@/components/EventPoster";
 import { bookingsApi } from "@/lib/api";
+import { useLocation } from "@/contexts/LocationContext";
 
 interface ShowDetailsProps {
   showData: any;
@@ -100,13 +101,29 @@ export default function ShowDetailsView({
 
   // Upcoming shows and distinct cities
   const upcomingShows: any[] = Array.isArray(showData?.upcoming_shows) ? showData.upcoming_shows : [];
-  const uniqueCities: string[] = Array.from(
-    new Set(upcomingShows.map((s: any) => s.city).filter(Boolean))
-  ) as string[];
+  // The user's own city (from the location picker) comes first, the rest alphabetically
+  const { location, ready: locationReady } = useLocation();
+  const homeCity = location?.label ? location.label.replace(/^Near /, "") : null;
+  const uniqueCities: string[] = (
+    Array.from(new Set(upcomingShows.map((s: any) => s.city).filter(Boolean))) as string[]
+  ).sort((a, b) => (a === homeCity ? -1 : b === homeCity ? 1 : a.localeCompare(b)));
+  const hasHomeCity = homeCity !== null && uniqueCities.includes(homeCity);
+  // A show picked on an earlier page keeps its own city
+  const preselectedCity: string | undefined = preselectedShowId
+    ? upcomingShows.find((s: any) => s.show_id === preselectedShowId)?.city
+    : undefined;
 
   const [selectedCity, setSelectedCity] = useState<string>(
-    uniqueCities[0] || showData?.city || "all"
+    preselectedCity || uniqueCities[0] || showData?.city || "all"
   );
+  const [cityChosen, setCityChosen] = useState(false);
+
+  // The saved location is read after the first render, so switch to it once it is known
+  useEffect(() => {
+    if (locationReady && hasHomeCity && homeCity && !preselectedCity && !cityChosen) {
+      setSelectedCity(homeCity);
+    }
+  }, [locationReady, hasHomeCity, homeCity, preselectedCity, cityChosen]);
 
   if (!showData) return null;
 
@@ -704,18 +721,20 @@ export default function ShowDetailsView({
 
                     {/* City Selector */}
                     {uniqueCities.length > 0 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-slate-400">City:</span>
-                        <div className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 p-1">
+                      <div className="flex min-w-0 max-w-full items-center gap-2" data-testid="city-picker">
+                        <span className="shrink-0 text-xs font-semibold text-slate-400">City:</span>
+                        <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto rounded-lg border border-slate-700 bg-slate-900 p-1">
                           {uniqueCities.map((c) => (
                             <button
                               key={c}
                               type="button"
+                              aria-pressed={selectedCity === c}
                               onClick={() => {
                                 setSelectedCity(c);
+                                setCityChosen(true);
                                 setSelectedDateFilter("all");
                               }}
-                              className={`rounded-md px-3 py-1 text-xs font-semibold transition ${
+                              className={`shrink-0 whitespace-nowrap rounded-md px-3 py-1 text-xs font-semibold transition ${
                                 selectedCity === c
                                   ? "bg-blue-600 text-white shadow-sm"
                                   : "text-slate-300 hover:bg-slate-800"
