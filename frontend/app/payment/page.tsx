@@ -3,6 +3,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Script from "next/script";
 import toast from "react-hot-toast";
+import { friendlyErrorMessage } from "@/lib/errorMessages";
 import { bookingsApi, paymentsApi, ticketsApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -116,7 +117,7 @@ function PaymentForm() {
       });
       checkout.open();
     } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : "Could not open Razorpay checkout. Please try again.");
+      setCheckoutError(friendlyErrorMessage(error, "Could not open checkout. Please try again."));
       setPaying(false);
     }
   };

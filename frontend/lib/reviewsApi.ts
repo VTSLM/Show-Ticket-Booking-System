@@ -1,3 +1,5 @@
+import { friendlyApiMessage, friendlyNetworkMessage } from "./errorMessages";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export interface ReviewAuthor {
@@ -85,11 +87,41 @@ export interface AiReviewSummary {
   critic_disliked: string[];
 }
 
+export interface CriticProfile {
+  id: string;
+  name: string;
+  publication?: string | null;
+  avatar_url?: string | null;
+  bio?: string | null;
+  role: string;
+  total_reviews: number;
+  average_rating: number;
+  fresh_percentage: number;
+  rating_history: Record<string, number>;
+  reviews: {
+    id: string;
+    event_id: string;
+    event_title: string;
+    event_poster?: string | null;
+    event_genre?: string | null;
+    rating: number;
+    headline: string;
+    content: string;
+    sections?: Record<string, string> | null;
+    media_url?: string | null;
+    is_spoiler: boolean;
+    published_at: string;
+    upvotes_count: number;
+  }[];
+}
+
 export interface MyReview {
   id: string;
   rating: number;
   headline: string;
   content: string;
+  sections?: Record<string, string> | null;
+  media_url?: string | null;
   is_spoiler: boolean;
   is_draft: boolean;
   version: number;
@@ -132,23 +164,30 @@ async function request<T>(
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   if (opts.token) headers["Authorization"] = `Bearer ${opts.token}`;
 
-  const res = await fetch(`${API_URL}/api/reviews${path}`, {
-    method: opts.method || "GET",
-    headers,
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/reviews${path}`, {
+      method: opts.method || "GET",
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch (error) {
+    throw new Error(friendlyNetworkMessage(error));
+  }
 
   if (!res.ok) {
-    let message = `Request failed (${res.status})`;
+    let message: unknown;
     try {
       const data = await res.json();
-      if (typeof data.detail === "string") message = data.detail;
-      else if (Array.isArray(data.detail))
-        message = data.detail.map((d: any) => d.msg).join(", ");
+      message = data.detail;
     } catch {}
-    throw new Error(message);
+    throw new Error(friendlyApiMessage(res.status, message));
   }
-  return res.json();
+  try {
+    return await res.json();
+  } catch {
+    throw new Error("We received an unexpected response. Please try again.");
+  }
 }
 
 export const reviewsApi = {
@@ -178,6 +217,8 @@ export const reviewsApi = {
       rating: number;
       headline: string;
       content: string;
+      sections?: Record<string, string> | null;
+      media_url?: string | null;
       is_spoiler?: boolean;
       scheduled_for?: string | null; // ISO date-time; omit to publish now
       is_draft?: boolean; // save as a private draft instead of publishing
@@ -193,6 +234,8 @@ export const reviewsApi = {
       rating?: number;
       headline?: string;
       content?: string;
+      sections?: Record<string, string> | null;
+      media_url?: string | null;
       is_spoiler?: boolean;
       scheduled_for?: string | null; // reschedule (only while still scheduled)
       publish_now?: boolean; // publish a draft / scheduled review immediately
@@ -200,6 +243,10 @@ export const reviewsApi = {
     }
   ) {
     return request<Review>(`/${reviewId}`, { method: "PATCH", token, body });
+  },
+
+  criticProfile(criticId: string) {
+    return request<CriticProfile>(`/critics/${criticId}`);
   },
 
   remove(token: string, reviewId: string) {
