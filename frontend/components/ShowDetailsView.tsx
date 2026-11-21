@@ -14,6 +14,15 @@ interface ShowDetailsProps {
   isEventMode?: boolean;
 }
 
+/** The cinema format a screen offers, read from its name ("IMAX Audi 2" -> "IMAX 3D"). */
+function screenFormat(screenName?: string | null): string {
+  const name = (screenName || "").toLowerCase();
+  if (name.includes("imax")) return "IMAX 3D";
+  if (name.includes("4d")) return "4DX 3D";
+  if (name.includes("3d")) return "3D";
+  return "2D";
+}
+
 export default function ShowDetailsView({
   showData,
   preselectedShowId,
@@ -102,6 +111,8 @@ export default function ShowDetailsView({
   if (!showData) return null;
 
   const eventType = (showData.event_type || "movie").toLowerCase();
+  // Cinema formats (2D, 3D, IMAX, 4DX) only exist for movies
+  const isMovie = eventType === "movie";
   const title = showData.title || "Untitled Show";
   const backdrop = showData.backdrop_url || showData.poster_url;
   const poster = showData.poster_url;
@@ -176,29 +187,30 @@ export default function ShowDetailsView({
     }
   };
 
-  // Available formats across upcoming shows and event metadata
-  const eventFormats: string[] = Array.isArray(showData.formats)
+  // Movie formats. Non-movie events (concerts, comedy, theatre, other) have none.
+  const eventFormats: string[] = !isMovie
+    ? []
+    : Array.isArray(showData.formats)
     ? showData.formats
     : typeof showData.formats === "string"
     ? [showData.formats]
     : [];
 
-  const screenFormats: string[] = upcomingShows.map((s: any) => {
-    const name = (s.screen_name || "").toLowerCase();
-    if (name.includes("imax")) return "IMAX 3D";
-    if (name.includes("4d")) return "4DX 3D";
-    if (name.includes("3d")) return "3D";
-    return "2D";
-  });
+  // What the movie is actually showing in: derived from each showtime's screen
+  const screenFormats: string[] = isMovie ? upcomingShows.map((s: any) => screenFormat(s.screen_name)) : [];
 
-  const availableFormats: string[] = Array.from(
-    new Set([...eventFormats, ...screenFormats, "2D", "3D", "IMAX 3D", "4DX 3D"])
-  ).filter(Boolean);
+  // Shown next to the title: the movie's formats plus any its showtimes use
+  const availableFormats: string[] = Array.from(new Set([...eventFormats, ...screenFormats])).filter(Boolean);
+  // Offered as filters and in the booking pop-up: only formats with a showtime
+  const bookableFormats: string[] = Array.from(new Set(screenFormats));
+  const offerFormatChoice = isMovie && bookableFormats.length > 1;
 
   // Book Tickets CTA handler (opens language & format selector modal)
   const handleBookTickets = () => {
-    if (upcomingShows.length > 0) {
+    if (upcomingShows.length > 0 && offerFormatChoice) {
       setIsFormatModalOpen(true);
+    } else if (upcomingShows.length > 0) {
+      document.getElementById("showtimes-section")?.scrollIntoView({ behavior: "smooth" });
     } else if (showData.show_id) {
       router.push(`/shows/${showData.show_id}/seats`);
     } else {
@@ -249,12 +261,8 @@ export default function ShowDetailsView({
         return true;
       }
     }
-    if (selectedFormat !== "all") {
-      const name = (s.screen_name || "").toLowerCase();
-      if (selectedFormat.includes("IMAX") && !name.includes("imax")) return false;
-      if (selectedFormat.includes("4D") && !name.includes("4d")) return false;
-      if (selectedFormat === "3D" && (!name.includes("3d") || name.includes("imax") || name.includes("4d"))) return false;
-      if (selectedFormat === "2D" && (name.includes("imax") || name.includes("4d") || name.includes("3d"))) return false;
+    if (offerFormatChoice && selectedFormat !== "all" && screenFormat(s.screen_name) !== selectedFormat) {
+      return false;
     }
     return true;
   });
@@ -425,7 +433,7 @@ export default function ShowDetailsView({
                     </div>
                   )}
 
-                  {availableFormats.length > 0 && eventType === "movie" && (
+                  {availableFormats.length > 0 && (
                     <div className="flex items-center gap-1.5">
                       {availableFormats.map((fmt: string) => (
                         <span
@@ -447,11 +455,11 @@ export default function ShowDetailsView({
                         <div className="flex items-center gap-2">
                           <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                           <p className="text-xs font-bold uppercase tracking-wider text-blue-400">
-                            Now Showing Across Theatres
+                            {isMovie ? "Now Showing Across Theatres" : "Happening Across Venues"}
                           </p>
                         </div>
                         <p className="mt-1 text-base font-bold text-white">
-                          📍 In {totalDistinctTheatres} Theatres ({uniqueCities.length ? uniqueCities.join(", ") : "Available Cities"})
+                          📍 In {totalDistinctTheatres} {isMovie ? "Theatres" : "Venues"} ({uniqueCities.length ? uniqueCities.join(", ") : "Available Cities"})
                         </p>
                         <p className="mt-0.5 text-xs text-slate-300">
                           🕒 {upcomingShows.length} Scheduled Showtimes Available
@@ -683,7 +691,7 @@ export default function ShowDetailsView({
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                         {showData.duration_minutes && (
                           <span className="rounded-md border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-slate-300 font-medium">
-                            Movie runtime: {formatDuration(showData.duration_minutes)}
+                            {isMovie ? "Movie runtime" : "Duration"}: {formatDuration(showData.duration_minutes)}
                           </span>
                         )}
                         {showData.certificate && (
@@ -763,8 +771,9 @@ export default function ShowDetailsView({
                   </div>
                 )}
 
-                {/* Filters Bar: Format Selector + Legend */}
+                {/* Filters Bar: Format Selector (movies with more than one format) + Legend */}
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-4 py-2">
+                  {offerFormatChoice ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">
                       Format:
@@ -780,7 +789,7 @@ export default function ShowDetailsView({
                     >
                       All Formats
                     </button>
-                    {availableFormats.map((fmt) => (
+                    {bookableFormats.map((fmt) => (
                       <button
                         key={fmt}
                         type="button"
@@ -795,6 +804,9 @@ export default function ShowDetailsView({
                       </button>
                     ))}
                   </div>
+                  ) : (
+                    <span />
+                  )}
 
                   <div className="flex items-center gap-3 text-[11px] text-slate-400">
                     <span className="flex items-center gap-1.5">
@@ -813,7 +825,9 @@ export default function ShowDetailsView({
                   {theatresList.length === 0 ? (
                     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-8 text-center text-sm text-slate-400">
                       <p className="text-base font-semibold text-slate-300">No shows found for the selected filter</p>
-                      <p className="mt-1 text-xs">Try selecting a different date or screen format.</p>
+                      <p className="mt-1 text-xs">
+                        {offerFormatChoice ? "Try selecting a different date or screen format." : "Try selecting a different date."}
+                      </p>
                       <button
                         type="button"
                         onClick={() => {
@@ -875,7 +889,7 @@ export default function ShowDetailsView({
                                   </span>
                                   <div className="mt-1 flex items-center gap-1.5 text-[11px]">
                                   <span className="font-bold text-slate-300 uppercase">
-                                    {s.screen_name || "2D"}
+                                    {s.screen_name || (isMovie ? "2D" : "Stage")}
                                   </span>
                                   <span className="text-slate-600">•</span>
                                   <span className="font-extrabold text-emerald-400">
@@ -999,7 +1013,7 @@ export default function ShowDetailsView({
 
               {/* Format Pills (Matching screenshot 3) */}
               <div className="mt-3 flex flex-wrap items-center gap-2.5">
-                {["2D", "3D", "IMAX 3D", "4DX 3D"].map((fmt) => (
+                {bookableFormats.map((fmt) => (
                   <button
                     key={fmt}
                     type="button"
