@@ -615,3 +615,76 @@ async def test_admin_retry_refund_success(monkeypatch):
     assert res["status"] == "success"
     assert res["refund_status"] == "PROCESSED"
     assert res["razorpay_refund_id"] == "rfnd_retry_success"
+
+
+# ── Cancel dialog showed "0 Ticket(s)" and "General Admission" for seated bookings ──
+
+def _eligibility_booking_row():
+    return {
+        "id": BOOKING_ID,
+        "show_id": SHOW_ID,
+        "user_id": USER_ID,
+        "status": "confirmed",
+        "total_amount": Decimal("200.00"),
+        "created_at": datetime.now(timezone.utc),
+        "event_title": "Fixture Movie",
+        "poster_url": None,
+        "start_time": datetime.now(timezone.utc) + timedelta(days=2),
+        "venue_name": "PVR",
+        "venue_city": "Vadodara",
+        "screen_name": "Screen 1",
+        "payment_id": "pay-1",
+        "payment_status": "successful",
+        "paid_amount": Decimal("200.00"),
+        "transaction_id": "pay_rzp_123",
+        "razorpay_refund_id": None,
+        "refunded_amount": None,
+        "refunded_at": None,
+        "cancellation_policy_id": None,
+        "cancellation_reason": None,
+        "cancellation_notes": None,
+        "cancellation_charge": None,
+        "refund_amount": None,
+        "refund_status": None,
+        "cancelled_at": None,
+        "user_name": "Customer",
+        "user_email": "customer@example.com",
+    }
+
+
+@pytest.mark.asyncio
+async def test_eligibility_seat_query_uses_real_columns():
+    """Row and seat number live on `seats`, and the price column is `unit_price`."""
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [_eligibility_booking_row(), DEFAULT_POLICY]
+    conn.fetch.return_value = [
+        {"id": "ss-1", "row_label": "A", "seat_number": 1, "seat_type": "standard", "price": Decimal("200.00")},
+    ]
+    conn.fetchval.return_value = 0
+
+    resp = await cancellations.check_cancel_eligibility(
+        booking_id=BOOKING_ID, current_user=CURRENT_USER, conn=conn,
+    )
+
+    sql = conn.fetch.call_args.args[0]
+    assert "JOIN seats st ON st.id = ss.seat_id" in sql
+    assert "bs.unit_price" in sql
+    assert "ss.row_label" not in sql and "bs.price" not in sql
+    assert resp["seats"] == ["A1"]
+    assert resp["total_seats"] == 1
+
+
+@pytest.mark.asyncio
+async def test_eligibility_counts_standing_passes():
+    """A zone (standing) booking has no seats but still has tickets."""
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [_eligibility_booking_row(), DEFAULT_POLICY]
+    conn.fetch.return_value = []
+    conn.fetchval.return_value = 3
+
+    resp = await cancellations.check_cancel_eligibility(
+        booking_id=BOOKING_ID, current_user=CURRENT_USER, conn=conn,
+    )
+
+    assert resp["seats"] == []
+    assert resp["total_seats"] == 3

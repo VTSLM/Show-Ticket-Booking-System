@@ -139,7 +139,8 @@ export default function SeatsPage() {
 
   // Hold Timer Effect
   useEffect(() => {
-    if (selectedSeatIds.length > 0 || selectedZone) {
+    // Only signed-in users get a real hold on the server, so only they see a countdown.
+    if (user && (selectedSeatIds.length > 0 || selectedZone)) {
       if (!timerRef.current) {
         setHoldSecondsLeft(600); // 10 minutes
         timerRef.current = setInterval(() => {
@@ -171,7 +172,7 @@ export default function SeatsPage() {
         timerRef.current = null;
       }
     };
-  }, [selectedSeatIds.length, selectedZone, loadSeats]);
+  }, [user, selectedSeatIds.length, selectedZone, loadSeats]);
 
   // Seat toggle handler: immediate selection with zero flickering or buffering
   const handleToggleSeat = async (seat: SeatItem) => {
@@ -383,7 +384,7 @@ export default function SeatsPage() {
             </div>
 
             {/* Hold countdown timer badge (visible if items are selected) */}
-            {(selectedSeatIds.length > 0 || selectedZone) && (
+            {user && (selectedSeatIds.length > 0 || selectedZone) && (
               <div
                 className={`flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-mono font-bold shadow-sm ${
                   holdSecondsLeft < 120
@@ -425,7 +426,11 @@ export default function SeatsPage() {
                   : `${selectedSeatIds.length} seat${selectedSeatIds.length > 1 ? "s" : ""} selected`}
               </span>
               <span>•</span>
-              <span className="font-mono text-amber-400">Hold: {formatTimer(holdSecondsLeft)}</span>
+              {user ? (
+                <span className="font-mono text-amber-400">Hold: {formatTimer(holdSecondsLeft)}</span>
+              ) : (
+                <span className="text-amber-300" data-testid="guest-hold-note">Log in to hold these seats</span>
+              )}
             </div>
             <p className="mt-0.5 text-xl font-extrabold text-blue-400">
               ₹{grandTotal.toLocaleString("en-IN")}
