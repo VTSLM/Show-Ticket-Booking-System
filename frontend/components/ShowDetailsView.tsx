@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useWishlist } from "@/components/useWishlist";
+import EventPoster from "@/components/EventPoster";
 import { bookingsApi } from "@/lib/api";
 
 interface ShowDetailsProps {
@@ -311,23 +312,13 @@ export default function ShowDetailsView({
           <div className="flex flex-col gap-8 md:flex-row md:items-start md:gap-12">
             {/* Left: Poster Card */}
             <div className="mx-auto w-60 shrink-0 overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-900/90 shadow-2xl shadow-black/80 md:mx-0 md:w-72">
-              {poster || title?.toLowerCase().includes("ramayana") ? (
-                <img
-                  src={poster || "/posters/ramayana.jpg"}
-                  alt={`${title} poster`}
-                  className="h-88 w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
-                  onError={(e) => {
-                    const img = e.currentTarget;
-                    if (!img.src.includes("/posters/ramayana.jpg")) {
-                      img.src = "/posters/ramayana.jpg";
-                    }
-                  }}
-                />
-              ) : (
-                <div className="flex h-88 items-center justify-center bg-slate-800 text-6xl">
-                  {eventType === "concert" ? "🎵" : eventType === "theatre" ? "🎭" : "🎬"}
-                </div>
-              )}
+              <EventPoster
+                src={poster}
+                alt={`${title} poster`}
+                eventType={eventType}
+                className="aspect-[2/3] w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
+                placeholderClassName="flex aspect-[2/3] w-full items-center justify-center bg-slate-800"
+              />
               {showData.status && (
                 <div className="border-t border-slate-800 bg-slate-950/80 px-4 py-2.5 text-center text-xs font-semibold capitalize tracking-wide text-slate-300">
                   Status: <span className="text-emerald-400">{showData.status}</span>
