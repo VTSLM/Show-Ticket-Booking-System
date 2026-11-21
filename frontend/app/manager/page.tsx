@@ -298,6 +298,10 @@ export default function ManagerPage() {
 
   const createShow = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (selectedScreen && (selectedScreen.capacity === 0 || selectedScreen.seat_count === 0) && showZones.length === 0) {
+      toast.error("Cannot create show: the selected screen has no seats configured and no admission zones were provided.");
+      return;
+    }
     try {
       await managerApi.createShow({
         ...newShow,
@@ -438,6 +442,11 @@ export default function ManagerPage() {
                   </select>
                   {screenWarning && (
                     <p role="alert" style={{ marginTop: 6, fontSize: 12, color: "#fbbf24" }}>⚠ {screenWarning}</p>
+                  )}
+                  {selectedScreen && (selectedScreen.capacity === 0 || selectedScreen.seat_count === 0) && showZones.length === 0 && (
+                    <p role="alert" style={{ marginTop: 6, fontSize: 12, color: "#f87171" }}>
+                      ⚠ Selected screen has 0 seats. Add standing / festival zones below or select a screen with seats to schedule a show.
+                    </p>
                   )}
                 </Field>
                 <Field label="Start Time">

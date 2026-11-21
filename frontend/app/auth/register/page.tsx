@@ -10,6 +10,7 @@ import {
   signInWithEmailAndPassword,
 } from "@/lib/firebase";
 import { authApi } from "@/lib/api";
+import { friendlyFirebaseMessage, friendlyErrorMessage } from "@/lib/errorMessages";
 import { useAuth } from "@/contexts/AuthContext";
 
 function PasswordVisibilityIcon({ visible }: { visible: boolean }) {
@@ -175,7 +176,10 @@ function RegisterForm() {
       await refreshProfile();
       router.push(form.role === "customer" || form.role === "admin" ? "/browse" : "/auth/login");
     } catch (error: any) {
-      toast.error(error.message || "Registration failed");
+      const msg = error?.code
+        ? friendlyFirebaseMessage(error, "Registration failed. Please try again.")
+        : friendlyErrorMessage(error, "Registration failed. Please try again.");
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

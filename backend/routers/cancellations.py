@@ -3,6 +3,7 @@ Complete, production-ready Booking Cancellation, Refund Management & Webhook end
 Customer, Administrator, and Razorpay Gateway lifecycle operations.
 """
 import json
+import logging
 from typing import Optional
 import asyncpg
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Header
@@ -30,6 +31,7 @@ from services.cancellation_notification_service import (
 require_admin = require_role("admin")
 
 router = APIRouter(prefix="/api/bookings", tags=["cancellations"])
+logger = logging.getLogger("uvicorn.error")
 
 CANCEL_CUTOFF_HOURS = 2
 
@@ -744,6 +746,7 @@ async def retry_failed_refund(
         }
 
     except Exception as exc:
+        logger.exception("Refund retry failed for refund %s", refund_id)
         await conn.execute(
             """
             UPDATE refunds
@@ -756,4 +759,7 @@ async def retry_failed_refund(
             admin_id,
             refund_id,
         )
-        raise HTTPException(status_code=500, detail=f"Refund retry failed: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail="The refund could not be retried. Please try again later or contact support.",
+        )

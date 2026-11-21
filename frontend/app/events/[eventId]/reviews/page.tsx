@@ -43,7 +43,33 @@ const watchedLine = (r: Review) => {
   return place ? `Watched on ${day}, ${place}` : `Watched on ${day}`;
 };
 
-const EMPTY_FORM = { rating: 8, headline: "", content: "", is_spoiler: false };
+const EMPTY_FORM = {
+  rating: 8,
+  headline: "",
+  content: "",
+  is_spoiler: false,
+  media_url: "",
+  sections: {} as Record<string, string>,
+};
+
+const CRITIC_SECTION_OPTIONS = [
+  "Story",
+  "Direction",
+  "Performances",
+  "Cinematography",
+  "Music",
+  "Verdict",
+];
+
+const countWords = (text: string, secs?: Record<string, string>) => {
+  let count = text.trim() ? text.trim().split(/\s+/).length : 0;
+  if (secs) {
+    for (const v of Object.values(secs)) {
+      if (v?.trim()) count += v.trim().split(/\s+/).length;
+    }
+  }
+  return count;
+};
 
 function ScoreCard({
   label,
@@ -233,7 +259,13 @@ function ReviewCard({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="font-semibold text-white">
-            {review.author.name}
+            {isCritic ? (
+              <Link href={`/critics/${review.user_id}`} className="hover:text-blue-400 hover:underline">
+                {review.author.name}
+              </Link>
+            ) : (
+              review.author.name
+            )}
             {review.is_verified_attendee && (
               <span
                 className="ml-2 rounded-md bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300"
@@ -243,9 +275,12 @@ function ReviewCard({
               </span>
             )}
             {isCritic && (
-              <span className="ml-2 rounded-md bg-blue-500/20 px-2 py-0.5 text-xs text-blue-300">
+              <Link
+                href={`/critics/${review.user_id}`}
+                className="ml-2 rounded-md bg-blue-500/20 px-2 py-0.5 text-xs text-blue-300 hover:bg-blue-500/30 transition-colors"
+              >
                 {review.author.publication ? `Critic · ${review.author.publication}` : "Critic"}
-              </span>
+              </Link>
             )}
           </p>
           <p className="text-xs text-slate-500">
@@ -283,6 +318,29 @@ function ReviewCard({
               <p className="text-sm text-slate-300">{v}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {revealed && review.media_url && (
+        <div className="mt-3 pt-1">
+          {review.media_url.match(/\.(jpeg|jpg|gif|png|webp)($|\?)/i) ? (
+            <img
+              src={review.media_url}
+              alt="Review media attachment"
+              className="max-h-72 rounded-lg object-cover"
+            />
+          ) : review.media_url.match(/\.(mp4|webm)($|\?)/i) ? (
+            <video src={review.media_url} controls className="max-h-72 rounded-lg" />
+          ) : (
+            <a
+              href={review.media_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-950/40 px-3 py-1.5 text-xs font-medium text-blue-300 hover:bg-blue-900/40 hover:underline"
+            >
+              🎬 Watch Attached Trailer / Media Clip ↗
+            </a>
+          )}
         </div>
       )}
 
@@ -427,7 +485,7 @@ export default function EventReviewsPage() {
   // ([eventId], [eventid], [id] ...).
   const params = useParams();
   const eventId = String(Object.values(params ?? {})[0] ?? "");
-  const { user, profile, isAdmin, loading: authLoading } = useAuth();
+  const { user, profile, isAdmin, isCritic, loading: authLoading } = useAuth();
 
   const [data, setData] = useState<EventReviews | null>(null);
   const [loading, setLoading] = useState(true);
@@ -538,23 +596,37 @@ export default function EventReviewsPage() {
       scheduledIso = new Date(t).toISOString();
     }
 
+    if (isCritic) {
+      const words = countWords(form.content, form.sections);
+      if (words < 10) return toast.error(`Critic review must be at least 10 words (currently ${words} words)`);
+      if (words > 1000) return toast.error(`Critic review cannot exceed 1000 words (currently ${words} words)`);
+    }
+
+    const cleanedSections = isCritic && Object.keys(form.sections).length > 0 ? form.sections : undefined;
+    const cleanedMedia = isCritic && form.media_url?.trim() ? form.media_url.trim() : undefined;
+
     setSubmitting(true);
     try {
       if (editingId) {
+        const updatePayload = {
+          ...form,
+          sections: cleanedSections,
+          media_url: cleanedMedia,
+        };
         if (showPublishOptions) {
           // editing a draft or a scheduled review
           if (publishMode === "now") {
-            await reviewsApi.update(token, editingId, { ...form, publish_now: true });
+            await reviewsApi.update(token, editingId, { ...updatePayload, publish_now: true });
             toast.success("Review published");
           } else if (publishMode === "later" && scheduledIso) {
-            await reviewsApi.update(token, editingId, { ...form, scheduled_for: scheduledIso });
+            await reviewsApi.update(token, editingId, { ...updatePayload, scheduled_for: scheduledIso });
             toast.success(`Review scheduled for ${fmtDateTime(scheduledIso)}`);
           } else {
-            await reviewsApi.update(token, editingId, { ...form, is_draft: true });
+            await reviewsApi.update(token, editingId, { ...updatePayload, is_draft: true });
             toast.success("Draft saved");
           }
         } else {
-          await reviewsApi.update(token, editingId, form);
+          await reviewsApi.update(token, editingId, updatePayload);
           toast.success("Review updated");
         }
       } else {
@@ -564,7 +636,13 @@ export default function EventReviewsPage() {
             : scheduledIso
               ? { scheduled_for: scheduledIso }
               : {};
-        await reviewsApi.submit(token, { event_id: eventId, ...form, ...extra });
+        await reviewsApi.submit(token, {
+          event_id: eventId,
+          ...form,
+          sections: cleanedSections,
+          media_url: cleanedMedia,
+          ...extra,
+        });
         toast.success(
           publishMode === "draft"
             ? "Draft saved"
@@ -592,6 +670,8 @@ export default function EventReviewsPage() {
       headline: mine.headline,
       content: mine.content,
       is_spoiler: mine.is_spoiler,
+      media_url: mine.media_url || "",
+      sections: mine.sections || {},
     });
     if (mine.is_draft) {
       setPublishMode("draft");
@@ -629,6 +709,8 @@ export default function EventReviewsPage() {
       headline: r.headline,
       content: r.content,
       is_spoiler: r.is_spoiler,
+      media_url: r.media_url || "",
+      sections: r.sections || {},
     });
     setPublishMode("now");
     setScheduleAt("");
@@ -828,8 +910,17 @@ export default function EventReviewsPage() {
                 : editingScheduled
                   ? "Edit your scheduled review"
                   : "Edit your review"
-              : "Write a review"}
+              : isCritic
+                ? "Write a Critic Review"
+                : "Write a review"}
           </p>
+
+          {isCritic && (
+            <div className="rounded-lg border border-blue-500/30 bg-blue-950/40 p-3 text-xs text-blue-300">
+              ✍️ Authoring as Verified Critic — add structured critique sections and media attachments below.
+            </div>
+          )}
+
           <div>
             <label className="text-sm text-slate-300">Rating: {form.rating.toFixed(1)} / 10</label>
             <input
@@ -853,12 +944,101 @@ export default function EventReviewsPage() {
           />
           <textarea
             className="input min-h-[120px]"
-            placeholder="Your review (min 10 chars)"
+            placeholder={isCritic ? "Your in-depth critique (min 10 words)" : "Your review (min 10 chars)"}
             value={form.content}
             minLength={10}
             required
             onChange={(e) => setForm({ ...form, content: e.target.value })}
           />
+
+          {isCritic && (
+            <div className="text-right text-xs text-slate-400">
+              Total words:{" "}
+              <span
+                className={
+                  countWords(form.content, form.sections) < 10 || countWords(form.content, form.sections) > 1000
+                    ? "font-semibold text-amber-400"
+                    : "font-semibold text-emerald-400"
+                }
+              >
+                {countWords(form.content, form.sections)}
+              </span>{" "}
+              (10–1000 words required for critics)
+            </div>
+          )}
+
+          {isCritic && (
+            <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-blue-400">
+                  Review Sections (Structured critique)
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {CRITIC_SECTION_OPTIONS.filter((sec) => !form.sections[sec]).map((sec) => (
+                    <button
+                      key={sec}
+                      type="button"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          sections: { ...form.sections, [sec]: "" },
+                        })
+                      }
+                      className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-700 hover:text-white"
+                    >
+                      + {sec}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {Object.entries(form.sections).map(([sec, txt]) => (
+                <div key={sec} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-300">{sec}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { ...form.sections };
+                        delete next[sec];
+                        setForm({ ...form, sections: next });
+                      }}
+                      className="text-red-400 hover:text-red-300"
+                    >
+                      ✕ Remove
+                    </button>
+                  </div>
+                  <textarea
+                    className="input min-h-[60px] text-xs"
+                    placeholder={`Critique regarding ${sec}…`}
+                    value={txt}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        sections: { ...form.sections, [sec]: e.target.value },
+                      })
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {isCritic && (
+            <div>
+              <label className="text-xs text-slate-300">
+                Media Attachment (Trailer link, image, or video clip URL)
+              </label>
+              <input
+                type="url"
+                className="input mt-1"
+                placeholder="https://youtube.com/watch?v=... or https://..."
+                value={form.media_url}
+                onChange={(e) => setForm({ ...form, media_url: e.target.value })}
+              />
+            </div>
+          )}
+
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input
               type="checkbox"

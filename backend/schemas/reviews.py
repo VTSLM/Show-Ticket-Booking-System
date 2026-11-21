@@ -119,3 +119,17 @@ class EventReviewsResponse(BaseModel):
     event_id: str
     aggregates: MovieAggregatesOut
     reviews: List[ReviewOut]
+
+
+class CriticProfileOut(BaseModel):
+    id: str
+    name: str
+    publication: Optional[str] = None
+    avatar_url: Optional[str] = None
+    bio: Optional[str] = None
+    role: str = "critic"
+    total_reviews: int = 0
+    average_rating: float = 0.0
+    fresh_percentage: int = 0
+    rating_history: Dict[str, int] = Field(default_factory=dict)
+    reviews: List[dict] = Field(default_factory=list)
