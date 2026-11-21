@@ -170,6 +170,7 @@ function PaymentForm() {
       toast.error("Could not download ticket PDF");
     }
   };
+
   if (!user) return (
     <div className="text-center py-20">
       <p>Please <a href="/auth/login" className="text-red-500 underline">log in</a> to continue.</p>
@@ -202,6 +203,20 @@ function PaymentForm() {
               booking.status === "confirmed" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
             }`}>{booking.status}</span>
           </div>
+          {Number(booking.discount_amount) > 0 && (
+            <>
+              <div className="border-t pt-3 flex justify-between">
+                <span className="text-gray-500">Subtotal</span>
+                <span>₹{Number(booking.subtotal_amount).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-green-600">
+                <span>
+                  Coupon {booking.coupon_code ? `(${booking.coupon_code})` : ""}
+                </span>
+                <span>-₹{Number(booking.discount_amount).toFixed(2)}</span>
+              </div>
+            </>
+          )}
           <div className="border-t pt-3 flex justify-between font-bold text-lg">
             <span>Total</span>
             <span className="text-red-500">₹{parseFloat(booking.total_amount).toFixed(2)}</span>

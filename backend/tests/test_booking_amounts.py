@@ -60,8 +60,9 @@ async def test_seat_booking_stores_subtotal_discount_and_total():
 
     insert = booking_insert(conn)
     assert "subtotal_amount" in insert.args[0] and "discount_amount" in insert.args[0]
-    subtotal, discount, total = insert.args[4:7]
+    subtotal, discount, coupon_id, total = insert.args[4:8]
     assert (subtotal, discount, total) == (Decimal("600.00"), Decimal("0"), Decimal("600.00"))
+    assert coupon_id is None
     assert result["total_amount"] == 600.0
     assert_every_placeholder_matches(conn)
 
@@ -75,7 +76,12 @@ async def test_free_seat_booking_stores_zero_amounts():
 
     result = await bookings.create_booking(req, current_user={"id": USER_ID}, conn=conn)
 
-    assert booking_insert(conn).args[4:7] == (Decimal("0"), Decimal("0"), Decimal("0"))
+    assert booking_insert(conn).args[4:8] == (
+        Decimal("0"),
+        Decimal("0"),
+        None,
+        Decimal("0"),
+    )
     assert result["total_amount"] == 0.0
 
 
@@ -87,7 +93,12 @@ async def test_zone_booking_stores_amounts_and_checks_the_show():
 
     result = await bookings.create_booking(req, current_user={"id": USER_ID}, conn=conn)
 
-    assert booking_insert(conn).args[4:7] == (Decimal("17000.00"), Decimal("0"), Decimal("17000.00"))
+    assert booking_insert(conn).args[4:8] == (
+        Decimal("17000.00"),
+        Decimal("0"),
+        None,
+        Decimal("17000.00"),
+    )
     assert result["total_amount"] == 17000.0
     update = next(c for c in conn.execute.await_args_list if "UPDATE show_zones" in c.args[0])
     assert "show_id=$2::uuid" in update.args[0]
