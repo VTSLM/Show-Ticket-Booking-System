@@ -26,7 +26,6 @@ import asyncpg
 TRANSFER_QR_PREFIX = "TICKETFLOW-T:"
 ACTIVE = ("pending", "accepted")
 
-EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_PATTERN = re.compile(r"^[6-9]\d{9}$")      # Indian mobile number, 10 digits
 MAX_CONTACT_LENGTH = 255
 
@@ -44,6 +43,20 @@ class TransferError(Exception):
 # Small helpers
 # ---------------------------------------------------------------------------
 
+def looks_like_email(value: str) -> bool:
+    """name@domain.tld check without a regex (a regex here can be slow on crafted input)."""
+    if value.count("@") != 1 or any(ch.isspace() for ch in value):
+        return False
+    local, domain = value.split("@")
+    return (
+        bool(local)
+        and "." in domain
+        and not domain.startswith(".")
+        and not domain.endswith(".")
+        and ".." not in domain
+    )
+
+
 def parse_recipient(raw: str) -> tuple[str, str]:
     """Return ("email", value) or ("phone", 10 digits) for what the sender typed."""
     value = (raw or "").strip()
@@ -52,7 +65,7 @@ def parse_recipient(raw: str) -> tuple[str, str]:
     if len(value) > MAX_CONTACT_LENGTH:
         raise TransferError(400, "That email or phone number is too long")
     if "@" in value:
-        if not EMAIL_PATTERN.match(value):
+        if not looks_like_email(value):
             raise TransferError(400, "Enter a valid email address")
         return "email", value.lower()
     digits = re.sub(r"[\s\-()]", "", value)

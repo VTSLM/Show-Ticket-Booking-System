@@ -75,7 +75,11 @@ def test_parse_recipient(raw, expected):
     assert svc.parse_recipient(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ["", "   ", "ravi@", "12345", "5876543210", "x" * 300])
+@pytest.mark.parametrize("raw", [
+    "", "   ", "ravi@", "@example.com", "ravi@example", "ravi@.com", "ravi@example.", "ravi@exa..com",
+    "ra vi@example.com", "a@b@example.com", "12345", "5876543210", "x" * 300,
+    "!@!." + "!." * 120,  # crafted input from the CodeQL alert: must be rejected quickly
+])
 def test_parse_recipient_rejects_bad_input(raw):
     with pytest.raises(svc.TransferError) as exc:
         svc.parse_recipient(raw)
