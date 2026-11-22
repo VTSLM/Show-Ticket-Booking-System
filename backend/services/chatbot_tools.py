@@ -171,10 +171,16 @@ async def _with_ratings(conn: asyncpg.Connection, events: List[dict]) -> None:
     await _attach_ratings(conn, events)
 
 
-async def search_shows(conn, user, *, query=None, city=None, event_type=None,
+async def search_shows(conn, user, *, query=None, language=None, city=None, event_type=None,
                        date_from=None, date_to=None, max_price=None, sort="soonest") -> dict:
     d_from, d_to = _parse_date(date_from), _parse_date(date_to)
     shows = await _upcoming_shows(conn, city, event_type, d_from, d_to)
+    if language and str(language).strip():
+        lang = str(language).strip().lower()
+        shows = [
+            s for s in shows
+            if str(s.get("language") or "").strip().lower() == lang
+        ]
 
     if query and str(query).strip():
         q = str(query).strip()
@@ -447,16 +453,25 @@ def _schema(name: str, description: str, properties: dict) -> dict:
             "parameters": {"type": "object", "properties": properties, "additionalProperties": False}}
 
 
-_STR = {"type": "string"}
-_DATE = {"type": "string", "description": "YYYY-MM-DD (India time)"}
-_TYPE = {"type": "string", "enum": list(EVENT_TYPES)}
-
+_STR = {"type": ["string", "null"]}
+_DATE = {
+    "type": ["string", "null"],
+    "description": "YYYY-MM-DD (India time)",
+}
+_TYPE = {
+    "type": ["string", "null"],
+    "enum": [*list(EVENT_TYPES), None],
+}
 TOOL_SCHEMAS: List[dict] = [
     _schema("search_shows",
             "Find upcoming shows. Use for any question about what is on, where, when or for how much.",
-            {"query": {**_STR, "description": "Title, artist, genre or language; typos are fine"},
+            {"query": {**_STR, "description": "Title, artist or genre; typos are fine"},
+                "language": {
+                    **_STR,
+                    "description": "Exact language of the show, e.g. Hindi, English, Gujarati, Tamil, Telugu"
+                },
              "city": _STR, "event_type": _TYPE, "date_from": _DATE, "date_to": _DATE,
-             "max_price": {"type": "number", "description": "Maximum ticket price in INR"},
+             "max_price": {"type": ["number", "null"],"description": "Maximum ticket price in INR" },
              "sort": {"type": "string", "enum": ["soonest", "cheapest", "top_rated"]}}),
     _schema("get_event_details",
             "Details of one event: description, rating, and upcoming shows with venue, time, price and seats left.",
@@ -464,10 +479,22 @@ TOOL_SCHEMAS: List[dict] = [
     _schema("get_review_summary",
             "What people think of an event: average rating (out of 10), review count and AI review summary.",
             {"event_id": _STR, "title": _STR}),
-    _schema("recommend_events",
-            "Suggest upcoming events. With no arguments and a logged-in user, uses their wishlist and past bookings.",
-            {"like_event_id": _STR, "like_title": {**_STR, "description": "Recommend things similar to this title"},
-             "event_type": _TYPE, "genre": _STR, "city": _STR, "date_from": _DATE, "date_to": _DATE}),
+    _schema(
+                "recommend_events",
+                "Suggest upcoming events. With no arguments and a logged-in user, uses their wishlist and past bookings.",
+                {
+                    "like_event_id": _STR,
+                    "like_title": {
+                        **_STR,
+                        "description": "Recommend things similar to this title",
+                    },
+                    "event_type": _TYPE,
+                    "genre": _STR,
+                    "city": _STR,
+                    "date_from": _DATE,
+                    "date_to": _DATE,
+                },
+            ),
     _schema("get_my_bookings", "The logged-in user's own bookings.",
             {"which": {"type": "string", "enum": ["upcoming", "past", "all"]}}),
     _schema("get_booking_status",
