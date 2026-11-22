@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import { reviewsApi, ReportedReview } from "@/lib/reviewsApi";
 import { LAYOUT_LABELS, layoutFits, layoutWarning } from "@/lib/layouts";
 import VenueMapPicker from "@/components/VenueMapPicker";
+import EventDetailsForm, { eventToFormValues } from "@/components/EventDetailsForm";
 
 type Tab = "shows" | "events" | "venues" | "reports" | "coupons";
 
@@ -133,7 +134,9 @@ export default function ManagerPage() {
   const [reportFilter, setReportFilter] = useState<"open" | "all">("open");
   const [reportsLoading, setReportsLoading] = useState(false);
 
-  const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "", organizer_id: "", description: "", terms_and_conditions: "" });
+  const [newEventOrgId, setNewEventOrgId] = useState("");
+  const [newEventFormKey, setNewEventFormKey] = useState(0); // bump to clear the create form
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [newVenue, setNewVenue] = useState<{ name: string; city: string; address: string; latitude: number | null; longitude: number | null }>({
     name: "",
     city: "",
@@ -159,7 +162,7 @@ export default function ManagerPage() {
           setOrganizations(apps || []);
           const approved = (apps || []).filter((a: any) => a.verification_status === "APPROVED");
           if (approved.length > 0) {
-            setNewEvent(v => ({ ...v, organizer_id: approved[0].id }));
+            setNewEventOrgId(approved[0].id);
           }
         }),
       ]).then((results) => {
@@ -258,30 +261,30 @@ export default function ManagerPage() {
     catch (err: any) { toast.error(err.message || "Could not load screens"); setScreens([]); }
   };
 
-  const createEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const createEvent = async (payload: object) => {
     if (approvedOrgs.length === 0) {
       toast.error("Organizer verification required: Please complete organizer verification before creating events.");
       return;
     }
     try {
       await managerApi.createEvent({
-        ...newEvent,
-        duration_minutes: parseInt(newEvent.duration_minutes) || undefined,
-        organizer_id: newEvent.organizer_id || approvedOrgs[0]?.id,
+        ...payload,
+        status: "draft",
+        organizer_id: newEventOrgId || approvedOrgs[0]?.id,
       });
       setEvents(await managerApi.events());
-      setNewEvent({
-        title: "",
-        event_type: "movie",
-        language: "",
-        duration_minutes: "",
-        organizer_id: approvedOrgs[0]?.id || "",
-        description: "",
-        terms_and_conditions: "",
-      });
+      setNewEventFormKey(k => k + 1);
       toast.success("Event created (draft) — publish it to make shows visible on Browse.");
     } catch (err: any) { toast.error(err.message); }
+  };
+
+  const saveEventDetails = async (ev: any, payload: object) => {
+    try {
+      const updated = await managerApi.updateEvent(ev.id, payload);
+      setEvents(evts => evts.map(e => e.id === ev.id ? { ...e, ...updated } : e));
+      setEditingEventId(null);
+      toast.success(`"${(updated && updated.title) || ev.title}" updated`);
+    } catch (err: any) { toast.error(err.message || "Could not save the event"); }
   };
 
   const togglePublish = async (ev: any) => {
@@ -707,13 +710,18 @@ export default function ManagerPage() {
               <p style={{ fontSize: 12, color: C.muted, marginBottom: 18, marginTop: -12 }}>
                 Events are saved as <strong style={{ color: C.amber }}>Draft</strong> by default. Use the Publish button on each event to make its shows visible on Browse.
               </p>
-              <form onSubmit={createEvent} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <EventDetailsForm
+                key={newEventFormKey}
+                initial={eventToFormValues()}
+                submitLabel="Create Event (Draft)"
+                onSubmit={createEvent}
+              >
                 <div style={{ gridColumn: "1 / -1" }}>
                   <Field label="Host Organization">
                     <select
                       style={inputStyle}
-                      value={newEvent.organizer_id}
-                      onChange={e => setNewEvent(v => ({ ...v, organizer_id: e.target.value }))}
+                      value={newEventOrgId}
+                      onChange={e => setNewEventOrgId(e.target.value)}
                       required
                     >
                       {approvedOrgs.length === 0 && <option value="">No approved organization (Verification required)</option>}
@@ -725,30 +733,7 @@ export default function ManagerPage() {
                     </select>
                   </Field>
                 </div>
-                <Field label="Title">
-                  <input style={inputStyle} value={newEvent.title}
-                    onChange={e => setNewEvent(v => ({ ...v, title: e.target.value }))} required />
-                </Field>
-                <Field label="Type">
-                  <select style={inputStyle} value={newEvent.event_type}
-                    onChange={e => setNewEvent(v => ({ ...v, event_type: e.target.value }))}>
-                    {["movie","concert","theatre","other"].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
-                  </select>
-                </Field>
-                <Field label="Language">
-                  <input style={inputStyle} value={newEvent.language}
-                    onChange={e => setNewEvent(v => ({ ...v, language: e.target.value }))} />
-                </Field>
-                <Field label="Duration (min)">
-                  <input style={inputStyle} type="number" value={newEvent.duration_minutes}
-                    onChange={e => setNewEvent(v => ({ ...v, duration_minutes: e.target.value }))} />
-                </Field>
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <button type="submit" style={{ width: "100%", background: C.blue, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-                    Create Event (Draft)
-                  </button>
-                </div>
-              </form>
+              </EventDetailsForm>
             </SectionCard>
 
             <SectionCard>
@@ -789,6 +774,24 @@ export default function ManagerPage() {
                       )}
                     </div>
                     <button
+                      type="button"
+                      onClick={() => setEditingEventId(id => (id === ev.id ? null : ev.id))}
+                      aria-expanded={editingEventId === ev.id}
+                      style={{
+                        padding: "8px 18px",
+                        borderRadius: 8,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        border: `1.5px solid ${C.blue}44`,
+                        background: `${C.blue}12`,
+                        color: C.blue,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {editingEventId === ev.id ? "Close" : "Edit details"}
+                    </button>
+                    <button
                       onClick={() => togglePublish(ev)}
                       disabled={togglingId === ev.id}
                       style={{
@@ -807,6 +810,16 @@ export default function ManagerPage() {
                     >
                       {togglingId === ev.id ? "…" : ev.status === "published" ? "Unpublish" : "Publish"}
                     </button>
+                    {editingEventId === ev.id && (
+                      <div style={{ flexBasis: "100%", borderTop: `1px solid ${C.border}`, paddingTop: 16, marginTop: 4 }}>
+                        <EventDetailsForm
+                          initial={eventToFormValues(ev)}
+                          submitLabel="Save changes"
+                          onSubmit={payload => saveEventDetails(ev, payload)}
+                          onCancel={() => setEditingEventId(null)}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -5,6 +5,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 ## [Unreleased] (Sprint 3)
 
 ### Added
+- Managers can enter and edit every event detail: description, genre, poster and backdrop upload with preview, cast and crew for movies, artists for live events, release date, certificate and formats for movies only, and terms and conditions (#169)
 - Demo catalogue seed: 10 cities, multiplexes, arenas, auditoriums and comedy clubs with matching seat maps, 10 movies, live events and a week of showtimes; posters are served from the `demo-posters` storage bucket (`database/seeds/005_demo_catalogue.py`, #191)
 - Admin → Users: list and search all users, give or remove the manager and admin roles, block and unblock accounts with a required reason; every change, including manager approvals, is recorded in an audit log (#138)
 - TicketFlow Assistant: a chat widget that finds shows, shows details, seats, reviews and recommendations, answers questions about the user's own bookings and wishlist, explains policies, and replies in English, Hindi or Gujarati. Read-only; nothing is stored
@@ -20,6 +21,8 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Duplicated `sprint1/`, `sprint2/` and `sprint3/` folders. Earlier sprints are available as the `v0.1.0` and `v0.2.0` tags.
 
 ### Fixed
+- New events no longer get invented IMDb, Metacritic, match and age-rating scores, and live events no longer get a film certificate (#169)
+- Coupon routes are covered by a test so they cannot silently go missing; the "resource not found" in #197 came from a backend that did not have them yet (#197)
 - Stadium and arena seat maps show curved tiers round the stage, with the Fan Pit and standing floor as rings in front of it (front stage) or around it (center stage), instead of a cinema grid (#198)
 - Event page city buttons no longer run past the card or put the pin above the name, and the page starts on the user's own city instead of the first city in the list (#193)
 - Cancel dialog showed "0 Ticket(s)" and "General Admission" for seated bookings; it now lists the seats and counts standing passes
