@@ -7,7 +7,12 @@ from fastapi import BackgroundTasks, HTTPException
 from routers import ticket_transfers as transfer_router
 from routers.tickets import TicketScanRequest, _scan_and_consume_ticket, scan_ticket
 from services import ticket_transfer as svc
-from services.transfer_email_service import build_received_email, build_response_email
+from services.transfer_email_service import (
+    build_received_email,
+    build_response_email,
+    build_ticket_ready_email,
+    ticket_pdf,
+)
 
 SENDER = {"id": "11111111-1111-1111-1111-111111111111", "name": "Asha", "roles": ["customer"]}
 FRIEND_ID = "22222222-2222-2222-2222-222222222222"
@@ -376,3 +381,85 @@ def test_emails_escape_user_text():
 
     subject, body = build_response_email({**transfer, "status": "accepted", "booking_id": BOOKING_ID})
     assert "accepted" in subject and f"/bookings/{BOOKING_ID}" in body
+
+
+# ---------------------------------------------------------------------------
+# Recipient's own ticket (PDF download + email after accepting)
+# ---------------------------------------------------------------------------
+
+def ticket_row(**over):
+    row = {
+        "id": TRANSFER_ID, "to_user_id": FRIEND_ID, "status": "accepted", "qr_token": "tok123",
+        "booking_id": BOOKING_ID, "booking_status": "confirmed", "ticket_status": "valid",
+        "event_title": "Hamlet", "start_time": FUTURE, "venue_name": "NMS Stage", "city": "Ahmedabad",
+        "screen_name": "Main", "user_name": "Ravi", "user_email": "ravi@example.com", "sender_name": "Asha",
+    }
+    row.update(over)
+    return row
+
+
+TICKET_SEATS = [
+    {"row_label": "B", "seat_number": 4, "seat_type": "standard", "price": 250},
+    {"row_label": "B", "seat_number": 5, "seat_type": "standard", "price": 250},
+]
+
+
+@pytest.mark.asyncio
+async def test_received_ticket_data_for_accepted_transfer():
+    ticket = await svc.received_ticket_data(make_conn(fetchrow=[ticket_row()], fetch=[TICKET_SEATS]), FRIEND_ID, TRANSFER_ID)
+    assert ticket["qr_data"] == "TICKETFLOW-T:tok123"
+    assert ticket["total_amount"] == 500.0
+    assert ticket["user_email"] == "ravi@example.com"
+    assert "Asha" in ticket["user_name"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_id,over,status", [
+    (SENDER["id"], {}, 404),                      # only the recipient
+    (FRIEND_ID, {"status": "pending"}, 404),      # not accepted yet
+    (FRIEND_ID, {"booking_status": "cancelled"}, 400),
+])
+async def test_received_ticket_data_rules(user_id, over, status):
+    with pytest.raises(svc.TransferError) as exc:
+        await svc.received_ticket_data(make_conn(fetchrow=[ticket_row(**over)], fetch=[TICKET_SEATS]), user_id, TRANSFER_ID)
+    assert exc.value.status_code == status
+
+
+def test_ticket_pdf_and_ready_email():
+    ticket = {
+        "booking_id": TRANSFER_ID, "event_title": "Hamlet", "venue_name": "NMS", "venue_city": "Ahmedabad",
+        "screen_name": "Main", "start_time": FUTURE, "seats": TICKET_SEATS, "total_amount": 500.0,
+        "user_name": "Ravi (from Asha)", "recipient_name": "Ravi", "sender_name": "<i>Asha</i>",
+        "qr_data": "TICKETFLOW-T:tok123",
+    }
+    assert ticket_pdf(ticket).startswith(b"%PDF")
+    subject, body = build_ticket_ready_email(ticket)
+    assert "Hamlet" in subject and "B4, B5" in body
+    assert "<i>Asha</i>" not in body
+
+
+@pytest.mark.asyncio
+async def test_pdf_route_returns_a_pdf():
+    ticket = {"booking_id": TRANSFER_ID, "seats": [], "qr_data": "TICKETFLOW-T:tok123"}
+    with patch.object(transfer_router.svc, "received_ticket_data", new=AsyncMock(return_value=ticket)):
+        resp = await transfer_router.received_ticket_pdf(TRANSFER_ID, {"id": FRIEND_ID}, make_conn())
+    assert resp.media_type == "application/pdf"
+
+
+@pytest.mark.asyncio
+async def test_accept_emails_the_recipient_their_ticket():
+    tasks = BackgroundTasks()
+    with patch.object(transfer_router.svc, "respond_to_transfer", new=AsyncMock(return_value={"status": "accepted"})), \
+         patch.object(transfer_router.svc, "received_ticket_data", new=AsyncMock(return_value={"x": 1})):
+        await transfer_router.accept_transfer(TRANSFER_ID, tasks, {"id": FRIEND_ID}, make_conn())
+    funcs = [t.func for t in tasks.tasks]
+    assert transfer_router.send_transfer_response_email in funcs
+    assert transfer_router.send_ticket_ready_email in funcs
+
+
+@pytest.mark.asyncio
+async def test_decline_does_not_send_a_ticket():
+    tasks = BackgroundTasks()
+    with patch.object(transfer_router.svc, "respond_to_transfer", new=AsyncMock(return_value={"status": "declined"})):
+        await transfer_router.decline_transfer(TRANSFER_ID, tasks, {"id": FRIEND_ID}, make_conn())
+    assert [t.func for t in tasks.tasks] == [transfer_router.send_transfer_response_email]

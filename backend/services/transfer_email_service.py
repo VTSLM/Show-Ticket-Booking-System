@@ -2,11 +2,13 @@
 import asyncio
 import html
 import smtplib
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from config import FRONTEND_URL, GMAIL_APP_PASSWORD, GMAIL_USER
-from services.ticket_service import format_show_datetime
+from services.qr_service import generate_qr_bytes
+from services.ticket_service import build_ticket_pdf, format_show_datetime
 
 SMTP_TIMEOUT_SECONDS = 20
 
@@ -70,22 +72,45 @@ def build_response_email(transfer: dict) -> tuple[str, str]:
     return f"{transfer['recipient_name']} {word} your tickets for {transfer['event_title']}", _page(f"Transfer {word}", body)
 
 
-def _send_sync(to_email: str, subject: str, body_html: str) -> None:
+def build_ticket_ready_email(ticket: dict) -> tuple[str, str]:
+    """(subject, html) sent to the recipient after they accept; the PDF ticket is attached."""
+    event = html.escape(ticket["event_title"])
+    seats = html.escape(", ".join(f"{s['row_label']}{s['seat_number']}" for s in ticket["seats"]))
+    link = f"{FRONTEND_URL.rstrip('/')}/tickets/received"
+    body = f"""
+        <p>Hi {html.escape(ticket['recipient_name'])},</p>
+        <p>Your tickets for <strong>{event}</strong> from {html.escape(ticket['sender_name'])} are ready.</p>
+        <p>{_show_line({**ticket, 'city': ticket.get('venue_city')})}<br>Seats: <strong>{seats}</strong></p>
+        <p>Your PDF ticket with the entry QR code is attached. Show it at the venue.</p>
+        <p style="margin-top:20px;"><a href="{link}" style="color:#3b82f6;font-weight:600;">View your tickets →</a></p>"""
+    return f"Your TicketFlow ticket - {ticket['event_title']}", _page("Your tickets are ready", body)
+
+
+def ticket_pdf(ticket: dict) -> bytes:
+    """PDF ticket for transferred seats, with the recipient's own QR code."""
+    return build_ticket_pdf({**ticket, "qr_b64": generate_qr_bytes(ticket["qr_data"])})
+
+
+def _send_sync(to_email: str, subject: str, body_html: str, pdf: bytes | None = None) -> None:
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
         return  # email not configured (local dev / tests)
-    msg = MIMEMultipart("alternative")
+    msg = MIMEMultipart("mixed")
     msg["From"] = GMAIL_USER
     msg["To"] = to_email
     msg["Subject"] = subject
     msg.attach(MIMEText(body_html, "html"))
+    if pdf:
+        part = MIMEApplication(pdf, _subtype="pdf")
+        part.add_header("Content-Disposition", "attachment", filename="ticketflow_ticket.pdf")
+        msg.attach(part)
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
         smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
         smtp.sendmail(GMAIL_USER, to_email, msg.as_string())
 
 
-async def _send(to_email: str, subject: str, body_html: str) -> None:
+async def _send(to_email: str, subject: str, body_html: str, pdf: bytes | None = None) -> None:
     try:
-        await asyncio.get_running_loop().run_in_executor(None, _send_sync, to_email, subject, body_html)
+        await asyncio.get_running_loop().run_in_executor(None, _send_sync, to_email, subject, body_html, pdf)
     except Exception as exc:  # email must never break the transfer itself
         print(f"Transfer email failed (non-fatal): {exc}")
 
@@ -98,3 +123,13 @@ async def send_transfer_received_email(transfer: dict) -> None:
 async def send_transfer_response_email(transfer: dict) -> None:
     subject, body = build_response_email(transfer)
     await _send(transfer["sender_email"], subject, body)
+
+
+async def send_ticket_ready_email(ticket: dict) -> None:
+    try:
+        pdf = ticket_pdf(ticket)
+    except Exception as exc:
+        print(f"Transfer ticket PDF failed (non-fatal): {exc}")
+        pdf = None
+    subject, body = build_ticket_ready_email(ticket)
+    await _send(ticket["user_email"], subject, body, pdf)

@@ -547,3 +547,59 @@ async def has_accepted_transfers(conn: asyncpg.Connection, booking_id: str) -> b
         "SELECT EXISTS (SELECT 1 FROM ticket_transfers WHERE booking_id = $1::uuid AND status = 'accepted')",
         booking_id,
     ))
+
+
+async def received_ticket_data(conn: asyncpg.Connection, user_id: str, transfer_id: str) -> dict:
+    """Everything needed for the recipient's PDF / email ticket (accepted transfers only)."""
+    if not is_uuid(transfer_id):
+        raise TransferError(404, "Ticket not found")
+    row = await conn.fetchrow(
+        """SELECT tt.id, tt.to_user_id, tt.status, tt.qr_token, tt.booking_id,
+                  b.status AS booking_status, t.status AS ticket_status,
+                  e.title AS event_title, s.start_time, v.name AS venue_name, v.city,
+                  sc.name AS screen_name, tu.name AS user_name, tu.email AS user_email,
+                  fu.name AS sender_name
+           FROM ticket_transfers tt
+           JOIN bookings b ON b.id = tt.booking_id
+           JOIN shows s    ON s.id = b.show_id
+           JOIN events e   ON e.id = s.event_id
+           JOIN screens sc ON sc.id = s.screen_id
+           JOIN venues v   ON v.id = sc.venue_id
+           JOIN users tu   ON tu.id = tt.to_user_id
+           JOIN users fu   ON fu.id = tt.from_user_id
+           LEFT JOIN tickets t ON t.booking_id = b.id
+           WHERE tt.id = $1::uuid""",
+        transfer_id,
+    )
+    if not row or str(row["to_user_id"]) != user_id or row["status"] != "accepted":
+        raise TransferError(404, "Ticket not found")
+    if row["booking_status"] == "cancelled" or row["ticket_status"] == "cancelled":
+        raise TransferError(400, "This booking was cancelled, so the ticket is no longer valid")
+    seats = await conn.fetch(
+        """SELECT s.row_label, s.seat_number, s.seat_type, bs.unit_price AS price
+           FROM ticket_transfer_seats tts
+           JOIN booking_seats bs ON bs.id = tts.booking_seat_id
+           JOIN show_seats ss ON ss.id = bs.show_seat_id
+           JOIN seats s ON s.id = ss.seat_id
+           WHERE tts.transfer_id = $1::uuid
+           ORDER BY s.row_label, s.seat_number""",
+        transfer_id,
+    )
+    seat_list = [dict(r) for r in seats]
+    return {
+        "transfer_id": str(row["id"]),
+        # the PDF prints this as the ticket reference; the transfer id is the recipient's own reference
+        "booking_id": str(row["id"]),
+        "event_title": row["event_title"],
+        "venue_name": row["venue_name"],
+        "venue_city": row["city"],
+        "screen_name": row["screen_name"],
+        "start_time": row["start_time"],
+        "seats": seat_list,
+        "total_amount": float(sum(float(s["price"]) for s in seat_list)),
+        "user_name": f"{row['user_name']} (from {row['sender_name']})",
+        "recipient_name": row["user_name"],
+        "user_email": row["user_email"],
+        "sender_name": row["sender_name"],
+        "qr_data": f"{TRANSFER_QR_PREFIX}{row['qr_token']}",
+    }

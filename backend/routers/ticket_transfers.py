@@ -5,18 +5,26 @@ POST /api/transfers                       send seats to a user by email or phone
 GET  /api/transfers/received              transfers sent to me (QR when accepted)
 POST /api/transfers/{id}/accept|decline   recipient answers
 POST /api/transfers/{id}/cancel           sender takes back a pending transfer
+GET  /api/transfers/{id}/pdf              recipient's PDF ticket with their own QR
 """
+import io
 from typing import List
 
 import asyncpg
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from database import get_conn
 from dependencies import get_current_user
 from services import ticket_transfer as svc
 from services.qr_service import generate_qr_bytes
-from services.transfer_email_service import send_transfer_received_email, send_transfer_response_email
+from services.transfer_email_service import (
+    send_ticket_ready_email,
+    send_transfer_received_email,
+    send_transfer_response_email,
+    ticket_pdf,
+)
 
 router = APIRouter(prefix="/api/transfers", tags=["ticket transfers"])
 
@@ -82,6 +90,13 @@ async def _respond(transfer_id: str, accept: bool, user: dict, conn, background_
     except svc.TransferError as e:
         raise _http(e)
     background_tasks.add_task(send_transfer_response_email, transfer)
+    if accept:
+        # email the recipient their PDF ticket; never fail the accept because of it
+        try:
+            ticket = await svc.received_ticket_data(conn, str(user["id"]), transfer_id)
+            background_tasks.add_task(send_ticket_ready_email, ticket)
+        except svc.TransferError:
+            pass
     return {"id": transfer_id, "status": transfer["status"]}
 
 
@@ -116,3 +131,20 @@ async def cancel_transfer(
     except svc.TransferError as e:
         raise _http(e)
     return {"id": transfer_id, "status": transfer["status"]}
+
+
+@router.get("/{transfer_id}/pdf")
+async def received_ticket_pdf(
+    transfer_id: str,
+    user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    try:
+        ticket = await svc.received_ticket_data(conn, str(user["id"]), transfer_id)
+    except svc.TransferError as e:
+        raise _http(e)
+    return StreamingResponse(
+        io.BytesIO(ticket_pdf(ticket)),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="ticket_{transfer_id[:8]}.pdf"'},
+    )
