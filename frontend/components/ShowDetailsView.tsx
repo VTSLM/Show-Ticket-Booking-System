@@ -122,7 +122,7 @@ export default function ShowDetailsView({
   // Upcoming shows and distinct cities
   const upcomingShows: any[] = Array.isArray(showData?.upcoming_shows) ? showData.upcoming_shows : [];
   // The user's own city (from the location picker) comes first, the rest alphabetically
-  const { location, ready: locationReady } = useLocation();
+  const { location: userLocation, ready: locationReady } = useLocation();
   const homeCity = location?.label ? location.label.replace(/^Near /, "") : null;
   const uniqueCities: string[] = (
     Array.from(new Set(upcomingShows.map((s: any) => s.city).filter(Boolean))) as string[]
