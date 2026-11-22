@@ -1098,7 +1098,13 @@ CREATE TABLE public.venues (
     licensed_capacity integer,
     license_expiry date,
     noc_expiry date,
-    CONSTRAINT venues_licensed_capacity_check CHECK (((licensed_capacity IS NULL) OR (licensed_capacity > 0)))
+    latitude double precision,
+    longitude double precision,
+    CONSTRAINT venues_licensed_capacity_check CHECK (((licensed_capacity IS NULL) OR (licensed_capacity > 0))),
+    CONSTRAINT venues_coordinates_check CHECK (
+        (latitude IS NULL AND longitude IS NULL)
+        OR (latitude BETWEEN '-90'::integer AND 90 AND longitude BETWEEN '-180'::integer AND 180)
+    )
 );
 
 

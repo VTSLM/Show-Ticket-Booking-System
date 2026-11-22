@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { reviewsApi, ReportedReview } from "@/lib/reviewsApi";
 import { LAYOUT_LABELS, layoutFits, layoutWarning } from "@/lib/layouts";
+import VenueMapPicker from "@/components/VenueMapPicker";
 
 type Tab = "shows" | "events" | "venues" | "reports" | "coupons";
 
@@ -133,7 +134,13 @@ export default function ManagerPage() {
   const [reportsLoading, setReportsLoading] = useState(false);
 
   const [newEvent, setNewEvent] = useState({ title: "", event_type: "movie", language: "", duration_minutes: "", organizer_id: "", description: "", terms_and_conditions: "" });
-  const [newVenue, setNewVenue] = useState({ name: "", city: "", address: "" });
+  const [newVenue, setNewVenue] = useState<{ name: string; city: string; address: string; latitude: number | null; longitude: number | null }>({
+    name: "",
+    city: "",
+    address: "",
+    latitude: null,
+    longitude: null,
+  });
   const [newShow, setNewShow] = useState({ event_id: "", screen_id: "", start_time: "", end_time: "", base_price: "", premium_multiplier: "1.5", terms_and_conditions: "", dynamic_pricing: false });
   const [showZones, setShowZones] = useState<{ name: string; total_capacity: number; price: number; zone_type: string; color_hex: string }[]>([]);
   const [screens, setScreens] = useState<any[]>([]);
@@ -293,7 +300,7 @@ export default function ManagerPage() {
     try {
       await managerApi.createVenue(newVenue);
       setVenues(await managerApi.venues());
-      setNewVenue({ name: "", city: "", address: "" });
+      setNewVenue({ name: "", city: "", address: "", latitude: null, longitude: null });
       toast.success("Venue created!");
     } catch (err: any) { toast.error(err.message); }
   };
@@ -847,6 +854,15 @@ export default function ManagerPage() {
                     <input style={inputStyle} value={newVenue.address}
                       onChange={e => setNewVenue(v => ({ ...v, address: e.target.value }))} />
                   </Field>
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: C.fg, marginBottom: 6 }}>Venue Map Location</p>
+                  <VenueMapPicker
+                    lat={newVenue.latitude}
+                    lng={newVenue.longitude}
+                    city={newVenue.city}
+                    onChange={(lat, lng) => setNewVenue(v => ({ ...v, latitude: lat, longitude: lng }))}
+                  />
                 </div>
                 <div style={{ gridColumn: "1 / -1" }}>
                   <button type="submit" style={{ width: "100%", background: C.blue, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>

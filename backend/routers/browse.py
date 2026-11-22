@@ -271,6 +271,7 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
                   e.imdb_score, e.metacritic_score, e.age_rating, e.match_rate,
                   op.legal_name as organizer_name,
                   v.id as venue_id, v.name as venue_name, v.city, v.address,
+                  v.latitude, v.longitude,
                   sc.id as screen_id, sc.name as screen_name, sc.capacity,
                   sc.layout_type, sc.stage_position, sc.layout_config,
                   (
@@ -341,6 +342,7 @@ async def get_show_details(show_id: str, conn: asyncpg.Connection = Depends(get_
         shows = await conn.fetch(
             """SELECT s.id as show_id, s.start_time, s.end_time, s.base_price, s.status as show_status,
                       v.id as venue_id, v.name as venue_name, v.city, v.address,
+                      v.latitude, v.longitude,
                       sc.id as screen_id, sc.name as screen_name, sc.layout_type, sc.stage_position,
                       (
                       COUNT(ss.id) FILTER (WHERE ss.status='available')
@@ -409,6 +411,7 @@ async def get_event_details(event_id: str, conn: asyncpg.Connection = Depends(ge
     shows = await conn.fetch(
         """SELECT s.id as show_id, s.start_time, s.end_time, s.base_price, s.status as show_status,
                   v.id as venue_id, v.name as venue_name, v.city, v.address,
+                  v.latitude, v.longitude,
                   sc.id as screen_id, sc.name as screen_name, sc.layout_type, sc.stage_position,
                   (
                       COUNT(ss.id) FILTER (WHERE ss.status='available')

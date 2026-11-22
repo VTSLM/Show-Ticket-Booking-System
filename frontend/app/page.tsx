@@ -1,12 +1,41 @@
 "use client";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocation } from "@/contexts/LocationContext";
 
 export default function Home() {
   const { user } = useAuth();
+  const { location, openPicker } = useLocation();
 
   return (
     <div className="min-h-[calc(100vh-64px)] flex flex-col">
+      {/* Location Banner */}
+      <div className="border-b border-slate-800 bg-slate-900/60 px-6 py-2.5 text-center text-xs text-slate-300">
+        {location ? (
+          <span>
+            📍 Showing entertainment around <strong className="text-white">{location.label}</strong> (within 100 km).{" "}
+            <button
+              type="button"
+              onClick={openPicker}
+              className="text-blue-400 underline hover:text-blue-300 ml-1 font-medium"
+            >
+              Change location
+            </button>
+          </span>
+        ) : (
+          <span>
+            📍 Set your location to discover movies and shows nearby.{" "}
+            <button
+              type="button"
+              onClick={openPicker}
+              className="text-blue-400 underline hover:text-blue-300 ml-1 font-medium"
+            >
+              Set location
+            </button>
+          </span>
+        )}
+      </div>
+
       {/* Hero */}
       <section className="bg-[var(--background)] text-white py-20 px-6 text-center flex-1 flex flex-col items-center justify-center">
         <h1 className="text-5xl font-bold mb-4">
@@ -16,9 +45,11 @@ export default function Home() {
           Movies, concerts, theatre — all in one place. Choose your seats, pay instantly, get your e-ticket.
         </p>
         <div className="flex gap-4 flex-wrap justify-center">
-          <Link href="/browse" className="btn-primary text-lg py-3 px-8">Browse Shows</Link>
+          <Link href="/browse" className="btn-primary text-lg py-3 px-8">
+            {location ? `Browse Shows Near ${location.label}` : "Browse Shows"}
+          </Link>
           <Link
-            href={user ? "/browse" : "/auth/register"}
+            href={user ? "/bookings" : "/auth/register"}
             className="btn-secondary text-lg py-3 px-8"
           >
             {user ? "My Bookings" : "Get Started"}

@@ -36,6 +36,8 @@ class VenueDraft(BaseModel):
     licensed_capacity: Optional[int] = Field(default=None, gt=0)
     license_expiry: Optional[date] = None
     noc_expiry: Optional[date] = None
+    latitude: Optional[float] = Field(default=None, ge=-90.0, le=90.0)
+    longitude: Optional[float] = Field(default=None, ge=-180.0, le=180.0)
 
 
 class DecisionRequest(BaseModel):
@@ -85,9 +87,10 @@ async def create_application(
             """
             INSERT INTO venues(
                 name, address, city, state, pincode,
-                verification_status, licensed_capacity, license_expiry, noc_expiry
+                verification_status, licensed_capacity, license_expiry, noc_expiry,
+                latitude, longitude
             )
-            VALUES ($1, $2, $3, $4, $5, 'unverified', $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, 'unverified', $6, $7, $8, $9, $10)
             RETURNING id
             """,
             body.name.strip(),
@@ -98,6 +101,8 @@ async def create_application(
             body.licensed_capacity,
             body.license_expiry,
             body.noc_expiry,
+            body.latitude,
+            body.longitude,
         )
 
         case = await conn.fetchrow(
@@ -124,7 +129,7 @@ async def my_applications(
                c.created_at, c.updated_at,
                v.name, v.address, v.city, v.state, v.pincode,
                v.licensed_capacity, v.license_expiry, v.noc_expiry,
-               v.verification_status
+               v.verification_status, v.latitude, v.longitude
           FROM venue_verification_cases c
           JOIN venues v ON v.id = c.venue_id
          WHERE c.applicant_id = $1
@@ -172,7 +177,9 @@ async def update_draft(
                    pincode = $6,
                    licensed_capacity = $7,
                    license_expiry = $8,
-                   noc_expiry = $9
+                   noc_expiry = $9,
+                   latitude = $10,
+                   longitude = $11
              WHERE id = $1
             """,
             case["venue_id"],
@@ -184,6 +191,8 @@ async def update_draft(
             body.licensed_capacity,
             body.license_expiry,
             body.noc_expiry,
+            body.latitude,
+            body.longitude,
         )
 
         updated = await conn.fetchrow(
@@ -463,7 +472,7 @@ async def review_details(
                c.reviewer_id, c.claim_expires_at, c.reviewer_comments,
                v.name, v.address, v.city, v.state, v.pincode,
                v.licensed_capacity, v.license_expiry, v.noc_expiry,
-               v.verification_status
+               v.verification_status, v.latitude, v.longitude
           FROM venue_verification_cases c
           JOIN venues v ON v.id = c.venue_id
          WHERE c.id = $1

@@ -8,6 +8,10 @@ import { useWishlist } from "@/components/useWishlist";
 import EventPoster from "@/components/EventPoster";
 import { bookingsApi } from "@/lib/api";
 import { useLocation } from "@/contexts/LocationContext";
+import { formatDistance, haversineKm } from "@/lib/geo";
+import { googleMapsUrl } from "@/lib/maps";
+import { addRecentlyViewed } from "@/lib/recentlyViewed";
+import ScrollTabs from "@/components/ScrollTabs";
 
 interface ShowDetailsProps {
   showData: any;
@@ -40,6 +44,7 @@ export default function ShowDetailsView({
   const [waitlistPositions, setWaitlistPositions] = useState<Record<string, number>>({});
   const [waitlistLoadingId, setWaitlistLoadingId] = useState<string | null>(null);
   const wishlist = useWishlist();
+  const { location } = useLocation();
 
   useEffect(() => {
     bookingsApi.myWaitlist()
@@ -54,6 +59,21 @@ export default function ShowDetailsView({
         // Guests and signed-out users simply see the normal booking controls.
       });
   }, []);
+
+  // Remember this show for the "Recently viewed" row on the Browse page
+  useEffect(() => {
+    if (!showData) return;
+    addRecentlyViewed({
+      event_id: showData.event_id || (isEventMode ? showData.id : null) || null,
+      show_id: isEventMode ? null : showData.show_id || null,
+      title: showData.title,
+      poster_url: showData.poster_url || null,
+      event_type: showData.event_type || null,
+      language: showData.language || null,
+      genre: showData.genre || null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showData?.event_id, showData?.id, showData?.show_id, showData?.title, isEventMode]);
 
   const handleJoinWaitlist = async (showId: string) => {
     if (!showId || waitlistLoadingId) return;
@@ -102,7 +122,7 @@ export default function ShowDetailsView({
   // Upcoming shows and distinct cities
   const upcomingShows: any[] = Array.isArray(showData?.upcoming_shows) ? showData.upcoming_shows : [];
   // The user's own city (from the location picker) comes first, the rest alphabetically
-  const { location, ready: locationReady } = useLocation();
+  const { location: userLocation, ready: locationReady } = useLocation();
   const homeCity = location?.label ? location.label.replace(/^Near /, "") : null;
   const uniqueCities: string[] = (
     Array.from(new Set(upcomingShows.map((s: any) => s.city).filter(Boolean))) as string[]
@@ -285,7 +305,7 @@ export default function ShowDetailsView({
   });
 
   // Group by Theatre / Venue
-  const theatreMap = new Map<string, { venue_name: string; address?: string; city?: string; shows: any[] }>();
+  const theatreMap = new Map<string, { venue_name: string; address?: string; city?: string; latitude?: number | null; longitude?: number | null; shows: any[] }>();
   dateAndCityFilteredShows.forEach((s: any) => {
     const key = s.venue_id || s.venue_name;
     if (!theatreMap.has(key)) {
@@ -293,6 +313,8 @@ export default function ShowDetailsView({
         venue_name: s.venue_name,
         address: s.address,
         city: s.city,
+        latitude: s.latitude,
+        longitude: s.longitude,
         shows: [],
       });
     }
@@ -498,6 +520,23 @@ export default function ShowDetailsView({
                           {showData.city ? `, ${showData.city}` : ""}
                           {showData.screen_name ? ` — ${showData.screen_name}` : ""}
                         </p>
+                        {location && showData.latitude != null && showData.longitude != null && (
+                          <p className="mt-0.5 text-xs font-medium text-emerald-400">
+                            📍 {formatDistance(haversineKm(location.lat, location.lng, showData.latitude, showData.longitude), true)}
+                          </p>
+                        )}
+                        {googleMapsUrl(showData, location) && (
+                          <a
+                            href={googleMapsUrl(showData, location) as string}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open the route to this venue in Google Maps"
+                            aria-label={`Open ${showData.venue_name} in Google Maps`}
+                            className="mt-1 inline-flex items-center gap-1 rounded border border-blue-500/30 bg-blue-950/50 px-2 py-0.5 text-[11px] font-semibold text-blue-300 transition hover:border-blue-400 hover:bg-blue-900/50 hover:text-white"
+                          >
+                            🗺️ Google Maps ↗
+                          </a>
+                        )}
                         {showData.start_time && (
                           <p className="mt-0.5 text-xs text-blue-400">
                             🗓 {formatDate(showData.start_time)} at {formatTime(showData.start_time)}
@@ -720,32 +759,39 @@ export default function ShowDetailsView({
                     </div>
 
                     {/* City Selector */}
-                    {uniqueCities.length > 0 && (
-                      <div className="flex min-w-0 max-w-full items-center gap-2" data-testid="city-picker">
-                        <span className="shrink-0 text-xs font-semibold text-slate-400">City:</span>
-                        <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto rounded-lg border border-slate-700 bg-slate-900 p-1">
-                          {uniqueCities.map((c) => (
-                            <button
-                              key={c}
-                              type="button"
-                              aria-pressed={selectedCity === c}
-                              onClick={() => {
-                                setSelectedCity(c);
-                                setCityChosen(true);
-                                setSelectedDateFilter("all");
-                              }}
-                              className={`shrink-0 whitespace-nowrap rounded-md px-3 py-1 text-xs font-semibold transition ${
-                                selectedCity === c
-                                  ? "bg-blue-600 text-white shadow-sm"
-                                  : "text-slate-300 hover:bg-slate-800"
-                              }`}
-                            >
-                              📍 {c}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+{uniqueCities.length > 0 && (
+  <div
+    className="flex min-w-0 max-w-full items-center gap-2"
+    data-testid="city-picker"
+  >
+    <span className="shrink-0 text-xs font-semibold text-slate-400">
+      City:
+    </span>
+
+    <ScrollTabs activeKey={selectedCity} label="cities">
+      {uniqueCities.map((c) => (
+        <button
+          key={c}
+          type="button"
+          data-active={selectedCity === c}
+          aria-pressed={selectedCity === c}
+          onClick={() => {
+            setSelectedCity(c);
+            setCityChosen(true);
+            setSelectedDateFilter("all");
+          }}
+          className={`shrink-0 whitespace-nowrap rounded-md px-3 py-1 text-xs font-semibold transition ${
+            selectedCity === c
+              ? "bg-blue-600 text-white shadow-sm"
+              : "text-slate-300 hover:bg-slate-800"
+          }`}
+        >
+          📍 {c}
+        </button>
+      ))}
+    </ScrollTabs>
+  </div>
+)}
                   </div>
                 </div>
 
@@ -862,7 +908,7 @@ export default function ShowDetailsView({
                         {/* Cinema Header */}
                         <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-slate-800/60 pb-3">
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <h3 className="text-base font-bold text-white">
                                 📍 {theatre.venue_name}
                               </h3>
@@ -871,6 +917,26 @@ export default function ShowDetailsView({
                                   {theatre.city}
                                 </span>
                               )}
+                              {location && theatre.latitude != null && theatre.longitude != null && (
+                                <span className="rounded bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                                  📍 {formatDistance(haversineKm(location.lat, location.lng, theatre.latitude, theatre.longitude), true)}
+                                </span>
+                              )}
+                              {(() => {
+                                const mapsHref = googleMapsUrl(theatre, location);
+                                return mapsHref ? (
+                                  <a
+                                    href={mapsHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="Open the route to this cinema in Google Maps"
+                                    aria-label={`Open ${theatre.venue_name} in Google Maps`}
+                                    className="inline-flex items-center gap-1 rounded border border-blue-500/30 bg-blue-950/50 px-2 py-0.5 text-[11px] font-semibold text-blue-300 transition hover:border-blue-400 hover:bg-blue-900/50 hover:text-white"
+                                  >
+                                    🗺️ Google Maps ↗
+                                  </a>
+                                ) : null;
+                              })()}
                               <span className="text-[11px] text-emerald-400 font-medium">
                                 • Cancellation Available
                               </span>
