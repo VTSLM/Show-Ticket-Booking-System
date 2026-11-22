@@ -178,6 +178,9 @@ export default function BookingsPage() {
             <h1 style={{ fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.02em", margin: 0 }}>
               My Bookings
             </h1>
+            <Link href="/tickets/received" className="btn-secondary text-sm" style={{ marginLeft: "auto" }}>
+              🎁 Received tickets
+            </Link>
             {!loading && bookings.length > 0 && (
               <span
                 style={{
