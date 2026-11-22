@@ -30,6 +30,7 @@ from routers.wishlist import router as wishlist_router
 from routers.notifications import router as notifications_router
 from routers.chat import router as chat_router
 from routers.manager_analytics import router as manager_analytics_router
+from routers.ticket_transfers import router as ticket_transfers_router
 
 
 async def _cleanup_expired_locks():
@@ -111,6 +112,7 @@ app.include_router(wishlist_router)
 app.include_router(notifications_router)
 app.include_router(chat_router)
 app.include_router(manager_analytics_router)
+app.include_router(ticket_transfers_router)
 
 @app.get("/")
 def root():

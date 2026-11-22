@@ -6,6 +6,7 @@ import { bookingsApi } from "@/lib/api";
 import { cancellationsApi, CancelEligibilityResponse } from "@/lib/cancellationsApi";
 import CancelConfirmationModal from "@/components/CancelConfirmationModal";
 import RefundProgressTracker from "@/components/RefundProgressTracker";
+import TransferTicketsPanel from "@/components/TransferTicketsPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import toast from "react-hot-toast";
 import Link from "next/link";
@@ -550,6 +551,8 @@ export default function BookingDetailPage() {
                       )}
                     </>
                   )}
+
+                  <TransferTicketsPanel bookingId={String(bookingId)} />
 
                   {eligibility?.eligible && (
                     <button

@@ -92,6 +92,32 @@ async function request<T>(
   }
 }
 
+/** GET a file (e.g. a PDF ticket) with the user's auth token. */
+export async function downloadFile(path: string): Promise<Blob> {
+  let token: string | null;
+  try {
+    token = await getToken();
+  } catch (error) {
+    throw new Error(friendlyFirebaseMessage(error));
+  }
+  if (!token) throw new Error("Not authenticated");
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  const sessionId = getActiveSessionId();
+  if (sessionId) headers["X-Session-ID"] = sessionId;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { headers });
+  } catch (networkErr) {
+    throw new Error(friendlyNetworkMessage(networkErr));
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(friendlyApiMessage(res.status, err.detail));
+  }
+  return res.blob();
+}
+
 export const api = {
   get: <T>(path: string, auth = true) => request<T>("GET", path, undefined, auth),
   post: <T>(path: string, body?: unknown, auth: boolean | "optional" = true) =>

@@ -27,6 +27,13 @@ SHOW_ID = "22222222-3333-4444-5555-666666666666"
 USER_ID = "270baccb-3b2a-45ae-a3ad-75aa64426d66"
 OTHER_USER_ID = "99999999-9999-9999-9999-999999999999"
 CURRENT_USER = {"id": USER_ID, "email": "customer@example.com", "role": "customer"}
+
+
+@pytest.fixture(autouse=True)
+def no_ticket_transfers(monkeypatch):
+    """These tests' fake connections don't model ticket transfers: assume none exist."""
+    monkeypatch.setattr(cancellations, "has_accepted_transfers", AsyncMock(return_value=False))
+    monkeypatch.setattr(cancellations, "close_pending_for_booking", AsyncMock())
 ADMIN_USER = {"id": "admin-id-123", "email": "admin@ticketflow.com", "role": "admin"}
 
 
@@ -688,3 +695,26 @@ async def test_eligibility_counts_standing_passes():
 
     assert resp["seats"] == []
     assert resp["total_seats"] == 3
+
+
+@pytest.mark.asyncio
+async def test_cancel_blocked_when_seats_were_transferred(monkeypatch):
+    """A booker can't get a refund for seats a friend has accepted."""
+    conn = AsyncMock()
+    conn.transaction = Mock(return_value=AsyncMock())
+    booking = {
+        "id": BOOKING_ID, "user_id": USER_ID, "show_id": SHOW_ID, "status": "confirmed",
+        "total_amount": Decimal("500.00"), "paid_amount": Decimal("500.00"),
+        "start_time": datetime.now(timezone.utc) + timedelta(days=2),
+        "payment_id": "pay-db-id", "payment_status": "successful", "transaction_id": "pay_rzp_1",
+        "refunded_amount": None, "cancelled_at": None,
+    }
+    conn.fetchrow.side_effect = [booking, DEFAULT_POLICY]
+    conn.fetch.return_value = []
+    monkeypatch.setattr(cancellations, "has_accepted_transfers", AsyncMock(return_value=True))
+
+    with pytest.raises(HTTPException) as exc:
+        await cancellations.cancel_booking(booking_id=BOOKING_ID, current_user=CURRENT_USER, conn=conn)
+    assert exc.value.status_code == 400
+    assert "transferred" in exc.value.detail
+    assert not any("UPDATE bookings" in str(c) for c in conn.execute.await_args_list)
