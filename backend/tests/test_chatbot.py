@@ -724,7 +724,8 @@ def client(monkeypatch):
         return FakePool()
 
     async def fake_optional_user(auth, conn):
-        return captured.get("as_user")
+        # logged in as an active user unless a test says otherwise (guests get 401, #204)
+        return captured.get("as_user", USER)
 
     monkeypatch.setattr(
         chat_router,
@@ -805,7 +806,7 @@ def test_chat_endpoint_rejects_bad_input(client, body):
     )
 
 
-def test_blocked_user_is_treated_as_guest(client):
+def test_blocked_user_cannot_use_the_assistant(client):
     c, captured = client
 
     captured["as_user"] = {
@@ -813,12 +814,35 @@ def test_blocked_user_is_treated_as_guest(client):
         "status": "blocked",
     }
 
-    c.post(
+    r = c.post(
         "/api/chat",
         json={"message": "my bookings"},
     )
 
-    assert captured["user"] is None
+    assert r.status_code == 401
+    assert "user" not in captured  # the model was never called
+
+
+@pytest.mark.parametrize("path", ["/api/chat", "/api/chat/stream"])
+def test_guests_must_log_in_to_chat(client, monkeypatch, path):
+    c, captured = client
+    captured["as_user"] = None
+    monkeypatch.setattr(chatbot, "_get_client", object)
+
+    r = c.post(path, json={"message": "hi"})
+
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Log in to use the TicketFlow AI Assistant."
+    assert "message" not in captured  # the model was never called
+
+
+def test_logged_in_user_is_passed_to_the_assistant(client):
+    c, captured = client
+
+    r = c.post("/api/chat", json={"message": "my bookings"})
+
+    assert r.status_code == 200
+    assert captured["user"] == USER
 
 
 def test_unavailable_assistant_gives_503(

@@ -15,6 +15,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Stricter CI with tests, linting, migration checks, secret scanning, CodeQL and Dependabot (#85)
 
 ### Changed
+- The TicketFlow Assistant is for logged-in users only: guests who open it see a "Log in to use the TicketFlow AI Assistant" notification with a Log in link, and the chat endpoints return 401 without a login (#204)
 - Sign-up: Confirm Password must be typed (copy, cut, paste and drag-and-drop are blocked in that field only) and shows whether the passwords match while typing (#136)
 
 ### Removed

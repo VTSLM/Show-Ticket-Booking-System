@@ -1,12 +1,12 @@
 import { test, expect, Page } from "@playwright/test";
+import { fakeLogin, FIREBASE_API_KEY } from "../helpers/fakeLogin";
 
 // Manager event details form (#169). Firebase sign-in and the API are faked, so no backend
 // or real account is needed: a manager session is planted where the Firebase SDK keeps it.
 
-const API_KEY = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
 // The fake session is stored under the app's Firebase key, so run with the same
 // NEXT_PUBLIC_FIREBASE_API_KEY the frontend was built with.
-test.skip(!API_KEY, "Set NEXT_PUBLIC_FIREBASE_API_KEY to the value the frontend was built with");
+test.skip(!FIREBASE_API_KEY, "Set NEXT_PUBLIC_FIREBASE_API_KEY to the value the frontend was built with");
 const ORG = { id: "11111111-1111-1111-1111-111111111111", legal_name: "Demo Live", business_type: "company", verification_status: "APPROVED" };
 const MOVIE = {
   id: "22222222-2222-2222-2222-222222222222", title: "Dune: Part Two", event_type: "movie", status: "draft",
@@ -16,38 +16,17 @@ const MOVIE = {
   terms_and_conditions: "No outside food.", organization_name: "Demo Live",
 };
 
-async function signInAsManager(page: Page) {
-  const fakeJwt = ["e30", btoa(JSON.stringify({ exp: 4102444800, iat: 1700000000, sub: "mgr", user_id: "mgr" })), "sig"].join(".");
-  await page.addInitScript(({ apiKey, token }) => {
-    const user = {
-      uid: "mgr", email: "manager@example.com", emailVerified: true, isAnonymous: false, providerData: [],
-      stsTokenManager: { refreshToken: "r", accessToken: token, expirationTime: 4102444800000 },
-      createdAt: "1700000000000", lastLoginAt: "1700000000000", apiKey, appName: "[DEFAULT]",
-    };
-    const open = indexedDB.open("firebaseLocalStorageDb", 1);
-    open.onupgradeneeded = () => open.result.createObjectStore("firebaseLocalStorage", { keyPath: "fbase_key" });
-    open.onsuccess = () => {
-      const tx = open.result.transaction("firebaseLocalStorage", "readwrite");
-      tx.objectStore("firebaseLocalStorage").put({ fbase_key: `firebase:authUser:${apiKey}:[DEFAULT]`, value: user });
-    };
-  }, { apiKey: API_KEY, token: fakeJwt });
-  // Firebase checks the stored account once on start-up
-  await page.route("**/identitytoolkit.googleapis.com/**", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ users: [{ localId: "mgr", email: "manager@example.com", emailVerified: true }] }) }));
-}
+const signInAsManager = (page: Page) => fakeLogin(page, ["manager"], "Manager");
 
 type Calls = { created: any[]; updated: any[]; uploads: number };
 
 async function mockApi(page: Page): Promise<Calls> {
   const calls: Calls = { created: [], updated: [], uploads: 0 };
   let events = [MOVIE];
-  await page.route(/127\.0\.0\.1:3100\/(api|auth)\//, async (route) => {
+  await page.route(/127\.0\.0\.1:3100\/api\//, async (route) => {
     const req = route.request();
     const url = req.url();
     const json = (body: unknown) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
-    if (url.includes("/auth/verify-token")) {
-      return json({ user: { id: "mgr", name: "Manager", email: "manager@example.com", roles: ["manager"], status: "active" }, session: null });
-    }
     if (url.includes("/api/verification/organizer/applications/me")) return json([ORG]);
     if (url.endsWith("/api/manager/event-images")) {
       calls.uploads += 1;

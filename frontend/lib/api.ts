@@ -544,9 +544,9 @@ export type ChatStreamEvent =
   | { type: "error"; message: string};
 
 export const chatApi = {
-  // Sends the login token when there is one, so the assistant can see the user's own bookings
+  // The assistant is for logged-in users only (#204); the login token lets it see the user's own bookings
   send: (message: string, history: ChatMessage[], context: ChatContext) =>
-    api.post<{ reply: string }>("/api/chat", { message, history, context }, "optional"),
+    api.post<{ reply: string }>("/api/chat", { message, history, context }),
 
   /** Streams the reply as server-sent events; calls onEvent for each one. */
   stream: async (

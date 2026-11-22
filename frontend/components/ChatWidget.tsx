@@ -4,6 +4,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import toast from "react-hot-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { chatApi, ChatContext, ChatMessage, ChatResultCard } from "@/lib/api";
 
@@ -142,7 +143,9 @@ function RichText({
 
 export default function ChatWidget() {
   const pathname = usePathname() || "/";
-  const { profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
+  // The assistant is for logged-in users only (#204)
+  const signedIn = !!user && !!profile;
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -169,6 +172,15 @@ export default function ChatWidget() {
     });
   }, [messages, sending]);
 
+  // Logging out closes the assistant and forgets the conversation
+  useEffect(() => {
+    if (!authLoading && !signedIn) {
+      setOpen(false);
+      setMessages([]);
+      setResultCards([]);
+    }
+  }, [authLoading, signedIn]);
+
   useEffect(() => {
     if (open) {
       inputRef.current?.focus();
@@ -192,6 +204,31 @@ export default function ChatWidget() {
   if (HIDDEN_ON.some((prefix) => pathname.startsWith(prefix))) {
     return null;
   }
+
+  const openAssistant = () => {
+    if (authLoading) return;
+    if (signedIn) {
+      setOpen(true);
+      return;
+    }
+    // Guests get a notification with a way to log in and come back to this page
+    const back = `${pathname}${typeof window !== "undefined" ? window.location.search : ""}`;
+    toast(
+      () => (
+        <span data-testid="chat-login-toast" className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>Log in to use the TicketFlow AI Assistant</span>
+          <Link
+            href={`/auth/login?redirect=${encodeURIComponent(back)}`}
+            onClick={() => toast.dismiss("chat-login")}
+            className="font-bold text-[var(--blue)] underline underline-offset-2"
+          >
+            Log in
+          </Link>
+        </span>
+      ),
+      { id: "chat-login", icon: "🤖", duration: 6000 }
+    );
+  };
 
   const send = async (text: string) => {
     const message = text.trim().slice(0, MAX_LENGTH);
@@ -282,7 +319,7 @@ export default function ChatWidget() {
     <>
       {!open && (
         <button
-          onClick={() => setOpen(true)}
+          onClick={openAssistant}
           className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full bg-[var(--blue)] px-5 py-3 font-bold text-white shadow-[0_12px_32px_rgba(40,124,255,0.35)] transition hover:-translate-y-0.5 hover:bg-[var(--blue-hover)]"
           aria-label="Open the TicketFlow assistant"
         >

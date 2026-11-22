@@ -6,9 +6,12 @@
 
 ```bash
 cd backend
-python chat_eval/run_eval.py            # guest cases
-python chat_eval/run_eval.py --login    # all cases (asks a customer's email and password)
+python chat_eval/run_eval.py            # asks a customer's email and password
 ```
+
+The assistant is for logged-in users only (#204), so every case runs with that login.
+The `guest` category (what a logged-out user is told) is skipped, since guests can no
+longer reach the assistant.
 
 Run it before and after changing the prompt, the tools or the model, and compare the
 scores. CI only checks that `cases.json` is valid (`tests/test_chat_eval.py`); it does
