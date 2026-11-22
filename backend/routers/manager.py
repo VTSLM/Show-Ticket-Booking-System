@@ -2,12 +2,13 @@ from datetime import datetime
 
 import re
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 import asyncpg
 from database import get_conn
 from dependencies import require_role
+from services.event_images import MAX_UPLOAD_BYTES as EVENT_IMAGE_MAX_BYTES, EventImageError, process_image, upload_event_image
 
 import json
 import uuid
@@ -369,6 +370,13 @@ def event_formats(event_type: Optional[str], formats: Optional[List[str]]) -> Li
     return list(dict.fromkeys(cleaned)) or ["2D"]
 
 
+def event_certificate(event_type: Optional[str], certificate: Optional[str]) -> Optional[str]:
+    """Film certificates (U, UA, A) apply to movies only; movies default to UA (#169)."""
+    if (event_type or "movie").lower() != "movie":
+        return None
+    return (certificate or "").strip() or "UA"
+
+
 @router.get("/events")
 async def list_events(
     user: dict = Depends(MANAGER_ROLES),
@@ -432,9 +440,25 @@ async def create_event(
            RETURNING *""",
         body.title, body.description, body.event_type, body.duration_minutes,
         body.language, body.genre, body.poster_url, body.backdrop_url, body.status, organizer_id,
-        cast_json, artist_json, event_formats(body.event_type, body.formats), body.certificate or "UA", rel_date, body.terms_and_conditions
+        cast_json, artist_json, event_formats(body.event_type, body.formats), event_certificate(body.event_type, body.certificate), rel_date, body.terms_and_conditions
     )
     return dict(row)
+
+@router.post("/event-images")
+async def upload_event_image_file(
+    kind: str = Form(...),
+    file: UploadFile = File(...),
+    user: dict = Depends(MANAGER_ROLES),
+):
+    """Upload a poster or backdrop before or after the event exists; returns its public URL (#169)."""
+    data = await file.read(EVENT_IMAGE_MAX_BYTES + 1)   # never read more than the limit
+    try:
+        jpeg = process_image(data, kind)
+        url = await upload_event_image(str(user["id"]), kind, jpeg)
+    except EventImageError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"url": url}
+
 
 @router.patch("/events/{event_id}")
 async def update_event(
@@ -454,8 +478,9 @@ async def update_event(
         if k in allowed:
             if k in ("cast_crew", "artists") and isinstance(v, (list, dict)):
                 updates[k] = json.dumps(v)
-            elif k == "release_date" and isinstance(v, str) and v.strip():
-                updates[k] = datetime.strptime(v.strip(), "%Y-%m-%d").date()
+            elif k == "release_date" and isinstance(v, str):
+                # an empty field clears the date instead of failing on the date column
+                updates[k] = datetime.strptime(v.strip(), "%Y-%m-%d").date() if v.strip() else None
             else:
                 updates[k] = v
 

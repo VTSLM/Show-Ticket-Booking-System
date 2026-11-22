@@ -209,6 +209,35 @@ export const managerApi = {
   events: () => api.get<any[]>("/api/manager/events"),
   createEvent: (data: object) => api.post("/api/manager/events", data),
   updateEvent: (id: string, data: object) => api.patch<any>("/api/manager/events/" + id, data),
+  // Poster or backdrop for an event (#169): returns the public URL to save on the event
+  uploadEventImage: async (kind: "poster" | "backdrop", file: File): Promise<{ url: string }> => {
+    let token: string | null;
+    try {
+      token = await getToken();
+    } catch (error) {
+      throw new Error(friendlyFirebaseMessage(error));
+    }
+    if (!token) throw new Error("Not authenticated");
+
+    const form = new FormData();
+    form.append("kind", kind);
+    form.append("file", file);
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    const sessionId = getActiveSessionId();
+    if (sessionId) headers["X-Session-ID"] = sessionId;
+
+    let response: Response;
+    try {
+      response = await fetch(`${API_URL}/api/manager/event-images`, { method: "POST", headers, body: form });
+    } catch (error) {
+      throw new Error(friendlyNetworkMessage(error));
+    }
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(friendlyApiMessage(response.status, result.detail));
+    }
+    return response.json();
+  },
 
   shows: () => api.get<any[]>("/api/manager/shows"),
   createShow: (data: object) => api.post<any>("/api/manager/shows", data),
