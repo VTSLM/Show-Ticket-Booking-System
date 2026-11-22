@@ -1,4 +1,9 @@
 import { auth } from "./firebase";
+import {
+  friendlyApiMessage,
+  friendlyFirebaseMessage,
+  friendlyNetworkMessage,
+} from "./errorMessages";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const SESSION_STORAGE_KEY = "ticketflow_session_id";
@@ -38,7 +43,12 @@ async function request<T>(
   const headers: Record<string, string> = { "Content-Type": "application/json"};
 
   if (requireAuth) {
-    const token = await getToken();
+    let token: string | null;
+    try {
+      token = await getToken();
+    } catch (error) {
+      throw new Error(friendlyFirebaseMessage(error));
+    }
     if (token) headers["Authorization"] = `Bearer ${token}`;
     else if (requireAuth !== "optional") throw new Error("Not authenticated");
 
@@ -46,30 +56,40 @@ async function request<T>(
     if (sessionId) headers["X-Session-ID"] = sessionId;
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (networkErr) {
+    throw new Error(friendlyNetworkMessage(networkErr));
+  }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    const detail = err.detail || "Request failed";
+    const err = await res.json().catch(() => ({}));
+    const rawDetail = err.detail;
     if (
       res.status === 401 &&
-      (detail.toLowerCase().includes("inactivity") ||
-        detail.toLowerCase().includes("session expired") ||
-        detail.toLowerCase().includes("revoked"))
+      typeof rawDetail === "string" &&
+      (rawDetail.toLowerCase().includes("inactivity") ||
+        rawDetail.toLowerCase().includes("session") ||
+        rawDetail.toLowerCase().includes("revoked"))
     ) {
       if (sessionExpiryHandler) {
         sessionExpiryHandler();
       }
     }
-    throw new Error(detail);
+    throw new Error(friendlyApiMessage(res.status, rawDetail));
   }
 
   if (res.status === 204) return undefined as T;
-  return res.json();
+  try {
+    return await res.json();
+  } catch {
+    throw new Error("We received an unexpected response. Please try again.");
+  }
 }
 
 export const api = {
@@ -138,7 +158,16 @@ export const bookingsApi = {
   myWaitlist: () => api.get<any[]>("/api/bookings/waitlist"),
   leaveWaitlist: (showId: string) =>
     api.delete<{ status: string }>(`/api/bookings/waitlist/${showId}`),
-  create: (data: { show_id: string; seat_ids?: string[]; zone_id?: string; zone_quantity?: number; terms_accepted?: boolean; terms_hash?: string; terms_text?: string } | string, maybeSeatIds?: string[]) => {
+  create: (data: {
+    show_id: string;
+    seat_ids?: string[];
+    zone_id?: string;
+    zone_quantity?: number;
+    terms_accepted?: boolean;
+    terms_hash?: string;
+    terms_text?: string;
+    coupon_code?: string;
+  } | string, maybeSeatIds?: string[]) => {
     if (typeof data === "string") {
       return api.post<any>("/api/bookings", { show_id: data, seat_ids: maybeSeatIds || [] });
     }
@@ -182,10 +211,16 @@ export const managerApi = {
   updateEvent: (id: string, data: object) => api.patch<any>("/api/manager/events/" + id, data),
 
   shows: () => api.get<any[]>("/api/manager/shows"),
-  createShow: (data: object) => api.post("/api/manager/shows", data),
+  createShow: (data: object) => api.post<any>("/api/manager/shows", data),
   deleteShow: (id: string) => api.delete(`/api/manager/shows/${id}`),
   setDynamicPricing: (id: string, enabled: boolean) =>
     api.patch<any>(`/api/manager/shows/${id}`, { dynamic_pricing: enabled }),
+
+  coupons: () => api.get<any[]>("/api/manager/coupons"),
+  createCoupon: (data: { code: string; percent_off: number }) =>
+    api.post<any>("/api/manager/coupons", data),
+  setCouponActive: (code: string, is_active: boolean) =>
+    api.patch<any>(`/api/manager/coupons/${encodeURIComponent(code)}`, { is_active }),
 
   updateSeatTier: (screenId: string, data: { row_label?: string; seat_ids?: string[]; seat_type: string }) =>
     api.put<any>(`/api/manager/screens/${screenId}/seats/tier`, data),
@@ -262,19 +297,33 @@ export const organizerVerificationApi = {
   submit: (applicationId: string) =>
     api.post<any>(`/api/verification/organizer/applications/${applicationId}/submit`),
   uploadDocument: async (caseId: string, formData: FormData) => {
-    const token = await getToken();
+    let token: string | null;
+    try {
+      token = await getToken();
+    } catch (error) {
+      throw new Error(friendlyFirebaseMessage(error));
+    }
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_URL}/api/verification/cases/${caseId}/documents`, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || "Document upload failed");
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/api/verification/cases/${caseId}/documents`, {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+    } catch (error) {
+      throw new Error(friendlyNetworkMessage(error));
     }
-    return res.json();
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(friendlyApiMessage(res.status, err.detail || undefined));
+    }
+    try {
+      return await res.json();
+    } catch {
+      throw new Error("We received an unexpected response. Please try again.");
+    }
   },
   getViewUrl: (documentId: string) =>
     api.get<any>(`/api/verification/documents/${documentId}/view`),
@@ -366,41 +415,59 @@ export const venueDocumentsApi = {
     api.get<any[]>(`/api/venue-verification/${caseId}/documents`),
 
   upload: async (caseId: string, kind: "venue_photo" | "seating_plan", file: File) => {
-    const token = await getToken();
+    let token: string | null;
+    try {
+      token = await getToken();
+    } catch (error) {
+      throw new Error(friendlyFirebaseMessage(error));
+    }
     if (!token) throw new Error("Not authenticated");
 
     const form = new FormData();
     form.append("kind", kind);
     form.append("file", file);
 
-    const response = await fetch(`${API_URL}/api/venue-verification/${caseId}/documents`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      body: form,
-    });
-
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(result.detail || "File upload failed");
+    let response: Response;
+    try {
+      response = await fetch(`${API_URL}/api/venue-verification/${caseId}/documents`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+    } catch (error) {
+      throw new Error(friendlyNetworkMessage(error));
     }
 
-    return result;
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(friendlyApiMessage(response.status, result.detail));
+    }
+
+    try {
+      return await response.json();
+    } catch {
+      throw new Error("We received an unexpected response. Please try again.");
+    }
   },
 
   download: async (caseId: string, documentId: string, filename: string) => {
-    const token = await getToken();
+    let token: string | null;
+    try {
+      token = await getToken();
+    } catch (error) {
+      throw new Error(friendlyFirebaseMessage(error));
+    }
     if (!token) throw new Error("Not authenticated");
 
-    const response = await fetch(
-      `${API_URL}/api/venue-verification/${caseId}/documents/${documentId}/download`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
+    let response: Response;
+    try {
+      response = await fetch(
+        `${API_URL}/api/venue-verification/${caseId}/documents/${documentId}/download`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (error) {
+      throw new Error(friendlyNetworkMessage(error));
+    }
 
     if (!response.ok) {
       throw new Error("Could not download attachment");
@@ -461,17 +528,27 @@ export const chatApi = {
     signal?: AbortSignal
   ): Promise<void> => {
     const headers: Record<string, string> = { "Content-Type": "application/json"};
-    const token = await getToken();
+    let token: string | null;
+    try {
+      token = await getToken();
+    } catch (error) {
+      throw new Error(friendlyFirebaseMessage(error));
+    }
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_URL}/api/chat/stream`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ message, history, context }),
-      signal,
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/api/chat/stream`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ message, history, context }),
+        signal,
+      });
+    } catch (error) {
+      throw new Error(friendlyNetworkMessage(error));
+    }
     if (!res.ok || !res.body) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || "Request failed");
+      const err = await res.json().catch(() => ({}));
+      throw new Error(friendlyApiMessage(res.status, err.detail));
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();

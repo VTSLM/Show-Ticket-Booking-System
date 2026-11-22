@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException
 
 from routers.manager import (
     EventCreate,
@@ -109,3 +110,39 @@ async def test_admin_creates_show_without_verification_guards():
     # Only the INSERT ran; the organizer/venue guard query was skipped.
     assert conn.fetchrow.await_count == 1
     assert "INSERT INTO shows" in conn.fetchrow.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_create_show_rejected_when_screen_has_no_seats_and_no_zones():
+    conn = _conn()
+    conn.fetchval.return_value = 0  # 0 seats on the screen
+    body = ShowCreate(
+        event_id=str(uuid.uuid4()),
+        screen_id=str(uuid.uuid4()),
+        start_time="2026-12-01T18:00:00+05:30",
+        end_time="2026-12-01T21:00:00+05:30",
+        base_price=250,
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await create_show(body=body, user=_user("admin"), conn=conn)
+    assert exc_info.value.status_code == 400
+    assert "no seats configured and no admission zones" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_create_show_allowed_when_screen_has_no_seats_but_has_zones():
+    conn = _conn()
+    show_id = str(uuid.uuid4())
+    conn.fetchval.return_value = 0  # 0 seats
+    conn.fetchrow.return_value = {"id": show_id}
+    from routers.manager import ZoneInput
+    body = ShowCreate(
+        event_id=str(uuid.uuid4()),
+        screen_id=str(uuid.uuid4()),
+        start_time="2026-12-01T18:00:00+05:30",
+        end_time="2026-12-01T21:00:00+05:30",
+        base_price=250,
+        zones=[ZoneInput(name="Fan Pit", price=500, total_capacity=50)]
+    )
+    res = await create_show(body=body, user=_user("admin"), conn=conn)
+    assert res["id"] == show_id

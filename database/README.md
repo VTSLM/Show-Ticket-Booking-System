@@ -32,6 +32,25 @@ Or against any database:
 for f in database/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done
 ```
 
+## Demo catalogue (seed 005)
+
+`seeds/005_demo_catalogue.py` fills Browse for demos: 10 cities, multiplexes with cinema seat maps, an arena
+(stage, standing zones, grandstand), an auditorium and a comedy club per city, 10 movies, fictional live events
+and showtimes for the next 7 days. Posters are original title cards served from the public
+Supabase Storage bucket `demo-posters`: generate them with `python scripts/generate_demo_posters.py`, upload the
+files to the top level of that bucket, then run the seed (it builds the links from `SUPABASE_URL`, or from
+`DEMO_POSTER_BASE_URL` if set).
+
+It is the one seed meant for the shared demo deployment. It costs about 13 MB of database space per day of
+showtimes, so keep `--days` small on the free Supabase plan, and run it again every few days to keep showtimes ahead.
+
+```bash
+cd backend
+venv/bin/python ../database/seeds/005_demo_catalogue.py --dry-run   # see what it would add
+venv/bin/python ../database/seeds/005_demo_catalogue.py             # add / extend (safe to repeat)
+venv/bin/python ../database/seeds/005_demo_catalogue.py --remove    # take it down
+```
+
 ## Regenerate schema.sql
 
 ```bash

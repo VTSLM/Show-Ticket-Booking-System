@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { computeArena, ringPath, type ArenaGeometry } from "./arenaLayout";
 
 export interface SeatItem {
   show_seat_id: string;
@@ -110,7 +111,32 @@ export default function VenueLayoutCanvas({
     stageY,
     stageW,
     dividerY,
+    arena,
   } = useMemo(() => {
+    // Concert arenas and stadiums: curved tiers round the stage, standing floor as rings (#198)
+    if (layoutType === "concert") {
+      const geo: ArenaGeometry = computeArena(seats, zones, stagePosition);
+      const ringById = new Map(geo.rings.map((r) => [r.id, r]));
+      return {
+        computedSeats: seats.map((seat) => {
+          const p = geo.seats.get(seat.show_seat_id)!;
+          return { ...seat, calcX: p.x, calcY: p.y, calcRotate: p.rotate };
+        }),
+        // Same order as the rings: Fan Pit first, outward from the stage
+        computedZones: geo.rings.map((ring) => {
+          const zone = zones.find((z) => z.id === ring.id)!;
+          return { ...zone, calcX: ring.labelX - 110, calcY: ring.labelY - 30, calcW: 220, calcH: 60, isFanPit: ring.isFanPit, ring };
+        }),
+        contentWidth: geo.width,
+        contentHeight: geo.height,
+        rowGroups: [] as { rowLabel: string; y: number; minX: number; maxX: number; tier: string; price: number }[],
+        stageY: geo.cy - 64,
+        stageW: geo.stageW,
+        dividerY: 0,
+        arena: geo,
+      };
+    }
+
     const seatSize = 34;
     const seatGap = 10;
     const aisleGap = 36;
@@ -230,8 +256,9 @@ export default function VenueLayoutCanvas({
       stageY: stY,
       stageW: stageWidth,
       dividerY: divY,
+      arena: null as ArenaGeometry | null,
     };
-  }, [seats, zones, layoutType]);
+  }, [seats, zones, layoutType, stagePosition]);
 
   // Fit to screen calculation: Centers layout and computes optimal scale factor
   const handleFitToScreen = useCallback(() => {
@@ -242,14 +269,14 @@ export default function VenueLayoutCanvas({
     const pad = 36;
     const scaleX = (containerW - pad) / contentWidth;
     const scaleY = (containerH - pad) / contentHeight;
-    const newScale = Math.min(Math.max(Math.min(scaleX, scaleY), 0.55), 1.5);
+    const newScale = Math.min(Math.max(Math.min(scaleX, scaleY), arena ? 0.2 : 0.55), 1.5);
 
     const newPanX = (containerW - contentWidth * newScale) / 2;
     const newPanY = Math.max((containerH - contentHeight * newScale) / 2, 16);
 
     setZoom(Number(newScale.toFixed(2)));
     setPan({ x: Math.round(newPanX), y: Math.round(newPanY) });
-  }, [contentWidth, contentHeight]);
+  }, [contentWidth, contentHeight, arena]);
 
   // Auto-fit on initial render
   useEffect(() => {
@@ -601,7 +628,7 @@ export default function VenueLayoutCanvas({
                 from the event type: only movies get "cinema" (a screen), live events a stage. */}
             {stagePosition === "center" && layoutType !== "cinema" ? (
               // 360° Arena Center Stage
-              <g transform={`translate(${contentWidth / 2}, 160)`}>
+              <g transform={`translate(${contentWidth / 2}, ${arena?.center ? arena.cy : 160})`}>
                 <circle r="75" fill="#1e1b4b" stroke="#818cf8" strokeWidth="2.5" />
                 <circle r="48" fill="#0f172a" stroke="#6366f1" strokeWidth="1.5" />
                 <text
@@ -736,8 +763,91 @@ export default function VenueLayoutCanvas({
               </g>
             )}
 
+            {/* ARENA: coloured seating tiers, then the standing floor as rings (#198) */}
+            {arena && (
+              <g data-testid="arena-tiers">
+                {arena.bands.map((band) => (
+                  <path
+                    key={`band-${band.name}`}
+                    d={ringPath(arena.cx, arena.cy, band.rIn, band.rOut, arena.a0 - 1, arena.a1 + 1)}
+                    fill={band.color}
+                    fillOpacity="0.07"
+                    stroke={band.color}
+                    strokeOpacity="0.45"
+                    strokeWidth="1.2"
+                    opacity={selectedSection === "all" || selectedSection === band.name ? 1 : 0.3}
+                  />
+                ))}
+                {arena.sectionLabels.map((l) => (
+                  <text
+                    key={`sec-${l.text}`}
+                    x={l.x}
+                    y={l.y}
+                    textAnchor={l.anchor}
+                    fill={l.color}
+                    fontSize="12"
+                    fontWeight="800"
+                    letterSpacing="1"
+                  >
+                    {l.text.toUpperCase()}
+                  </text>
+                ))}
+                {arena.rowLabels.map((l, i) => (
+                  <text
+                    key={`row-${l.label}-${i}`}
+                    x={l.x}
+                    y={l.y}
+                    textAnchor="middle"
+                    fill="#94a3b8"
+                    fontSize="11"
+                    fontWeight="800"
+                  >
+                    {l.label}
+                  </text>
+                ))}
+              </g>
+            )}
+
+            {arena &&
+              computedZones.map((zone) => {
+                const ring = (zone as any).ring as { rIn: number; rOut: number; labelX: number; labelY: number };
+                const isSelected = selectedZoneId === zone.id;
+                const color = zone.isFanPit ? "#ff0055" : zone.color_hex || "#3b82f6";
+                const [from, to] = arena.center ? [0, 360] : [0, 180];
+                return (
+                  <g
+                    key={zone.id}
+                    data-testid="arena-zone"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectZone(zone);
+                    }}
+                    onMouseEnter={() => handleZoneEnter(zone)}
+                    className="cursor-pointer transition-opacity hover:opacity-95"
+                  >
+                    <path
+                      d={ringPath(arena.cx, arena.cy, ring.rIn, ring.rOut, from, to)}
+                      fillRule="evenodd"
+                      fill={isSelected ? "#1e293b" : zone.isFanPit ? "#190812" : "#0a1324"}
+                      stroke={isSelected ? "#38bdf8" : color}
+                      strokeWidth={isSelected ? 3 : 1.8}
+                      strokeDasharray={zone.isFanPit ? undefined : "6,3"}
+                    />
+                    <text x={ring.labelX} y={ring.labelY - 8} textAnchor="middle" fill="#ffffff" fontSize="13" fontWeight="800" letterSpacing="0.8">
+                      {zone.isFanPit ? "👑 " : "🎫 "}
+                      {zone.name.toUpperCase()}
+                    </text>
+                    <text x={ring.labelX} y={ring.labelY + 12} textAnchor="middle" fill={isSelected ? "#bae6fd" : "#94a3b8"} fontSize="10.5" fontWeight="600">
+                      Standing • ₹{zone.price} • {zone.available_capacity} / {zone.total_capacity} left
+                      {isSelected ? " • ✓ SELECTED" : ""}
+                    </text>
+                  </g>
+                );
+              })}
+
             {/* 4. STANDING ADMISSION ZONES (NO NUMBERED SEATS INSIDE!) */}
-            {computedZones.map((zone) => {
+            {!arena && computedZones.map((zone) => {
               const isSelected = selectedZoneId === zone.id;
               const isFanPit = zone.isFanPit;
               const borderColor = isFanPit ? "#ff0055" : (zone.color_hex || "#3b82f6");
@@ -923,6 +1033,7 @@ export default function VenueLayoutCanvas({
               return (
                 <g
                   key={seat.show_seat_id}
+                  data-seat={`${seat.row_label}${seat.seat_number}`}
                   transform={`translate(${seat.calcX}, ${seat.calcY})`}
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
@@ -954,7 +1065,8 @@ export default function VenueLayoutCanvas({
                     />
                   )}
 
-                  {/* Seat Cushion Body */}
+                  {/* Seat Cushion Body (arena seats turn to face the stage) */}
+                  <g transform={`rotate(${(seat as any).calcRotate ?? 0} 17 17)`}>
                   <rect
                     x="0"
                     y="0"
@@ -975,6 +1087,7 @@ export default function VenueLayoutCanvas({
                     opacity="0.6"
                     pointerEvents="none"
                   />
+                  </g>
 
                   {/* Seat Number */}
                   {isAccessible ? (

@@ -9,7 +9,7 @@ import { reviewsApi, ReportedReview } from "@/lib/reviewsApi";
 import { LAYOUT_LABELS, layoutFits, layoutWarning } from "@/lib/layouts";
 import VenueMapPicker from "@/components/VenueMapPicker";
 
-type Tab = "shows" | "events" | "venues" | "reports";
+type Tab = "shows" | "events" | "venues" | "reports" | "coupons";
 
 const REASON_LABEL: Record<string, string> = {
   spam: "Spam or advertising",
@@ -123,6 +123,8 @@ export default function ManagerPage() {
   const [events, setEvents] = useState<any[]>([]);
   const [venues, setVenues] = useState<any[]>([]);
   const [organizations, setOrganizations] = useState<any[]>([]);
+  const [coupons, setCoupons] = useState<any[]>([]);
+  const [newCoupon, setNewCoupon] = useState({ code: "", percent_off: "20" });
   const [loading, setLoading] = useState(true);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
@@ -152,6 +154,7 @@ export default function ManagerPage() {
         managerApi.shows().then(setShows),
         managerApi.events().then(setEvents),
         managerApi.venues().then(setVenues),
+        managerApi.coupons().then(setCoupons),
         organizerVerificationApi.myApplications().then(apps => {
           setOrganizations(apps || []);
           const approved = (apps || []).filter((a: any) => a.verification_status === "APPROVED");
@@ -221,6 +224,31 @@ export default function ManagerPage() {
       await loadReports(reportFilter);
     } catch (err: any) {
       toast.error(err.message || "Could not remove review");
+    }
+  };
+
+  const createCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await managerApi.createCoupon({
+        code: newCoupon.code.trim().toUpperCase(),
+        percent_off: Number(newCoupon.percent_off),
+      });
+      setNewCoupon({ code: "", percent_off: "20" });
+      setCoupons(await managerApi.coupons());
+      toast.success("Coupon created");
+    } catch (err: any) {
+      toast.error(err.message || "Could not create coupon");
+    }
+  };
+
+  const changeCouponStatus = async (code: string, isActive: boolean) => {
+    try {
+      await managerApi.setCouponActive(code, isActive);
+      setCoupons(await managerApi.coupons());
+      toast.success(isActive ? "Coupon activated" : "Coupon deactivated");
+    } catch (err: any) {
+      toast.error(err.message || "Could not update coupon");
     }
   };
 
@@ -305,6 +333,10 @@ export default function ManagerPage() {
 
   const createShow = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (selectedScreen && (selectedScreen.capacity === 0 || selectedScreen.seat_count === 0) && showZones.length === 0) {
+      toast.error("Cannot create show: the selected screen has no seats configured and no admission zones were provided.");
+      return;
+    }
     try {
       await managerApi.createShow({
         ...newShow,
@@ -351,6 +383,7 @@ export default function ManagerPage() {
     { key: "events", label: "Events", count: events.length },
     { key: "venues", label: "Venues", count: venues.length },
     { key: "reports", label: "Reported reviews" },
+    { key: "coupons", label: "Coupons", count: coupons.length },
   ];
 
   return (
@@ -445,6 +478,11 @@ export default function ManagerPage() {
                   </select>
                   {screenWarning && (
                     <p role="alert" style={{ marginTop: 6, fontSize: 12, color: "#fbbf24" }}>⚠ {screenWarning}</p>
+                  )}
+                  {selectedScreen && (selectedScreen.capacity === 0 || selectedScreen.seat_count === 0) && showZones.length === 0 && (
+                    <p role="alert" style={{ marginTop: 6, fontSize: 12, color: "#f87171" }}>
+                      ⚠ Selected screen has 0 seats. Add standing / festival zones below or select a screen with seats to schedule a show.
+                    </p>
                   )}
                 </Field>
                 <Field label="Start Time">
@@ -969,6 +1007,75 @@ export default function ManagerPage() {
                   )}
                 </>
               )}
+            </SectionCard>
+          </div>
+        )}
+
+        {/* ════ COUPONS TAB ════ */}
+        {tab === "coupons" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <SectionCard>
+              <SectionTitle>Create Coupon</SectionTitle>
+              <form
+                onSubmit={createCoupon}
+                style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 14, alignItems: "end" }}
+              >
+                <Field label="Coupon code">
+                  <input
+                    style={inputStyle}
+                    value={newCoupon.code}
+                    onChange={e => setNewCoupon(current => ({ ...current, code: e.target.value }))}
+                    minLength={3}
+                    maxLength={40}
+                    pattern="[A-Za-z0-9_-]{3,40}"
+                    required
+                  />
+                </Field>
+                <Field label="Discount percentage">
+                  <input
+                    style={inputStyle}
+                    type="number"
+                    min="0.01"
+                    max="99.99"
+                    step="0.01"
+                    value={newCoupon.percent_off}
+                    onChange={e => setNewCoupon(current => ({ ...current, percent_off: e.target.value }))}
+                    required
+                  />
+                </Field>
+                <button type="submit" className="btn-primary">
+                  Create coupon
+                </button>
+              </form>
+            </SectionCard>
+
+            <SectionCard>
+              <SectionTitle>Coupons ({coupons.length})</SectionTitle>
+              <div style={{ display: "grid", gap: 12 }}>
+                {coupons.map(coupon => (
+                  <div
+                    key={coupon.id}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}
+                  >
+                    <span>
+                      <strong>{coupon.code}</strong> — {Number(coupon.percent_off)}% off —{" "}
+                      {coupon.is_active ? "Active" : "Inactive"}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => changeCouponStatus(coupon.code, !coupon.is_active)}
+                    >
+                      {coupon.is_active ? "Deactivate" : "Activate"}
+                    </button>
+                  </div>
+                ))}
+                {coupons.length === 0 && (
+                  <p style={{ color: C.muted, fontSize: 13, textAlign: "center" }}>
+                    No coupons yet.
+                  </p>
+                )}
+              </div>
             </SectionCard>
           </div>
         )}

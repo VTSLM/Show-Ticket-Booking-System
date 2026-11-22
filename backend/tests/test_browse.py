@@ -262,6 +262,20 @@ async def test_list_cities_returns_cities():
 
 
 @pytest.mark.asyncio
+async def test_list_cities_only_counts_bookable_shows():
+    """Venues with no upcoming published shows (test or half-made venues) are not listed."""
+    conn = make_conn(fetch_rows=[])
+
+    await list_cities(conn=conn)
+
+    sql = conn.fetch.call_args.args[0]
+    assert "JOIN shows s" in sql and "JOIN events e" in sql
+    assert "s.status = 'scheduled'" in sql
+    assert "e.status = 'published'" in sql
+    assert "s.start_time > now()" in sql
+
+
+@pytest.mark.asyncio
 async def test_list_event_types_returns_event_types():
     conn = make_conn(
         fetch_rows=[

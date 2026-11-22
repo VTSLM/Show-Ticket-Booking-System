@@ -12,6 +12,7 @@ import {
   sendPasswordResetEmail,
 } from "@/lib/firebase";
 import { authApi } from "@/lib/api";
+import { friendlyFirebaseMessage } from "@/lib/errorMessages";
 import { useAuth } from "@/contexts/AuthContext";
 
 function LoginForm() {
@@ -37,7 +38,7 @@ function LoginForm() {
       toast.success("Welcome back!");
       router.push(redirectTo);
     } catch (err: any) {
-      toast.error(err.message || "Login failed");
+      toast.error(friendlyFirebaseMessage(err, "Incorrect email or password. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -64,7 +65,7 @@ function LoginForm() {
         );
       }
     } catch (err: any) {
-      toast.error(err.message || "Google login failed");
+      toast.error(friendlyFirebaseMessage(err, "Google sign-in failed. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -87,7 +88,10 @@ function LoginForm() {
       );
     } catch (err: any) {
       toast.error(
-        err?.message || "Could not send the reset email. Check the email address and try again."
+        friendlyFirebaseMessage(
+          err,
+          "Could not send the reset email. Check the email address and try again."
+        )
       );
     } finally {
       setLoading(false);

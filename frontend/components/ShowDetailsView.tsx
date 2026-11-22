@@ -121,13 +121,29 @@ export default function ShowDetailsView({
 
   // Upcoming shows and distinct cities
   const upcomingShows: any[] = Array.isArray(showData?.upcoming_shows) ? showData.upcoming_shows : [];
-  const uniqueCities: string[] = Array.from(
-    new Set(upcomingShows.map((s: any) => s.city).filter(Boolean))
-  ) as string[];
+  // The user's own city (from the location picker) comes first, the rest alphabetically
+  const { location, ready: locationReady } = useLocation();
+  const homeCity = location?.label ? location.label.replace(/^Near /, "") : null;
+  const uniqueCities: string[] = (
+    Array.from(new Set(upcomingShows.map((s: any) => s.city).filter(Boolean))) as string[]
+  ).sort((a, b) => (a === homeCity ? -1 : b === homeCity ? 1 : a.localeCompare(b)));
+  const hasHomeCity = homeCity !== null && uniqueCities.includes(homeCity);
+  // A show picked on an earlier page keeps its own city
+  const preselectedCity: string | undefined = preselectedShowId
+    ? upcomingShows.find((s: any) => s.show_id === preselectedShowId)?.city
+    : undefined;
 
   const [selectedCity, setSelectedCity] = useState<string>(
-    uniqueCities[0] || showData?.city || "all"
+    preselectedCity || uniqueCities[0] || showData?.city || "all"
   );
+  const [cityChosen, setCityChosen] = useState(false);
+
+  // The saved location is read after the first render, so switch to it once it is known
+  useEffect(() => {
+    if (locationReady && hasHomeCity && homeCity && !preselectedCity && !cityChosen) {
+      setSelectedCity(homeCity);
+    }
+  }, [locationReady, hasHomeCity, homeCity, preselectedCity, cityChosen]);
 
   if (!showData) return null;
 
@@ -743,31 +759,39 @@ export default function ShowDetailsView({
                     </div>
 
                     {/* City Selector */}
-                    {uniqueCities.length > 0 && (
-                      <div className="flex min-w-0 max-w-full items-center gap-2">
-                        <span className="shrink-0 text-xs font-semibold text-slate-400">City:</span>
-                        <ScrollTabs activeKey={selectedCity} label="cities">
-                          {uniqueCities.map((c) => (
-                            <button
-                              key={c}
-                              type="button"
-                              data-active={selectedCity === c}
-                              onClick={() => {
-                                setSelectedCity(c);
-                                setSelectedDateFilter("all");
-                              }}
-                              className={`shrink-0 whitespace-nowrap rounded-md px-3 py-1 text-xs font-semibold transition ${
-                                selectedCity === c
-                                  ? "bg-blue-600 text-white shadow-sm"
-                                  : "text-slate-300 hover:bg-slate-800"
-                              }`}
-                            >
-                              📍 {c}
-                            </button>
-                          ))}
-                        </ScrollTabs>
-                      </div>
-                    )}
+{uniqueCities.length > 0 && (
+  <div
+    className="flex min-w-0 max-w-full items-center gap-2"
+    data-testid="city-picker"
+  >
+    <span className="shrink-0 text-xs font-semibold text-slate-400">
+      City:
+    </span>
+
+    <ScrollTabs activeKey={selectedCity} label="cities">
+      {uniqueCities.map((c) => (
+        <button
+          key={c}
+          type="button"
+          data-active={selectedCity === c}
+          aria-pressed={selectedCity === c}
+          onClick={() => {
+            setSelectedCity(c);
+            setCityChosen(true);
+            setSelectedDateFilter("all");
+          }}
+          className={`shrink-0 whitespace-nowrap rounded-md px-3 py-1 text-xs font-semibold transition ${
+            selectedCity === c
+              ? "bg-blue-600 text-white shadow-sm"
+              : "text-slate-300 hover:bg-slate-800"
+          }`}
+        >
+          📍 {c}
+        </button>
+      ))}
+    </ScrollTabs>
+  </div>
+)}
                   </div>
                 </div>
 

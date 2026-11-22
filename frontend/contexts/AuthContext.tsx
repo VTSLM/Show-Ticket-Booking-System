@@ -45,6 +45,7 @@ interface AuthCtx {
   isAdmin: boolean;
   isManager: boolean;
   isCustomer: boolean;
+  isCritic: boolean;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   extendSession: () => Promise<void>;
@@ -407,6 +408,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: roles.includes("admin"),
         isManager: roles.includes("manager") || roles.includes("admin"),
         isCustomer: roles.includes("customer"),
+        isCritic: roles.includes("critic") || roles.includes("admin"),
         logout,
         refreshProfile,
         extendSession,
