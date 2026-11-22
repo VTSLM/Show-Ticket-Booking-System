@@ -89,7 +89,7 @@ async def test_feedback_accepts_positive_rating(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_feedback_accepts_negative_rating_for_guest(monkeypatch):
+async def test_feedback_from_a_guest_is_refused(monkeypatch):
     conn = FakeConn()
 
     monkeypatch.setattr(
@@ -109,17 +109,11 @@ async def test_feedback_accepts_negative_rating_for_guest(monkeypatch):
         rating=-1,
     )
 
-    result = await chat.chat_feedback(body, None)
+    with pytest.raises(HTTPException) as err:
+        await chat.chat_feedback(body, None)
 
-    assert result["ok"] is True
-    assert len(conn.execute_calls) == 1
-
-    query, args = conn.execute_calls[0]
-
-    assert "chat_feedback" in query
-    assert str(args[0]) == "123e4567-e89b-12d3-a456-426614174001"
-    assert args[1] is None
-    assert args[2] == -1
+    assert err.value.status_code == 401
+    assert conn.execute_calls == []
 
 
 @pytest.mark.asyncio
@@ -137,7 +131,7 @@ async def test_feedback_rejects_duplicate_reply(monkeypatch):
     monkeypatch.setattr(
         chat,
         "get_optional_user",
-        lambda auth, conn: _resolved(None),
+        lambda auth, conn: _resolved({"id": "user-1", "status": "active"}),
     )
 
     body = chat.ChatFeedbackRequest(

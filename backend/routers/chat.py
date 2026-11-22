@@ -109,6 +109,7 @@ async def _prepare_request(
 
     if user and user.get("status") != "active":
         user = None
+    _require_login(user)
 
     context = {
         key: value
@@ -131,6 +132,15 @@ async def _prepare_request(
         history,
         pool,
     )
+
+
+LOGIN_REQUIRED = "Log in to use the TicketFlow AI Assistant."
+
+
+def _require_login(user: Optional[dict]) -> None:
+    """The assistant is for logged-in users only (#204): guests and blocked accounts get 401."""
+    if not user:
+        raise HTTPException(status_code=401, detail=LOGIN_REQUIRED)
 
 
 UNAVAILABLE = (
@@ -232,6 +242,7 @@ async def chat_feedback(
             != "active"
         ):
             user = None
+        _require_login(user)
 
         try:
             await conn.execute(

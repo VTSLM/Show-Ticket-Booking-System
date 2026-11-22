@@ -6,9 +6,12 @@ running backend, records which tools were called (from the stream's status
 events), checks each case's expectations and prints a scorecard.
 
     cd backend
-    python chat_eval/run_eval.py                    # guest cases only
-    python chat_eval/run_eval.py --login            # also logged-in cases (asks email + password)
+    python chat_eval/run_eval.py                    # asks a customer's email + password
     python chat_eval/run_eval.py --only search,policy --base-url http://localhost:8000
+
+The assistant is for logged-in users only (#204), so every case runs with that login.
+Cases in the "guest" category check what a logged-out user is told; guests can no longer
+reach the assistant, so they are skipped.
 
 Needs the backend running with OPENAI_API_KEY set. Uses the standard library only.
 Results are written to chat_eval/results/ (git-ignored). Each case is one OpenAI
@@ -145,7 +148,7 @@ def resolve_context(case: dict, base: str, token: Optional[str]) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-url", default="http://localhost:8000")
-    ap.add_argument("--login", action="store_true", help="log in to also run the logged-in cases")
+    ap.add_argument("--login", action="store_true", help="kept for old commands; a login is always needed now (#204)")
     ap.add_argument("--only", help="comma-separated categories")
     ap.add_argument("--delay", type=float, default=3.5, help="seconds between cases (rate limit is 20/min)")
     args = ap.parse_args()
@@ -154,12 +157,12 @@ def main() -> None:
     if args.only:
         wanted = set(args.only.split(","))
         cases = [c for c in cases if c["category"] in wanted]
-    token = login() if args.login else None
+    token = login()  # the assistant needs a login (#204)
 
     results, skipped = [], []
     consecutive_errors = 0
     for i, case in enumerate(cases, 1):
-        if case["as"] == "user" and not token:
+        if case["category"] == "guest":  # guests can no longer reach the assistant
             skipped.append(case["id"])
             continue
         body = {"message": case["question"], "history": case.get("history", []),
@@ -167,8 +170,7 @@ def main() -> None:
         start = time.monotonic()
         first_text = None
         try:
-            events, first_text = stream_chat(f"{args.base_url}/api/chat/stream", body,
-                                             token if case["as"] == "user" else None, start)
+            events, first_text = stream_chat(f"{args.base_url}/api/chat/stream", body, token, start)
         except urllib.error.HTTPError as exc:
             events = [{"type": "error", "message": f"HTTP {exc.code}"}]
         except urllib.error.URLError as exc:
@@ -207,7 +209,7 @@ def main() -> None:
     for cat, (p, n) in sorted(by_cat.items()):
         print(f"  {cat:<10} {p}/{n}")
     if skipped:
-        print(f"Skipped {len(skipped)} logged-in cases (run with --login): {', '.join(skipped)}")
+        print(f"Skipped {len(skipped)} guest cases (guests can't use the assistant): {', '.join(skipped)}")
 
     out = HERE / "results"
     out.mkdir(exist_ok=True)
