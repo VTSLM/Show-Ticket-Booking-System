@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from database import get_conn
 from dependencies import get_current_user, require_role
 from config import RAZORPAY_WEBHOOK_SECRET
+from services.ticket_transfer import close_pending_for_booking, has_accepted_transfers
 from services.cancellation_policy_service import (
     get_show_cancellation_policy,
     evaluate_cancellation_eligibility,
@@ -192,6 +193,14 @@ async def cancel_booking(
         eligible, eval_reason, breakdown = evaluate_cancellation_eligibility(booking, policy)
         if not eligible:
             raise HTTPException(status_code=400, detail=eval_reason)
+
+        # Seats a friend has accepted belong to them now; don't refund them to the booker.
+        if await has_accepted_transfers(conn, booking_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Some seats on this booking were transferred to someone else, so it can't be cancelled.",
+            )
+        await close_pending_for_booking(conn, booking_id)
 
         refund_amount = float(breakdown.get("expected_refund", 0.0))
         cancellation_charge = float(breakdown.get("cancellation_charge", 0.0))

@@ -10,6 +10,7 @@ from dependencies import get_current_user, require_role
 from services.ticket_service import build_ticket_pdf, format_show_datetime
 from services.qr_service import generate_qr_bytes
 from services.email_service import send_ticket_email
+from services import ticket_transfer as transfers
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
@@ -87,6 +88,14 @@ async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Co
             detail="Ticket has already been scanned and used. Duplicate entry is not permitted."
         )
 
+    # Seats sent to friends have their own QR codes; this one only admits the rest.
+    seat_count, seats_left = await transfers.seats_left_on_booking(conn, booking_id)
+    if seat_count and not seats_left:
+        raise HTTPException(
+            status_code=409,
+            detail="All seats on this booking were transferred. Scan the QR codes the recipients hold."
+        )
+
     # Atomically mark the ticket as used (prevents concurrent double-scanning)
     updated = await conn.fetchrow(
         """UPDATE tickets
@@ -101,6 +110,7 @@ async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Co
             status_code=409,
             detail="Ticket was already scanned and consumed by another scanner"
         )
+    await transfers.close_pending_for_booking(conn, booking_id)
 
     return {
         "success": True,
@@ -110,6 +120,7 @@ async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Co
         "booking_id": str(updated["booking_id"]),
         "status": updated["status"],
         "used": updated["is_used"],
+        "seats": seats_left,
         "attendee": {
             "name": row["user_name"],
             "email": row["user_email"]
@@ -148,7 +159,10 @@ async def _get_booking_seats(booking_id: str, conn: asyncpg.Connection) -> list:
            FROM booking_seats bs
            JOIN show_seats ss ON ss.id=bs.show_seat_id
            JOIN seats s ON s.id=ss.seat_id
-           WHERE bs.booking_id=$1""",
+           WHERE bs.booking_id=$1
+             AND NOT EXISTS (SELECT 1 FROM ticket_transfer_seats tts
+                             JOIN ticket_transfers tt ON tt.id = tts.transfer_id
+                             WHERE tts.booking_seat_id = bs.id AND tt.status = 'accepted')""",
         booking_id
     )
     return [dict(r) for r in rows]
@@ -284,6 +298,12 @@ async def scan_ticket(
     current_user: dict = Depends(SCANNER_ROLES),
     conn: asyncpg.Connection = Depends(get_conn)
 ):
+    qr = (body.qr_data or "").strip()
+    if not body.booking_id and qr.upper().startswith(transfers.TRANSFER_QR_PREFIX):
+        try:
+            return await transfers.scan_transfer_qr(conn, current_user, qr[len(transfers.TRANSFER_QR_PREFIX):])
+        except transfers.TransferError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
     booking_id = _parse_booking_id(body.qr_data, body.booking_id)
     return await _scan_and_consume_ticket(booking_id, current_user, conn)
 
