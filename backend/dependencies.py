@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import asyncpg
 from database import get_conn
-from firebase_admin_setup import verify_firebase_token
+from firebase_admin_setup import EMAIL_NOT_VERIFIED, is_email_verified, verify_firebase_token
 
 security = HTTPBearer()
 
@@ -11,12 +11,15 @@ async def get_current_firebase_uid(
 ) -> str:
     try:
         decoded = verify_firebase_token(credentials.credentials)
-        return decoded["uid"]
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token"
         )
+    # Unverified email/password accounts can't use the app yet (#208)
+    if not is_email_verified(decoded):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=EMAIL_NOT_VERIFIED)
+    return decoded["uid"]
 
 async def get_current_user(
     uid: str = Depends(get_current_firebase_uid),

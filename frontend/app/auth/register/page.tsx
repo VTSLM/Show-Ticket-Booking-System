@@ -12,6 +12,7 @@ import {
 import { authApi } from "@/lib/api";
 import { friendlyFirebaseMessage, friendlyErrorMessage } from "@/lib/errorMessages";
 import { useAuth } from "@/contexts/AuthContext";
+import { needsEmailVerification, sendVerificationEmail, verifyEmailPath } from "@/lib/emailVerification";
 
 function PasswordVisibilityIcon({ visible }: { visible: boolean }) {
   return visible ? (
@@ -146,22 +147,30 @@ function RegisterForm() {
 
     try {
       let idToken = "";
+      let firebaseUser = auth.currentUser;
 
-      try {
-        const credential = await createUserWithEmailAndPassword(
-          auth,
-          form.email,
-          form.password
-        );
-        idToken = await credential.user.getIdToken();
-      } catch {
-        // Account may already exist in Firebase — sign in to get a fresh token.
-        const credential = await signInWithEmailAndPassword(
-          auth,
-          form.email,
-          form.password
-        );
-        idToken = await credential.user.getIdToken();
+      if (prefillToken && auth.currentUser) {
+        // Coming from Google sign-in: the account already exists and is signed in
+        idToken = await auth.currentUser.getIdToken();
+      } else {
+        try {
+          const credential = await createUserWithEmailAndPassword(
+            auth,
+            form.email,
+            form.password
+          );
+          firebaseUser = credential.user;
+          idToken = await credential.user.getIdToken();
+        } catch {
+          // Account may already exist in Firebase — sign in to get a fresh token.
+          const credential = await signInWithEmailAndPassword(
+            auth,
+            form.email,
+            form.password
+          );
+          firebaseUser = credential.user;
+          idToken = await credential.user.getIdToken();
+        }
       }
 
       // Never send either password field to the application backend.
@@ -171,6 +180,21 @@ function RegisterForm() {
         id_token: idToken,
         ...(inviteCode ? { invite_code: inviteCode } : {}),
       })) as { message?: string };
+
+      // Email/password sign-ups verify their email before using the app (#208)
+      if (firebaseUser && needsEmailVerification(firebaseUser)) {
+        const next = form.role === "customer" || form.role === "admin" ? "/browse" : "/auth/login";
+        let sent = false;
+        try {
+          await sendVerificationEmail(firebaseUser, next);
+          sent = true;
+        } catch {
+          // the verify page lets them resend
+        }
+        toast.success("Account created. Check your email to verify it.");
+        router.push(verifyEmailPath(next, sent));
+        return;
+      }
 
       toast.success(response.message || "Registered!");
       await refreshProfile();

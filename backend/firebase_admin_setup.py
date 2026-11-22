@@ -60,6 +60,26 @@ def verify_firebase_token(id_token: str) -> dict:
     return decoded
 
 
+EMAIL_NOT_VERIFIED = (
+    "Please verify your email address before continuing. "
+    "Check your inbox for the verification link, or request a new one."
+)
+
+
+def is_email_verified(decoded: dict) -> bool:
+    """Whether a verified Firebase token may use the app (#208).
+
+    Firebase sets the email_verified claim: true for Google sign-in, and for email/password
+    accounts once the link in the verification email is clicked. Tokens without an email
+    (nothing to verify) pass, and so does everything when EMAIL_VERIFICATION_REQUIRED is off.
+    """
+    from config import EMAIL_VERIFICATION_REQUIRED
+
+    if not EMAIL_VERIFICATION_REQUIRED or not decoded.get("email"):
+        return True
+    return decoded.get("email_verified") is True
+
+
 def revoke_refresh_tokens(uid: str) -> None:
     """Sign the user out of every Firebase session (used when an admin blocks them)."""
     init_firebase()

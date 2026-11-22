@@ -39,6 +39,7 @@ All notable changes to TicketFlow are listed here. The format follows [Keep a Ch
 - Concerts, theatre, comedy and sports events no longer show cinema formats (2D, IMAX) or a cinema screen on the seat map; movies offer only the formats their showtimes have, and managers are warned when a screen's layout does not fit the event (#168)
 
 ### Security
+- Email/password accounts must verify their email before using the app: a verification link is sent at sign-up and when an unverified account logs in, a Verify your email page can resend it, and the backend refuses unverified accounts on login and every protected endpoint (`EMAIL_VERIFICATION_REQUIRED`). Signing up after Google sign-in works again (#208)
 - Frontend sends X-Frame-Options, frame-ancestors, nosniff, Referrer-Policy and Permissions-Policy headers; the public ticket check no longer returns the internal ticket id
 - The backend now trusts only Firebase ID tokens that the Firebase Admin SDK verifies
 - Only active accounts can use the API; pending and blocked accounts are refused on every request, not only at login

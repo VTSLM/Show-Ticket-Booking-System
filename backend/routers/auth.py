@@ -8,7 +8,7 @@ import asyncpg
 from database import get_conn
 from dependencies import get_current_user, require_role
 from services.admin_users import write_audit
-from firebase_admin_setup import verify_firebase_token
+from firebase_admin_setup import EMAIL_NOT_VERIFIED, is_email_verified, verify_firebase_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -43,6 +43,8 @@ async def register(req: RegisterRequest, conn: asyncpg.Connection = Depends(get_
     if req.birthdate > date.today():
         raise HTTPException(status_code=400, detail="Birthdate cannot be in the future")
 
+    # The profile is saved before the email is verified (the user hasn't clicked the link
+    # yet); every other endpoint, including login, still requires verification (#208).
     uid = decoded["uid"]
     role = req.role.lower()
     if role == "admin":
@@ -90,6 +92,10 @@ async def verify_token(body: dict, conn: asyncpg.Connection = Depends(get_conn))
     except Exception as e:
         print("🔥 Firebase token verification failed:", repr(e))
         raise HTTPException(status_code=401, detail="Invalid token")
+
+    # Logging in needs a verified email (#208); no session is created before that
+    if not is_email_verified(decoded):
+        raise HTTPException(status_code=403, detail=EMAIL_NOT_VERIFIED)
 
     uid = decoded["uid"]
     row = await conn.fetchrow(
