@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from database import get_conn
 from dependencies import get_current_user
-from firebase_admin_setup import verify_firebase_token
+from firebase_admin_setup import is_email_verified, verify_firebase_token
 from services.ai_review_summary_service import generate_summary
 from schemas.reviews import (
     CreateReviewRequest,
@@ -102,6 +102,8 @@ async def get_optional_user(
         return None
     try:
         decoded = verify_firebase_token(auth.credentials)
+        if not is_email_verified(decoded):
+            return None  # unverified accounts are treated as anonymous (#208)
         uid = decoded["uid"]
         row = await conn.fetchrow(
             """

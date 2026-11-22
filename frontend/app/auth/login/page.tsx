@@ -14,6 +14,7 @@ import {
 import { authApi } from "@/lib/api";
 import { friendlyFirebaseMessage } from "@/lib/errorMessages";
 import { useAuth } from "@/contexts/AuthContext";
+import { needsEmailVerification, sendVerificationEmail, verifyEmailPath } from "@/lib/emailVerification";
 
 function LoginForm() {
   const [email, setEmail] = useState("");
@@ -32,6 +33,21 @@ function LoginForm() {
 
     try {
       const credential = await signInWithEmailAndPassword(auth, email, password);
+
+      // Not verified yet (new or older account): send a link and go to the verify page (#208)
+      if (needsEmailVerification(credential.user)) {
+        let sent = false;
+        try {
+          await sendVerificationEmail(credential.user, redirectTo);
+          sent = true;
+        } catch {
+          // too many emails recently, for example: the verify page lets them resend later
+        }
+        toast.error("Please verify your email address before logging in.");
+        router.push(verifyEmailPath(redirectTo, sent));
+        return;
+      }
+
       const idToken = await credential.user.getIdToken(true);
       await authApi.verifyToken(idToken);
       await refreshProfile();

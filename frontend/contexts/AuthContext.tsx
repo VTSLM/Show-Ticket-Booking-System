@@ -12,6 +12,7 @@ import {
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { auth, onAuthStateChanged, signOut } from "@/lib/firebase";
+import { needsEmailVerification } from "@/lib/emailVerification";
 import {
   authApi,
   getActiveSessionId,
@@ -222,6 +223,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Initialize and verify authentication + session
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      // An account whose email isn't verified yet counts as logged out everywhere;
+      // the verify-email page works with auth.currentUser directly (#208)
+      if (firebaseUser && needsEmailVerification(firebaseUser)) {
+        setUser(null);
+        setProfile(null);
+        setSession(null);
+        setActiveSessionId(null);
+        setLoading(false);
+        return;
+      }
       setUser(firebaseUser);
       if (firebaseUser) {
         try {

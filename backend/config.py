@@ -33,6 +33,18 @@ CHAT_ENABLED = os.getenv(
     "on",
 }
 
+# Email verification (#208): email/password accounts must verify their email before
+# using the app. Google accounts are already verified. Switch off only in an emergency.
+EMAIL_VERIFICATION_REQUIRED = os.getenv(
+    "EMAIL_VERIFICATION_REQUIRED",
+    "true",
+).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
 # Document Vault configuration (Sprint 2 - A-03)
 VERIFICATION_DOCUMENTS_BUCKET = os.getenv(
     "VERIFICATION_DOCUMENTS_BUCKET",
