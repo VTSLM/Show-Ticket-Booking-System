@@ -72,6 +72,13 @@ PROVIDERS = {
         "default_model": "llama3.1",
         "timeout": 120.0,
     },
+    "groq": {
+        "key_env": "GROQ_API_KEY",
+        "base_url": "https://api.groq.com/openai/v1",
+        "api": "chat",
+        "default_model": "openai/gpt-oss-120b",
+        "timeout": 60.0,
+    },
 }
 
 
@@ -145,6 +152,7 @@ def _get_client() -> AsyncOpenAI:
 
     if provider not in _clients:
         base_url = os.getenv("CHAT_BASE_URL") or conf["base_url"]
+
 
         _clients[provider] = AsyncOpenAI(
             api_key=api_key,
