@@ -1,5 +1,5 @@
 // Split & transfer tickets — API helper (backend: routers/ticket_transfers.py)
-import { api } from "./api";
+import { api, downloadFile } from "./api";
 
 export type TransferStatus = "pending" | "accepted" | "declined" | "cancelled";
 
@@ -62,6 +62,8 @@ export const transfersApi = {
   accept: (id: string) => api.post<{ id: string; status: TransferStatus }>(`/api/transfers/${id}/accept`),
   decline: (id: string) => api.post<{ id: string; status: TransferStatus }>(`/api/transfers/${id}/decline`),
   cancel: (id: string) => api.post<{ id: string; status: TransferStatus }>(`/api/transfers/${id}/cancel`),
+  /** PDF ticket with the recipient's own QR (accepted transfers only). */
+  pdf: (id: string) => downloadFile(`/api/transfers/${id}/pdf`),
 };
 
 export const TRANSFER_STATUS_STYLES: Record<string, { label: string; color: string }> = {

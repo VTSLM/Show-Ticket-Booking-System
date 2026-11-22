@@ -45,6 +45,26 @@ export default function ReceivedTicketsPage() {
     load();
   }, [authLoading, user, router, load]);
 
+  const downloadPdf = async (id: string) => {
+    setBusyId(id);
+    try {
+      const blob = await transfersApi.pdf(id);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ticket_${id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Ticket PDF downloaded");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not download the ticket");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const answer = async (id: string, accept: boolean) => {
     setBusyId(id);
     try {
@@ -125,6 +145,17 @@ export default function ReceivedTicketsPage() {
                         Decline
                       </button>
                     </div>
+                  )}
+
+                  {t.qr_image && (
+                    <button
+                      type="button"
+                      className="btn-secondary mt-4 text-sm"
+                      onClick={() => downloadPdf(t.id)}
+                      disabled={busyId === t.id}
+                    >
+                      {busyId === t.id ? "Downloading…" : "⬇ Download ticket PDF"}
+                    </button>
                   )}
                 </div>
 
