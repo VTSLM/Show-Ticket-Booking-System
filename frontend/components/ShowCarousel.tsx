@@ -7,10 +7,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export default function ShowCarousel({
   title,
   count,
+  titleAction,
   children,
 }: {
   title: string;
   count: number;
+  titleAction?: React.ReactNode; // optional button shown right next to the title
   children: React.ReactNode;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -72,9 +74,12 @@ export default function ShowCarousel({
   return (
     <section className="mb-10" aria-label={title}>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold text-white">
-          {title} <span className="text-sm font-normal text-slate-400">({count})</span>
-        </h2>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <h2 className="text-xl font-semibold text-white">
+            {title} <span className="text-sm font-normal text-slate-400">({count})</span>
+          </h2>
+          {titleAction}
+        </div>
         <div className="hidden gap-2 sm:flex">
           <button
             type="button"

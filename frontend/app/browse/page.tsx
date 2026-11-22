@@ -9,6 +9,11 @@ import EventPoster from "@/components/EventPoster";
 import ShowCarousel from "@/components/ShowCarousel";
 import { useLocation } from "@/contexts/LocationContext";
 import { NEARBY_RADIUS_KM, formatDistance } from "@/lib/geo";
+import {
+  RecentlyViewedItem,
+  clearRecentlyViewed,
+  getRecentlyViewed,
+} from "@/lib/recentlyViewed";
 
 const EVENT_TYPES = [
   { label: "All", value: "" },
@@ -87,6 +92,11 @@ export default function BrowsePage() {
   const [trending, setTrending] = useState<string[]>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [recentlyViewed, setRecentlyViewed] = useState<RecentlyViewedItem[]>([]);
+  // Search-box suggestions: shown in the dropdown only (the results below change on Search / Enter)
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const latestSuggestion = useRef(0); // so a slow older answer never replaces a newer one
 
   const [searchInput, setSearchInput] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -105,6 +115,11 @@ export default function BrowsePage() {
       const saved = JSON.parse(localStorage.getItem(RECENT_STORAGE_KEY) || "[]");
       if (Array.isArray(saved)) setRecentSearches(saved.slice(0, 5));
     } catch {}
+  }, []);
+
+  // Shows the visitor opened earlier (kept in this browser only)
+  useEffect(() => {
+    setRecentlyViewed(getRecentlyViewed());
   }, []);
 
   useEffect(() => {
@@ -217,6 +232,65 @@ export default function BrowsePage() {
     load();
   }, [load, locationReady]);
 
+  // Live suggestions: look up matches 300 ms after the visitor stops typing.
+  // Only the dropdown changes; the results below change when Search / Enter is pressed.
+  useEffect(() => {
+    if (!dropdownOpen || !locationReady) return;
+    const term = searchInput.trim();
+    const requestId = ++latestSuggestion.current;
+
+    // Nothing typed, or (without a location) a type that needs one: no suggestions
+    if (!term || (!location && filters.event_type && filters.event_type !== "concert")) {
+      setSuggestions([]);
+      setSuggestionsLoading(false);
+      return;
+    }
+
+    setSuggestionsLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const params: Record<string, string> = location
+          ? {
+              lat: String(location.lat),
+              lng: String(location.lng),
+              radius_km: String(NEARBY_RADIUS_KM),
+            }
+          : { event_type: "concert" };
+        if (filters.event_type) params.event_type = filters.event_type;
+        if (filters.language) params.language = filters.language;
+        if (filters.date) params.date = filters.date;
+        params.search = term;
+
+        const data = await browseApi.shows(params);
+        if (requestId !== latestSuggestion.current) return; // typed more since: ignore this answer
+
+        const seen = new Set<string>();
+        const unique = (Array.isArray(data) ? data : [])
+          .filter((s: any) => {
+            const key = s.event_id || (s.title || "").trim().toLowerCase() || s.show_id;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .slice(0, 5);
+        setSuggestions(unique);
+      } catch {
+        if (requestId === latestSuggestion.current) setSuggestions([]);
+      } finally {
+        if (requestId === latestSuggestion.current) setSuggestionsLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [
+    searchInput,
+    dropdownOpen,
+    location,
+    locationReady,
+    filters.event_type,
+    filters.language,
+    filters.date,
+  ]);
+
   const updateFilter = (key: keyof typeof filters, value: string) => {
     setFilters((current) => ({ ...current, [key]: value }));
   };
@@ -252,21 +326,6 @@ export default function BrowsePage() {
       search: "",
     });
   };
-
-  // Instant client-side suggestions inside dropdown while typing (no API flicker)
-  const localSuggestions = searchInput.trim()
-    ? allShowsCache
-        .filter((s) => {
-          const q = searchInput.toLowerCase().trim();
-          return (
-            s.title?.toLowerCase().includes(q) ||
-            s.venue_name?.toLowerCase().includes(q) ||
-            s.city?.toLowerCase().includes(q) ||
-            s.genre?.toLowerCase().includes(q)
-          );
-        })
-        .slice(0, 5)
-    : [];
 
   const activeFilterCount = [
     filters.event_type,
@@ -520,11 +579,11 @@ export default function BrowsePage() {
                 {searchInput.trim() ? (
                   <div className="p-2">
                     <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                      Quick Suggestions (Press Search for fuzzy match)
+                      Suggestions
                     </p>
-                    {localSuggestions.length > 0 ? (
+                    {suggestions.length > 0 ? (
                       <div className="mt-1 space-y-1">
-                        {localSuggestions.map((show) => (
+                        {suggestions.map((show) => (
                           <div
                             key={`drop-${show.show_id}`}
                             className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 transition hover:bg-slate-800"
@@ -568,7 +627,11 @@ export default function BrowsePage() {
                     ) : (
                       <div className="flex items-center justify-between px-3 py-3">
                         <p className="text-xs text-slate-400">
-                          Click Search to find spelling matches for &ldquo;{searchInput.trim()}&rdquo;
+                          {suggestionsLoading ? (
+                            "Searching…"
+                          ) : (
+                            <>No quick matches for &ldquo;{searchInput.trim()}&rdquo;</>
+                          )}
                         </p>
                         <button
                           type="button"
@@ -749,6 +812,52 @@ export default function BrowsePage() {
           </div>
         </div>
       </section>
+
+      {/* Recently viewed (this browser only); hidden while searching or filtering by type */}
+      {recentlyViewed.length > 0 && !filters.search.trim() && !filters.event_type && (
+        <ShowCarousel
+          title="🕘 Recently viewed"
+          count={recentlyViewed.length}
+          titleAction={
+            <button
+              type="button"
+              onClick={() => {
+                clearRecentlyViewed();
+                setRecentlyViewed([]);
+              }}
+              className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-red-500/60 hover:text-red-400"
+            >
+              Clear all
+            </button>
+          }
+        >
+          {recentlyViewed.map((item) => (
+            <Link
+              key={`recent-${item.event_id || item.show_id}`}
+              href={item.event_id ? `/events/${item.event_id}` : `/shows/${item.show_id}`}
+              draggable={false}
+              className="group flex w-[150px] shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 transition hover:-translate-y-1 hover:border-blue-500/70 sm:w-[170px]"
+            >
+              <EventPoster
+                src={item.poster_url}
+                alt={`${item.title} poster`}
+                eventType={item.event_type}
+                className="h-52 w-full object-cover transition duration-300 group-hover:scale-[1.02] sm:h-60"
+                placeholderClassName="flex h-52 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950 sm:h-60"
+                iconClassName="text-4xl"
+              />
+              <div className="p-3">
+                <p className="truncate text-sm font-semibold text-white transition group-hover:text-blue-400">
+                  {item.title}
+                </p>
+                <p className="mt-0.5 truncate text-xs capitalize text-slate-400">
+                  {[item.event_type, item.language].filter(Boolean).join(" • ") || "Show"}
+                </p>
+              </div>
+            </Link>
+          ))}
+        </ShowCarousel>
+      )}
 
       {/* Results Header */}
       <div className="mb-4 flex items-center justify-between">
