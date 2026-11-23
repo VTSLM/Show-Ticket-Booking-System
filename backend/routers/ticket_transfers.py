@@ -16,7 +16,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from database import get_conn
-from dependencies import get_current_user
+from dependencies import get_current_user, security
+from firebase_admin_setup import verify_firebase_token
+from fastapi.security import HTTPAuthorizationCredentials
 from services import ticket_transfer as svc
 from services.qr_service import generate_qr_bytes
 from services.transfer_email_service import (
@@ -29,9 +31,15 @@ from services.transfer_email_service import (
 router = APIRouter(prefix="/api/transfers", tags=["ticket transfers"])
 
 
+class ZoneQuantity(BaseModel):
+    booking_zone_id: str
+    quantity: int = Field(..., strict=True, gt=0, le=2_147_483_647)
+
+
 class TransferCreate(BaseModel):
     booking_id: str
-    seat_ids: List[str] = Field(..., min_length=1, max_length=50)
+    seat_ids: List[str] = Field(default_factory=list, max_length=50)
+    zones: List[ZoneQuantity] = Field(default_factory=list, max_length=50)
     recipient: str = Field(..., min_length=1, max_length=255)
 
 
@@ -59,7 +67,9 @@ async def create_transfer(
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     try:
-        transfer = await svc.create_transfer(conn, user, body.booking_id, body.seat_ids, body.recipient)
+        transfer = await svc.create_transfer(
+            conn, user, body.booking_id, body.seat_ids, body.recipient, [zone.model_dump() for zone in body.zones],
+        )
     except svc.TransferError as e:
         raise _http(e)
     background_tasks.add_task(send_transfer_received_email, transfer)
@@ -68,8 +78,10 @@ async def create_transfer(
         "status": transfer["status"],
         "recipient_name": transfer["recipient_name"],
         "seats": transfer["seats"],
-        "message": f"Sent {len(transfer['seats'])} seat(s) to {transfer['recipient_name']}. "
-                   "They need to accept before the seats move.",
+        "message": ("Transfer created. They must sign up and verify their email to receive the tickets."
+                    if transfer.get("invited") else
+                    f"Transfer created for {transfer['recipient_name']}. "
+                    "They need to accept before the seats move."),
     }
 
 
@@ -77,7 +89,12 @@ async def create_transfer(
 async def received_transfers(
     user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    claims = verify_firebase_token(credentials.credentials)
+    if (claims.get("email_verified") is True and claims.get("email")
+            and user.get("email", "").lower() == claims["email"].lower()):
+        await svc.claim_verified_invitations(conn, str(user["id"]), claims["email"])
     items = await svc.list_received(conn, str(user["id"]))
     for item in items:
         item["qr_image"] = generate_qr_bytes(item["qr_data"]) if item["qr_data"] else None

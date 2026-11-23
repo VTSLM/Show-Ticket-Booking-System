@@ -11,13 +11,13 @@ Rules:
   * only the booking owner, only confirmed bookings, only before the show starts
   * not once the booking's QR has been scanned at the venue
   * not to yourself, and each seat can be in only one pending/accepted transfer
-  * numbered seats only (standing/zone tickets cannot be split yet)
 """
 from __future__ import annotations
 
 import re
 import secrets
 import uuid
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -102,6 +102,15 @@ def _started(start_time: Optional[datetime]) -> bool:
     return start_time <= _now()
 
 
+async def _notify_transfer(conn: asyncpg.Connection, user_id: str, event_name: str, payload: dict) -> None:
+    """Write the in-app notification in the same transaction as the transfer."""
+    await conn.execute(
+        """INSERT INTO notifications (user_id, event_name, payload)
+           VALUES ($1::uuid, $2, $3::jsonb)""",
+        user_id, event_name, json.dumps(payload),
+    )
+
+
 async def find_recipient(conn: asyncpg.Connection, kind: str, value: str) -> dict:
     if kind == "email":
         rows = await conn.fetch(
@@ -141,6 +150,15 @@ async def _seats_by_transfer(conn: asyncpg.Connection, transfer_ids: list) -> di
     out: dict = {}
     for r in rows:
         out.setdefault(str(r["transfer_id"]), []).append(seat_label(r))
+    zones = await conn.fetch(
+        """SELECT tz.transfer_id, sz.name, tz.quantity FROM ticket_transfer_zones tz
+           JOIN booking_zones bz ON bz.id = tz.booking_zone_id
+           JOIN show_zones sz ON sz.id = bz.zone_id
+           WHERE tz.transfer_id = ANY($1::uuid[]) ORDER BY sz.name""",
+        [str(t) for t in transfer_ids],
+    )
+    for row in zones:
+        out.setdefault(str(row["transfer_id"]), []).append(f"{row['name']} × {row['quantity']}")
     return out
 
 
@@ -166,7 +184,7 @@ def _transfer_block_reason(booking: dict) -> Optional[str]:
         return "Only confirmed bookings can be transferred"
     if booking["ticket_status"] == "cancelled":
         return "This ticket has been cancelled"
-    if booking["ticket_used"]:
+    if booking["ticket_used"] or booking["ticket_status"] == "used":
         return "This booking has already been scanned at the venue"
     if _started(booking["start_time"]):
         return "This show has already started"
@@ -177,6 +195,44 @@ def _transfer_block_reason(booking: dict) -> Optional[str]:
 # Sender
 # ---------------------------------------------------------------------------
 
+async def _expire_transfers(
+    conn: asyncpg.Connection, *, booking_id: str | None = None, user_id: str | None = None,
+) -> None:
+    await conn.execute(
+        """WITH expired AS (
+               UPDATE ticket_transfers tt SET status = 'expired', responded_at = clock_timestamp()
+               FROM bookings b JOIN shows s ON s.id = b.show_id
+               WHERE tt.booking_id = b.id AND tt.status = 'pending'
+                 AND ($1::uuid IS NULL OR tt.booking_id = $1::uuid)
+                 AND ($2::uuid IS NULL OR $2::uuid IN (tt.from_user_id, tt.to_user_id))
+                 AND (tt.created_at + interval '24 hours' <= clock_timestamp()
+                      OR s.start_time <= clock_timestamp())
+               RETURNING tt.id, tt.booking_id, tt.from_user_id, tt.to_user_id, s.event_id
+           )
+           INSERT INTO public.notifications (user_id, event_name, payload)
+           SELECT n.user_id, 'transfer.expired',
+                  jsonb_build_object('transfer_id', x.id, 'booking_id', x.booking_id,
+                                     'event_title', e.title, 'received', n.received)
+           FROM expired x JOIN events e ON e.id = x.event_id
+           CROSS JOIN LATERAL (VALUES (x.from_user_id, false), (x.to_user_id, true)) n(user_id, received)
+           WHERE n.user_id IS NOT NULL""",
+        booking_id, user_id,
+    )
+
+
+async def _expire_for_booking(conn: asyncpg.Connection, booking_id: str) -> None:
+    await _expire_transfers(conn, booking_id=booking_id)
+
+
+async def _expire_for_user(conn: asyncpg.Connection, user_id: str) -> None:
+    await _expire_transfers(conn, user_id=user_id)
+
+
+async def expire_pending_transfers(conn: asyncpg.Connection) -> None:
+    """Expire transfers while a replica is running; request checks cover idle periods."""
+    await _expire_transfers(conn)
+
+
 async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_id: str) -> dict:
     """Seats of the user's booking with who holds each one, plus the booking's transfers."""
     if not is_uuid(booking_id):
@@ -185,6 +241,7 @@ async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_
     if not booking or str(booking["user_id"]) != user_id:
         raise TransferError(404, "Booking not found")
     booking = dict(booking)
+    await _expire_for_booking(conn, booking_id)
 
     seat_rows = await conn.fetch(
         """SELECT bs.id AS booking_seat_id, s.row_label, s.seat_number, s.seat_type,
@@ -204,7 +261,7 @@ async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_
         """SELECT tt.id, tt.status, tt.recipient_contact, tt.created_at, tt.responded_at, tt.is_used,
                   u.name AS recipient_name
            FROM ticket_transfers tt
-           JOIN users u ON u.id = tt.to_user_id
+           LEFT JOIN users u ON u.id = tt.to_user_id
            WHERE tt.booking_id = $1::uuid
            ORDER BY tt.created_at DESC""",
         booking_id,
@@ -222,10 +279,9 @@ async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_
         }
         for r in seat_rows
     ]
+    zones = await available_zone_quantities(conn, booking_id)
     reason = _transfer_block_reason(booking)
-    if reason is None and not seats:
-        reason = "Standing or zone tickets can't be split yet"
-    elif reason is None and not any(s["state"] == "yours" for s in seats):
+    if reason is None and not any(s["state"] == "yours" for s in seats) and not any(z["available"] > 0 for z in zones):
         reason = "All seats on this booking have been sent to friends"
 
     return {
@@ -235,11 +291,12 @@ async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_
         "can_transfer": reason is None,
         "reason": reason,
         "seats": seats,
+        "zones": zones,
         "transfers": [
             {
                 "id": str(r["id"]),
                 "status": r["status"],
-                "recipient_name": r["recipient_name"],
+                "recipient_name": r["recipient_name"] or r["recipient_contact"],
                 "recipient_contact": r["recipient_contact"],
                 "seats": seats_by_transfer.get(str(r["id"]), []),
                 "used": r["is_used"],
@@ -252,15 +309,20 @@ async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_
 
 
 async def create_transfer(
-    conn: asyncpg.Connection, sender: dict, booking_id: str, booking_seat_ids: list, recipient: str
+    conn: asyncpg.Connection, sender: dict, booking_id: str, booking_seat_ids: list, recipient: str, zones: Optional[list] = None,
 ) -> dict:
     """Create a pending transfer. Returns details for the API response and the email."""
     sender_id = str(sender["id"])
     if not is_uuid(booking_id):
         raise TransferError(404, "Booking not found")
     seat_ids = list(dict.fromkeys(str(s) for s in booking_seat_ids or []))
-    if not seat_ids:
-        raise TransferError(400, "Choose at least one seat to send")
+    zones = zones or []
+    if not seat_ids and not zones:
+        raise TransferError(400, "Choose at least one ticket to send")
+    zone_ids = [str(z["booking_zone_id"]) for z in zones]
+    if (len(zone_ids) != len(set(zone_ids)) or any(not is_uuid(zid) for zid in zone_ids)
+            or any(type(z["quantity"]) is not int or z["quantity"] <= 0 for z in zones)):
+        raise TransferError(400, "Invalid zone quantity")
     if not all(is_uuid(s) for s in seat_ids):
         raise TransferError(400, "Invalid seat in the request")
     kind, value = parse_recipient(recipient)
@@ -278,10 +340,16 @@ async def create_transfer(
         if reason:
             raise TransferError(400, reason)
 
-        to_user = await find_recipient(conn, kind, value)
-        if str(to_user["id"]) == sender_id:
+        try:
+            to_user = await find_recipient(conn, kind, value)
+        except TransferError as exc:
+            if exc.status_code != 404 or kind != "email":
+                raise
+            to_user = None
+        if to_user and str(to_user["id"]) == sender_id:
             raise TransferError(400, "You can't send tickets to yourself")
 
+        await _expire_for_booking(conn, booking_id)
         free = await conn.fetch(
             """SELECT bs.id, s.row_label, s.seat_number
                FROM booking_seats bs
@@ -298,24 +366,41 @@ async def create_transfer(
         if len(free) != len(seat_ids):
             raise TransferError(400, "Some of these seats aren't in this booking or were already sent to someone")
 
+        available = {z["booking_zone_id"]: z for z in await available_zone_quantities(conn, booking_id)} if zones else {}
+        if any(zid not in available or z["quantity"] > available[zid]["available"]
+               for zid, z in zip(zone_ids, zones)):
+            raise TransferError(400, "Some zone tickets are unavailable")
+
         transfer_id = await conn.fetchval(
             """INSERT INTO ticket_transfers (booking_id, from_user_id, to_user_id, recipient_contact)
                VALUES ($1::uuid, $2::uuid, $3::uuid, $4) RETURNING id""",
-            booking_id, sender_id, str(to_user["id"]), value,
+            booking_id, sender_id, str(to_user["id"]) if to_user else None, value,
         )
         await conn.execute(
             """INSERT INTO ticket_transfer_seats (transfer_id, booking_seat_id)
                SELECT $1::uuid, unnest($2::uuid[])""",
             str(transfer_id), seat_ids,
         )
+        for zid, zone in zip(zone_ids, zones):
+            await conn.execute(
+                "INSERT INTO ticket_transfer_zones (transfer_id, booking_zone_id, quantity) VALUES ($1::uuid, $2::uuid, $3)",
+                str(transfer_id), zid, zone["quantity"],
+            )
+        if to_user:
+            await _notify_transfer(conn, str(to_user["id"]), "transfer.received", {
+                "transfer_id": str(transfer_id),
+                "event_title": booking["event_title"],
+                "sender_name": sender.get("name") or "A TicketFlow user",
+            })
 
     return {
         "id": str(transfer_id),
         "status": "pending",
-        "recipient_name": to_user["name"],
-        "recipient_email": to_user["email"],
+        "recipient_name": to_user["name"] if to_user else value,
+        "recipient_email": to_user["email"] if to_user else value,
+        "invited": to_user is None,
         "recipient_contact": value,
-        "seats": [seat_label(r) for r in free],
+        "seats": [seat_label(r) for r in free] + [f"{available[zid]['name']} × {z['quantity']}" for zid, z in zip(zone_ids, zones)],
         "event_title": booking["event_title"],
         "venue_name": booking["venue_name"],
         "city": booking["city"],
@@ -340,7 +425,7 @@ _TRANSFER_SQL = """
     JOIN shows s    ON s.id = b.show_id
     JOIN events e   ON e.id = s.event_id
     JOIN users fu   ON fu.id = tt.from_user_id
-    JOIN users tu   ON tu.id = tt.to_user_id
+    LEFT JOIN users tu ON tu.id = tt.to_user_id
     LEFT JOIN tickets t ON t.booking_id = b.id
     WHERE tt.id = $1::uuid
 """
@@ -364,8 +449,11 @@ async def _load_for_update(conn: asyncpg.Connection, transfer_id: str) -> Option
     return dict(row) if row else None
 
 
-async def respond_to_transfer(conn: asyncpg.Connection, user_id: str, transfer_id: str, accept: bool) -> dict:
+async def respond_to_transfer(
+    conn: asyncpg.Connection, user_id: str, transfer_id: str, accept: bool,
+) -> dict:
     """Recipient accepts or declines a pending transfer."""
+    await _expire_for_user(conn, user_id)
     async with conn.transaction():
         tr = await _load_for_update(conn, transfer_id)
         if not tr or str(tr["to_user_id"]) != user_id:
@@ -374,41 +462,77 @@ async def respond_to_transfer(conn: asyncpg.Connection, user_id: str, transfer_i
             raise TransferError(400, f"This transfer has already been {tr['status']}")
 
         if not accept:
-            await conn.execute(
-                "UPDATE ticket_transfers SET status = 'declined', responded_at = now() WHERE id = $1::uuid",
+            updated = await conn.execute(
+                """UPDATE ticket_transfers tt SET status = 'declined', responded_at = clock_timestamp()
+                   WHERE tt.id = $1::uuid AND tt.status = 'pending'
+                     AND tt.created_at + interval '24 hours' > clock_timestamp()
+                     AND EXISTS (SELECT 1 FROM bookings b JOIN shows s ON s.id = b.show_id
+                                 WHERE b.id = tt.booking_id AND s.start_time > clock_timestamp())""",
                 transfer_id,
             )
+            if updated != "UPDATE 1":
+                raise TransferError(400, "This transfer has expired")
+            await _notify_transfer(conn, str(tr["from_user_id"]), "transfer.declined", {
+                "transfer_id": transfer_id,
+                "booking_id": str(tr["booking_id"]),
+                "event_title": tr["event_title"],
+                "recipient_name": tr["recipient_name"],
+            })
             return {**tr, "status": "declined"}
 
         if tr["booking_status"] != "confirmed" or tr["ticket_status"] == "cancelled":
             raise TransferError(400, "This booking is no longer valid")
-        if tr["ticket_used"]:
+        if tr["ticket_used"] or tr["ticket_status"] == "used":
             raise TransferError(400, "The sender has already used this booking at the venue")
         if _started(tr["start_time"]):
             raise TransferError(400, "This show has already started")
 
         token = secrets.token_urlsafe(24)
-        await conn.execute(
-            """UPDATE ticket_transfers
-               SET status = 'accepted', qr_token = $2, responded_at = now()
-               WHERE id = $1::uuid""",
+        updated = await conn.execute(
+            """UPDATE ticket_transfers tt
+               SET status = 'accepted', qr_token = $2, responded_at = clock_timestamp()
+               WHERE tt.id = $1::uuid AND tt.status = 'pending'
+                 AND tt.created_at + interval '24 hours' > clock_timestamp()
+                 AND EXISTS (SELECT 1 FROM bookings b JOIN shows s ON s.id = b.show_id
+                             WHERE b.id = tt.booking_id AND s.start_time > clock_timestamp())""",
             transfer_id, token,
         )
+        if updated != "UPDATE 1":
+            raise TransferError(400, "This transfer has expired")
+        await _notify_transfer(conn, str(tr["from_user_id"]), "transfer.accepted", {
+            "transfer_id": transfer_id,
+            "booking_id": str(tr["booking_id"]),
+            "event_title": tr["event_title"],
+            "recipient_name": tr["recipient_name"],
+        })
         return {**tr, "status": "accepted"}
 
 
 async def cancel_transfer(conn: asyncpg.Connection, user_id: str, transfer_id: str) -> dict:
     """Sender takes back a transfer the recipient hasn't answered yet."""
+    await _expire_for_user(conn, user_id)
     async with conn.transaction():
         tr = await _load_for_update(conn, transfer_id)
         if not tr or str(tr["from_user_id"]) != user_id:
             raise TransferError(404, "Transfer not found")
         if tr["status"] != "pending":
             raise TransferError(400, f"Only pending transfers can be cancelled (this one is {tr['status']})")
-        await conn.execute(
-            "UPDATE ticket_transfers SET status = 'cancelled', responded_at = now() WHERE id = $1::uuid",
+        updated = await conn.execute(
+            """UPDATE ticket_transfers tt SET status = 'cancelled', responded_at = clock_timestamp()
+               WHERE tt.id = $1::uuid AND tt.status = 'pending'
+                 AND tt.created_at + interval '24 hours' > clock_timestamp()
+                 AND EXISTS (SELECT 1 FROM bookings b JOIN shows s ON s.id = b.show_id
+                             WHERE b.id = tt.booking_id AND s.start_time > clock_timestamp())""",
             transfer_id,
         )
+        if updated != "UPDATE 1":
+            raise TransferError(400, "This transfer has expired")
+        if tr["to_user_id"]:
+            await _notify_transfer(conn, str(tr["to_user_id"]), "transfer.cancelled", {
+                "transfer_id": transfer_id,
+                "event_title": tr["event_title"],
+                "sender_name": tr["sender_name"],
+            })
         return {**tr, "status": "cancelled"}
 
 
@@ -416,7 +540,32 @@ async def cancel_transfer(conn: asyncpg.Connection, user_id: str, transfer_id: s
 # Recipient
 # ---------------------------------------------------------------------------
 
+async def claim_verified_invitations(conn: asyncpg.Connection, user_id: str, email: str) -> None:
+    """Attach invitations only after the caller's Firebase email has been verified."""
+    await conn.execute(
+        """WITH claimed AS (
+               UPDATE ticket_transfers tt SET to_user_id = $1::uuid
+               FROM bookings b JOIN shows s ON s.id = b.show_id
+               WHERE tt.booking_id = b.id AND tt.to_user_id IS NULL AND tt.from_user_id <> $1::uuid
+                 AND tt.status = 'pending' AND lower(tt.recipient_contact) = lower($2)
+                 AND EXISTS (SELECT 1 FROM users u WHERE u.id = $1::uuid AND lower(u.email) = lower($2)
+                             AND u.status = 'active')
+                 AND tt.created_at + interval '24 hours' > clock_timestamp()
+                 AND s.start_time > clock_timestamp() AND b.status = 'confirmed'
+                 AND NOT EXISTS (SELECT 1 FROM tickets t WHERE t.booking_id = b.id
+                                 AND (t.is_used OR t.status IN ('used', 'cancelled')))
+               RETURNING tt.id, tt.from_user_id, s.event_id
+           )
+           INSERT INTO notifications (user_id, event_name, payload)
+           SELECT $1::uuid, 'transfer.received',
+                  jsonb_build_object('transfer_id', c.id, 'event_title', e.title, 'sender_name', u.name)
+           FROM claimed c JOIN events e ON e.id = c.event_id JOIN users u ON u.id = c.from_user_id""",
+        user_id, email,
+    )
+
+
 async def list_received(conn: asyncpg.Connection, user_id: str) -> list[dict]:
+    await _expire_for_user(conn, user_id)
     rows = await conn.fetch(
         """SELECT tt.id, tt.status, tt.qr_token, tt.is_used, tt.created_at, tt.booking_id,
                   b.status AS booking_status, t.status AS ticket_status,
@@ -431,7 +580,7 @@ async def list_received(conn: asyncpg.Connection, user_id: str) -> list[dict]:
            JOIN venues v   ON v.id = sc.venue_id
            JOIN users fu   ON fu.id = tt.from_user_id
            LEFT JOIN tickets t ON t.booking_id = b.id
-           WHERE tt.to_user_id = $1::uuid AND tt.status <> 'cancelled'
+           WHERE tt.to_user_id = $1::uuid
            ORDER BY s.start_time DESC, tt.created_at DESC""",
         user_id,
     )
@@ -541,9 +690,20 @@ async def seats_left_on_booking(conn: asyncpg.Connection, booking_id: str) -> tu
 
 async def close_pending_for_booking(conn: asyncpg.Connection, booking_id: str) -> None:
     """Cancel transfers nobody answered (used when the booking is scanned or cancelled)."""
+    await _expire_for_booking(conn, booking_id)
     await conn.execute(
-        """UPDATE ticket_transfers SET status = 'cancelled', responded_at = now()
-           WHERE booking_id = $1::uuid AND status = 'pending'""",
+        """WITH closed AS (
+               UPDATE ticket_transfers SET status = 'cancelled', responded_at = clock_timestamp()
+               WHERE booking_id = $1::uuid AND status = 'pending'
+               RETURNING id, booking_id, to_user_id
+           )
+           INSERT INTO notifications (user_id, event_name, payload)
+           SELECT x.to_user_id, 'transfer.cancelled',
+                  jsonb_build_object('transfer_id', x.id, 'event_title', e.title,
+                                     'closed_with_booking', true)
+           FROM closed x JOIN bookings b ON b.id = x.booking_id
+           JOIN shows s ON s.id = b.show_id JOIN events e ON e.id = s.event_id
+           WHERE x.to_user_id IS NOT NULL""",
         booking_id,
     )
 
@@ -592,6 +752,13 @@ async def received_ticket_data(conn: asyncpg.Connection, user_id: str, transfer_
         transfer_id,
     )
     seat_list = [dict(r) for r in seats]
+    zone_rows = await conn.fetch(
+        """SELECT sz.name, tz.quantity, bz.unit_price FROM ticket_transfer_zones tz
+           JOIN booking_zones bz ON bz.id = tz.booking_zone_id
+           JOIN show_zones sz ON sz.id = bz.zone_id WHERE tz.transfer_id = $1::uuid""", transfer_id,
+    )
+    seat_list.extend({"row_label": z["name"], "seat_number": f" × {z['quantity']}",
+                      "seat_type": "standing", "price": z["unit_price"] * z["quantity"]} for z in zone_rows)
     return {
         "transfer_id": str(row["id"]),
         # the PDF prints this as the ticket reference; the transfer id is the recipient's own reference
@@ -609,3 +776,35 @@ async def received_ticket_data(conn: asyncpg.Connection, user_id: str, transfer_
         "sender_name": row["sender_name"],
         "qr_data": f"{TRANSFER_QR_PREFIX}{row['qr_token']}",
     }
+
+
+async def available_zone_quantities(conn: asyncpg.Connection, booking_id: str) -> list[dict]:
+    """Return each zone's unallocated quantity; caller serializes changes with the booking lock."""
+    rows = await conn.fetch(
+        """SELECT bz.id, sz.name, bz.quantity,
+                  COALESCE(SUM(tz.quantity) FILTER (WHERE tt.status IN ('pending', 'accepted')), 0) AS allocated
+           FROM booking_zones bz JOIN show_zones sz ON sz.id = bz.zone_id
+           LEFT JOIN ticket_transfer_zones tz ON tz.booking_zone_id = bz.id
+           LEFT JOIN ticket_transfers tt ON tt.id = tz.transfer_id
+           WHERE bz.booking_id = $1::uuid
+           GROUP BY bz.id, sz.name, bz.quantity ORDER BY sz.name, bz.id""",
+        booking_id,
+    )
+    return [{"booking_zone_id": str(row["id"]), "name": row["name"],
+             "quantity": row["quantity"], "available": row["quantity"] - int(row["allocated"])}
+            for row in rows]
+
+
+async def zones_left_on_booking(conn: asyncpg.Connection, booking_id: str) -> list[dict]:
+    """Standing tickets the original QR can admit after accepted transfers."""
+    rows = await conn.fetch(
+        """SELECT bz.id, sz.name, bz.quantity, bz.unit_price,
+                  COALESCE(SUM(tz.quantity) FILTER (WHERE tt.status = 'accepted'), 0) AS transferred
+           FROM booking_zones bz JOIN show_zones sz ON sz.id = bz.zone_id
+           LEFT JOIN ticket_transfer_zones tz ON tz.booking_zone_id = bz.id
+           LEFT JOIN ticket_transfers tt ON tt.id = tz.transfer_id
+           WHERE bz.booking_id = $1::uuid
+           GROUP BY bz.id, sz.name, bz.quantity ORDER BY sz.name, bz.id""", booking_id,
+    )
+    return [{"booking_zone_id": str(r["id"]), "name": r["name"],
+             "quantity": r["quantity"] - int(r["transferred"]), "unit_price": r["unit_price"]} for r in rows]

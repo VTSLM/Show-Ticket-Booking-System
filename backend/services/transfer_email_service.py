@@ -17,7 +17,7 @@ def _page(title: str, body: str) -> str:
     return f"""
     <html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
       <div style="background:#1a1a2e;color:white;padding:20px;text-align:center;border-radius:8px 8px 0 0;">
-        <h1 style="margin:0;">🎫 TicketFlow</h1>
+        <h1 style="margin:0;">TicketFlow</h1>
         <p style="margin:4px 0 0;">{html.escape(title)}</p>
       </div>
       <div style="padding:24px;background:#f9f9f9;">{body}</div>
@@ -40,11 +40,13 @@ def build_received_email(transfer: dict) -> tuple[str, str]:
     event = html.escape(transfer["event_title"])
     seats = html.escape(", ".join(transfer["seats"]))
     link = f"{FRONTEND_URL.rstrip('/')}/tickets/received"
+    invite = ("Create a TicketFlow account with this email and verify your email address, then open Received tickets."
+              if transfer.get("invited") else "Accept them to get your own QR code for entry.")
     body = f"""
         <p>Hi {html.escape(transfer['recipient_name'])},</p>
         <p><strong>{sender}</strong> sent you tickets for <strong>{event}</strong>.</p>
         <p>{_show_line(transfer)}<br>Seats: <strong>{seats}</strong></p>
-        <p>Accept them to get your own QR code for entry.</p>
+        <p>{invite}</p>
         <p style="margin-top:20px;">
           <a href="{link}" style="background:#3b82f6;color:white;padding:10px 18px;border-radius:6px;
              text-decoration:none;font-weight:600;">View and accept →</a>

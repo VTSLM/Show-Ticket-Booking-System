@@ -31,6 +31,7 @@ from routers.notifications import router as notifications_router
 from routers.chat import router as chat_router
 from routers.manager_analytics import router as manager_analytics_router
 from routers.ticket_transfers import router as ticket_transfers_router
+from services.ticket_transfer import expire_pending_transfers
 
 
 async def _cleanup_expired_locks():
@@ -45,6 +46,7 @@ async def _cleanup_expired_locks():
                        SET status='available', locked_by=NULL, locked_until=NULL
                        WHERE status='locked' AND locked_until < NOW()"""
                 )
+                await expire_pending_transfers(conn)
             if result != "UPDATE 0":
                 print(f"[seat-cleanup] {result}")
         except Exception as e:
