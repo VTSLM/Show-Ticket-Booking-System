@@ -31,3 +31,34 @@ For a demo, apply local migrations through `0036`, book with a test card, transf
 booking to a second account with **Request their share** selected, then pay and
 accept in that account. Verify the original booking's refund and the separate recipient
 charge in the Razorpay Test Mode dashboard.
+
+## Separate RazorpayX exploration
+
+The demo checkout above uses source refunds. A bank payout would be a different
+funds flow. [RazorpayX Payouts](https://razorpay.com/x/payouts_x/) is the candidate for paying
+a verified buyer from a funded account. Before adding collection, confirm the
+provider approves this flow and test buyer onboarding, the reimbursement amount
+and fee treatment, the funding source, and failure recovery. Use a durable
+reimbursement reference and a provider idempotency key for retries. Record payout
+success only after reconciling the provider's confirmation for the expected
+beneficiary, amount, and currency. Verify queued, failed and reversed payouts
+before enabling collection.
+
+With a RazorpayX test account, export the four `RAZORPAYX_TEST_*` variables
+listed in `backend/.env.example`. Use the test customer identifier and a test
+bank fund account provisioned for the mock buyer. Run the following command from
+`backend` using the backend Python environment.
+
+```sh
+python -m services.transfer_reimbursement \
+  --reference 991b2849-54b7-4088-b13f-3eaf47dc1278 --amount-paise 100
+```
+
+Use one UUID per intended test payout. Reuse the UUID and amount for retries
+and add `--payout-id` with the returned ID to check the provider status. The
+command refuses live keys and verifies the reference, beneficiary, amount and
+currency in the provider response. It reads neither booking data nor customer
+payment details and reports only the status RazorpayX returned in test mode.
+
+[Create payout API](https://razorpay.com/docs/api/x/payouts/create/bank-account)
+and [fetch payout API](https://razorpay.com/docs/api/x/payouts/fetch-with-id).
