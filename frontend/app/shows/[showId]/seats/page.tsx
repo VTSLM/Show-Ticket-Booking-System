@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { browseApi, seatsApi, bookingsApi } from "@/lib/api";
+import { browseApi, seatsApi, bookingsApi, ApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import VenueLayoutCanvas, { SeatItem, ZoneItem } from "@/components/VenueLayoutCanvas";
 import TermsAndConditionsModal from "@/components/TermsAndConditionsModal";
@@ -30,9 +30,15 @@ export default function SeatsPage() {
 
   // Selection state
   const [selectedSeatIds, setSelectedSeatIds] = useState<string[]>([]);
+  const [pendingSeatIds, setPendingSeatIds] = useState<string[]>([]);
   const [selectedZone, setSelectedZone] = useState<ZoneItem | null>(null);
   const [selectedZoneQty, setSelectedZoneQty] = useState<number>(1);
   const [couponCode, setCouponCode] = useState("");
+
+  const selectedSeatIdsRef = useRef<string[]>([]);
+  selectedSeatIdsRef.current = selectedSeatIds;
+  const pendingSeatIdsRef = useRef<string[]>([]);
+  pendingSeatIdsRef.current = pendingSeatIds;
 
   // Hold timer countdown (10 minutes = 600s)
   const [holdSecondsLeft, setHoldSecondsLeft] = useState<number>(600);
@@ -57,23 +63,39 @@ export default function SeatsPage() {
       if (data?.is_default_terms !== undefined) setIsDefaultTerms(data.is_default_terms);
 
       setZones(zoneList);
-      setSeats(
-        seatList.map((seat: any) => ({
+
+      const currentSelected = selectedSeatIdsRef.current;
+      const myLockedSeatIds: string[] = [];
+
+      const updatedSeats = seatList.map((seat: any) => {
+        const isMine = Boolean(
+          seat.is_mine ||
+          (currentSelected.includes(seat.show_seat_id) && seat.status === "locked")
+        );
+        if (isMine) {
+          myLockedSeatIds.push(seat.show_seat_id);
+        }
+        return {
           ...seat,
-          status:
-            seat.status === "locked" && seat.locked_by === profile?.id
-              ? "mine"
-              : seat.status,
-        }))
-      );
+          status: isMine ? "mine" : seat.status,
+        };
+      });
+
+      setSeats(updatedSeats);
+      if (myLockedSeatIds.length > 0 && currentSelected.length === 0) {
+        setSelectedSeatIds(myLockedSeatIds);
+      }
     } catch {
       toast.error("Failed to load seats");
     }
-  }, [showId, profile?.id]);
+  }, [showId]);
 
-  // Initial data loading and WebSocket updates
+  // Initial data loading and WebSocket updates with auto-reconnect
   useEffect(() => {
     let isMounted = true;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: NodeJS.Timeout | null = null;
+    let reconnectAttempts = 0;
 
     browseApi
       .showDetail(showId)
@@ -88,55 +110,88 @@ export default function SeatsPage() {
       if (isMounted) setLoading(false);
     });
 
-    let socket: WebSocket | undefined;
-    try {
-      const wsUrl = `${apiUrl.replace(/^http/, "ws")}/api/seats/${showId}/ws`;
-      socket = new WebSocket(wsUrl);
-      socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          // Instant local state update from WebSocket events without full network refetch
-          if (message.type === "lock" && Array.isArray(message.seat_ids)) {
-            setSeats((prev) =>
-              prev.map((s) =>
-                message.seat_ids.includes(s.show_seat_id)
-                  ? {
-                      ...s,
-                      status:
-                        selectedSeatIds.includes(s.show_seat_id) ||
-                        (profile?.id && message.user_id === profile.id)
-                          ? "mine"
-                          : "locked",
-                    }
-                  : s
-              )
-            );
-          } else if (message.type === "release" && Array.isArray(message.seat_ids)) {
-            setSeats((prev) =>
-              prev.map((s) =>
-                message.seat_ids.includes(s.show_seat_id)
-                  ? { ...s, status: "available" }
-                  : s
-              )
-            );
-          } else if (message.type === "zone_update" && message.zone_id) {
-            setZones((prev) =>
-              prev.map((z) =>
-                z.id === message.zone_id
-                  ? { ...z, available_capacity: message.available_capacity }
-                  : z
-              )
-            );
-          }
-        } catch {}
-      };
-    } catch {}
+    function connectWs() {
+      if (!isMounted) return;
+      try {
+        const wsUrl = `${apiUrl.replace(/^http/, "ws")}/api/seats/${showId}/ws`;
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+          reconnectAttempts = 0;
+          // Re-synchronize seat availability after reconnection
+          loadSeats();
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.type === "lock" && Array.isArray(message.seat_ids)) {
+              const lockedIds: string[] = message.seat_ids;
+              setSeats((prev) =>
+                prev.map((s) => {
+                  if (!lockedIds.includes(s.show_seat_id)) return s;
+                  const isMine = selectedSeatIdsRef.current.includes(s.show_seat_id);
+                  return {
+                    ...s,
+                    status: isMine ? "mine" : "locked",
+                  };
+                })
+              );
+              // Clear pending state if locked by another user
+              setPendingSeatIds((prev) =>
+                prev.filter((id) => !lockedIds.includes(id))
+              );
+            } else if (message.type === "release" && Array.isArray(message.seat_ids)) {
+              const releasedIds: string[] = message.seat_ids;
+              const lostSelected = selectedSeatIdsRef.current.filter((id) =>
+                releasedIds.includes(id)
+              );
+              if (lostSelected.length > 0) {
+                setSelectedSeatIds((prev) =>
+                  prev.filter((id) => !releasedIds.includes(id))
+                );
+                toast.error("Hold expired. Seats have been released.");
+              }
+              setSeats((prev) =>
+                prev.map((s) =>
+                  releasedIds.includes(s.show_seat_id)
+                    ? { ...s, status: "available" }
+                    : s
+                )
+              );
+            } else if (message.type === "zone_update" && message.zone_id) {
+              setZones((prev) =>
+                prev.map((z) =>
+                  z.id === message.zone_id
+                    ? { ...z, available_capacity: message.available_capacity }
+                    : z
+                )
+              );
+            }
+          } catch {}
+        };
+
+        socket.onclose = () => {
+          if (!isMounted) return;
+          const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
+          reconnectAttempts++;
+          reconnectTimer = setTimeout(connectWs, delay);
+        };
+
+        socket.onerror = () => {
+          socket?.close();
+        };
+      } catch {}
+    }
+
+    connectWs();
 
     return () => {
       isMounted = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [showId, apiUrl, loadSeats, profile?.id]);
+  }, [showId, apiUrl, loadSeats]);
 
   // Hold Timer Effect
   useEffect(() => {
@@ -175,14 +230,18 @@ export default function SeatsPage() {
     };
   }, [user, selectedSeatIds.length, selectedZone, loadSeats]);
 
-  // Seat toggle handler: immediate selection with zero flickering or buffering
+  // Seat toggle handler: non-optimistic lock with pending state and reliable rollback
   const handleToggleSeat = async (seat: SeatItem) => {
     if (seat.status === "booked" || seat.status === "locked" || seat.status === "reserved") {
       return;
     }
 
     const seatId = seat.show_seat_id;
-    const isCurrentlySelected = selectedSeatIds.includes(seatId);
+    if (pendingSeatIdsRef.current.includes(seatId)) {
+      return;
+    }
+
+    const isCurrentlySelected = selectedSeatIdsRef.current.includes(seatId);
 
     // 1. DESELECT SEAT
     if (isCurrentlySelected) {
@@ -197,36 +256,58 @@ export default function SeatsPage() {
       return;
     }
 
+    // Must be logged in to lock seats
+    if (!user) {
+      toast.error("Please log in to select seats");
+      router.push(`/auth/login?redirect=/shows/${showId}/seats`);
+      return;
+    }
+
     // Clear zone pass if switching to numbered seats
     if (selectedZone) {
       setSelectedZone(null);
     }
 
     // Limit maximum seats per booking
-    if (selectedSeatIds.length >= 10) {
+    if (selectedSeatIdsRef.current.length >= 10) {
       toast.error("Maximum 10 tickets allowed per transaction");
       return;
     }
 
-    // 2. SELECT SEAT
-    setSelectedSeatIds((prev) => [...prev, seatId]);
-    setSeats((prev) =>
-      prev.map((s) => (s.show_seat_id === seatId ? { ...s, status: "mine" } : s))
-    );
+    // 2. LOCK SEAT (Do not mark selected until backend confirms lock)
+    setPendingSeatIds((prev) => [...prev, seatId]);
 
-    // If user is authenticated, lock on backend
-    if (user) {
-      try {
-        await seatsApi.lock(showId, [seatId]);
-      } catch (err: any) {
-        if (err.message && (err.message.includes("409") || err.message.includes("already locked"))) {
-          setSelectedSeatIds((prev) => prev.filter((id) => id !== seatId));
-          setSeats((prev) =>
-            prev.map((s) => (s.show_seat_id === seatId ? { ...s, status: "locked" } : s))
-          );
-          toast.error("Seat was just taken by another user");
-        }
+    try {
+      await seatsApi.lock(showId, [seatId]);
+      // Succeeded: add to selectedSeatIds and mark as "mine"
+      setSelectedSeatIds((prev) => (prev.includes(seatId) ? prev : [...prev, seatId]));
+      setSeats((prev) =>
+        prev.map((s) => (s.show_seat_id === seatId ? { ...s, status: "mine" } : s))
+      );
+    } catch (err: any) {
+      // Failed: remove from selectedSeatIds and restore unavailable state
+      setSelectedSeatIds((prev) => prev.filter((id) => id !== seatId));
+      const isConflict =
+        (err instanceof ApiError && err.status === 409) ||
+        err?.status === 409 ||
+        (err?.message &&
+          (err.message.includes("409") ||
+            err.message.toLowerCase().includes("unavailable") ||
+            err.message.toLowerCase().includes("locked")));
+
+      if (isConflict) {
+        setSeats((prev) =>
+          prev.map((s) => (s.show_seat_id === seatId ? { ...s, status: "locked" } : s))
+        );
+        toast.error("Seat was just taken by another user");
+      } else {
+        setSeats((prev) =>
+          prev.map((s) => (s.show_seat_id === seatId ? { ...s, status: "available" } : s))
+        );
+        toast.error(err?.message || "Failed to lock seat. Please try again.");
       }
+    } finally {
+      setPendingSeatIds((prev) => prev.filter((id) => id !== seatId));
     }
   };
 
@@ -412,6 +493,7 @@ export default function SeatsPage() {
           seats={seats}
           zones={zones}
           selectedSeatIds={selectedSeatIds}
+          pendingSeatIds={pendingSeatIds}
           selectedZoneId={selectedZone?.id}
           onToggleSeat={handleToggleSeat}
           onSelectZone={handleSelectZone}
