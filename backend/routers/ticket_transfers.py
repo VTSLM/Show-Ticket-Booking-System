@@ -11,12 +11,12 @@ import io
 from typing import List
 
 import asyncpg
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from database import get_conn
-from dependencies import get_current_user, security
+from dependencies import get_current_user, require_role, security
 from firebase_admin_setup import verify_firebase_token
 from fastapi.security import HTTPAuthorizationCredentials
 from services import ticket_transfer as svc
@@ -45,6 +45,16 @@ class TransferCreate(BaseModel):
 
 def _http(err: svc.TransferError) -> HTTPException:
     return HTTPException(status_code=err.status_code, detail=err.detail)
+
+
+@router.get("/admin")
+async def admin_transfers(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    _: dict = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    return await svc.list_admin_transfers(conn, page, page_size)
 
 
 @router.get("/booking/{booking_id}")

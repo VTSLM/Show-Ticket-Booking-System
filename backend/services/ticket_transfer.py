@@ -778,6 +778,27 @@ async def received_ticket_data(conn: asyncpg.Connection, user_id: str, transfer_
     }
 
 
+async def list_admin_transfers(conn: asyncpg.Connection, page: int, page_size: int) -> dict:
+    total = await conn.fetchval("SELECT COUNT(*) FROM ticket_transfers")
+    rows = await conn.fetch(
+        """SELECT tt.id, tt.created_at,
+                  CASE WHEN tt.status = 'pending' AND
+                    (tt.created_at + interval '24 hours' <= statement_timestamp()
+                     OR s.start_time <= statement_timestamp()) THEN 'expired' ELSE tt.status END AS status,
+                  e.title AS event_title,
+                  sender.name AS sender_name, COALESCE(recipient.name, tt.recipient_contact) AS recipient_name,
+                  ((SELECT COUNT(*) FROM ticket_transfer_seats ts WHERE ts.transfer_id = tt.id) +
+                   COALESCE((SELECT SUM(tz.quantity) FROM ticket_transfer_zones tz WHERE tz.transfer_id = tt.id), 0)) AS seats
+           FROM ticket_transfers tt JOIN bookings b ON b.id = tt.booking_id
+           JOIN shows s ON s.id = b.show_id JOIN events e ON e.id = s.event_id
+           JOIN users sender ON sender.id = tt.from_user_id
+           LEFT JOIN users recipient ON recipient.id = tt.to_user_id
+           ORDER BY tt.created_at DESC, tt.id DESC LIMIT $1 OFFSET $2""",
+        page_size, (page - 1) * page_size,
+    )
+    return {"total": total, "page": page, "transfers": [dict(row) for row in rows]}
+
+
 async def available_zone_quantities(conn: asyncpg.Connection, booking_id: str) -> list[dict]:
     """Return each zone's unallocated quantity; caller serializes changes with the booking lock."""
     rows = await conn.fetch(
