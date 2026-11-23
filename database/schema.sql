@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict IPDIK6J2FeWwmdFnyD9fnRtdqAh8DyaNmBCpBhkmdqtgNZPciYGoeUuLNSPD4kL
+\restrict VIdLvZcIsExq862kZP7pdEgci1Ldp5HTPZAQiS9fgfuiXv4Mc5HQhPAdnDwZ3ah
 
 -- Dumped from database version 16.16
 -- Dumped by pg_dump version 16.16
@@ -326,6 +326,22 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: admin_audit_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.admin_audit_log (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    admin_id uuid,
+    target_user_id uuid,
+    action text NOT NULL,
+    details jsonb DEFAULT '{}'::jsonb NOT NULL,
+    reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT admin_audit_log_action_check CHECK ((action = ANY (ARRAY['role_added'::text, 'role_removed'::text, 'status_changed'::text, 'manager_approved'::text, 'manager_rejected'::text])))
+);
+
+
+--
 -- Name: ai_review_summaries; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -428,11 +444,32 @@ CREATE TABLE public.bookings (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     cancelled_at timestamp with time zone,
+    cancellation_reason text,
+    cancellation_notes text,
+    cancellation_charge numeric(10,2) DEFAULT 0.00,
+    refund_amount numeric(10,2) DEFAULT 0.00,
+    refund_status character varying(50) DEFAULT 'NOT_APPLICABLE'::character varying,
     subtotal_amount numeric(10,2) NOT NULL,
     discount_amount numeric(10,2) DEFAULT 0 NOT NULL,
     coupon_id uuid,
-    CONSTRAINT bookings_discount_amount_check CHECK ((discount_amount >= (0)::numeric)),
     CONSTRAINT bookings_total_amount_check CHECK ((total_amount >= (0)::numeric))
+);
+
+
+--
+-- Name: cancellation_policies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.cancellation_policies (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name character varying(100) NOT NULL,
+    description text,
+    cutoff_hours integer DEFAULT 2 NOT NULL,
+    deduction_percentage numeric(5,2) DEFAULT 0.00 NOT NULL,
+    flat_cancellation_fee numeric(10,2) DEFAULT 0.00 NOT NULL,
+    is_refundable boolean DEFAULT true NOT NULL,
+    is_default boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -458,8 +495,8 @@ CREATE TABLE public.checklist_templates (
 
 CREATE TABLE public.coupons (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    event_id uuid NOT NULL,
-    created_by uuid NOT NULL,
+    event_id uuid,
+    created_by uuid,
     code character varying(30) NOT NULL,
     discount_percent numeric(5,2) NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
@@ -501,14 +538,14 @@ CREATE TABLE public.events (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     backdrop_url text,
-    imdb_score numeric(3,1) DEFAULT 8.2,
-    metacritic_score integer DEFAULT 71,
-    age_rating character varying(20) DEFAULT '7+'::character varying,
-    match_rate integer DEFAULT 94,
+    imdb_score numeric(3,1),
+    metacritic_score integer,
+    age_rating character varying(20),
+    match_rate integer,
     organizer_id uuid,
     cast_crew jsonb DEFAULT '[]'::jsonb,
     artists jsonb DEFAULT '[]'::jsonb,
-    formats text[] DEFAULT ARRAY['2D'::text],
+    formats text[] DEFAULT '{}'::text[],
     certificate character varying(20) DEFAULT 'UA'::character varying,
     release_date date,
     terms_and_conditions text,
@@ -650,6 +687,32 @@ CREATE TABLE public.receipts (
     payment_id uuid NOT NULL,
     issued_at timestamp with time zone DEFAULT now() NOT NULL,
     pdf_url text
+);
+
+
+--
+-- Name: refunds; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.refunds (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    booking_id uuid NOT NULL,
+    payment_id uuid,
+    user_id uuid NOT NULL,
+    amount numeric(10,2) NOT NULL,
+    cancellation_charge numeric(10,2) DEFAULT 0.00 NOT NULL,
+    currency character varying(10) DEFAULT 'INR'::character varying NOT NULL,
+    status character varying(50) DEFAULT 'PENDING'::character varying NOT NULL,
+    razorpay_payment_id character varying(100),
+    razorpay_refund_id character varying(100),
+    failure_reason text,
+    retry_count integer DEFAULT 0 NOT NULL,
+    last_retried_at timestamp with time zone,
+    retried_by uuid,
+    policy_snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone
 );
 
 
@@ -832,6 +895,20 @@ CREATE TABLE public.show_seats (
 
 
 --
+-- Name: show_waitlist; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.show_waitlist (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    show_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    status text DEFAULT 'waiting'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT show_waitlist_status_check CHECK ((status = ANY (ARRAY['waiting'::text, 'cancelled'::text])))
+);
+
+
+--
 -- Name: show_zones; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -876,6 +953,7 @@ CREATE TABLE public.shows (
     dynamic_pricing boolean DEFAULT false NOT NULL,
     terms_and_conditions text,
     base_price numeric(10,2) DEFAULT 0 NOT NULL,
+    cancellation_policy_id uuid,
     CONSTRAINT shows_check CHECK ((end_time > start_time))
 );
 
@@ -933,6 +1011,54 @@ CREATE TABLE public.terms_acceptances (
 
 
 --
+-- Name: ticket_transfer_seats; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ticket_transfer_seats (
+    transfer_id uuid NOT NULL,
+    booking_seat_id uuid NOT NULL
+);
+
+
+--
+-- Name: ticket_transfer_zones; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ticket_transfer_zones (
+    transfer_id uuid NOT NULL,
+    booking_zone_id uuid NOT NULL,
+    quantity integer NOT NULL,
+    CONSTRAINT ticket_transfer_zones_quantity_check CHECK ((quantity > 0))
+);
+
+
+--
+-- Name: ticket_transfers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ticket_transfers (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    booking_id uuid NOT NULL,
+    from_user_id uuid NOT NULL,
+    to_user_id uuid,
+    recipient_contact character varying(255) NOT NULL,
+    status character varying(20) DEFAULT 'pending'::character varying NOT NULL,
+    qr_token character varying(64),
+    is_used boolean DEFAULT false NOT NULL,
+    used_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    responded_at timestamp with time zone,
+    requested_share_paise integer,
+    CONSTRAINT chk_ticket_transfers_not_self CHECK ((from_user_id <> to_user_id)),
+    CONSTRAINT chk_ticket_transfers_token CHECK ((((status)::text <> 'accepted'::text) OR (qr_token IS NOT NULL))),
+    CONSTRAINT chk_ticket_transfers_used CHECK ((((is_used = false) AND (used_at IS NULL)) OR ((is_used = true) AND (used_at IS NOT NULL)))),
+    CONSTRAINT ticket_transfers_recipient_required CHECK ((((status)::text <> 'accepted'::text) OR (to_user_id IS NOT NULL))),
+    CONSTRAINT ticket_transfers_requested_share_paise_check CHECK ((requested_share_paise >= 100)),
+    CONSTRAINT ticket_transfers_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'accepted'::character varying, 'declined'::character varying, 'cancelled'::character varying, 'expired'::character varying])::text[])))
+);
+
+
+--
 -- Name: tickets; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -948,6 +1074,26 @@ CREATE TABLE public.tickets (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT tickets_check CHECK ((((is_used = false) AND (used_at IS NULL)) OR ((is_used = true) AND (used_at IS NOT NULL)))),
     CONSTRAINT tickets_status_check CHECK (((status)::text = ANY ((ARRAY['valid'::character varying, 'used'::character varying, 'cancelled'::character varying])::text[])))
+);
+
+
+--
+-- Name: transfer_demo_payments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.transfer_demo_payments (
+    transfer_id uuid NOT NULL,
+    razorpay_order_id text NOT NULL,
+    original_payment_id text NOT NULL,
+    amount_paise integer NOT NULL,
+    recipient_payment_id text,
+    refund_target text,
+    refund_id text,
+    refund_status text,
+    checked_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT transfer_demo_payments_amount_paise_check CHECK ((amount_paise >= 100)),
+    CONSTRAINT transfer_demo_payments_refund_status_check CHECK ((refund_status = ANY (ARRAY['pending'::text, 'processed'::text, 'failed'::text]))),
+    CONSTRAINT transfer_demo_payments_refund_target_check CHECK ((refund_target = ANY (ARRAY['buyer'::text, 'recipient'::text])))
 );
 
 
@@ -976,6 +1122,23 @@ CREATE TABLE public.user_roles (
     user_id uuid NOT NULL,
     role_id uuid NOT NULL,
     assigned_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: user_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_sessions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    role character varying(50) DEFAULT 'customer'::character varying NOT NULL,
+    timeout_seconds integer NOT NULL,
+    last_activity_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    ip_address character varying(100),
+    user_agent text
 );
 
 
@@ -1100,11 +1263,8 @@ CREATE TABLE public.venues (
     noc_expiry date,
     latitude double precision,
     longitude double precision,
-    CONSTRAINT venues_licensed_capacity_check CHECK (((licensed_capacity IS NULL) OR (licensed_capacity > 0))),
-    CONSTRAINT venues_coordinates_check CHECK (
-        (latitude IS NULL AND longitude IS NULL)
-        OR (latitude BETWEEN '-90'::integer AND 90 AND longitude BETWEEN '-180'::integer AND 180)
-    )
+    CONSTRAINT venues_coordinates_check CHECK ((((latitude IS NULL) AND (longitude IS NULL)) OR (((latitude >= ('-90'::integer)::double precision) AND (latitude <= (90)::double precision)) AND ((longitude >= ('-180'::integer)::double precision) AND (longitude <= (180)::double precision))))),
+    CONSTRAINT venues_licensed_capacity_check CHECK (((licensed_capacity IS NULL) OR (licensed_capacity > 0)))
 );
 
 
@@ -1171,6 +1331,14 @@ CREATE TABLE public.wishlists (
     event_id uuid NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: admin_audit_log admin_audit_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_audit_log
+    ADD CONSTRAINT admin_audit_log_pkey PRIMARY KEY (id);
 
 
 --
@@ -1243,6 +1411,14 @@ ALTER TABLE ONLY public.bookings
 
 ALTER TABLE ONLY public.bookings
     ADD CONSTRAINT bookings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: cancellation_policies cancellation_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cancellation_policies
+    ADD CONSTRAINT cancellation_policies_pkey PRIMARY KEY (id);
 
 
 --
@@ -1374,6 +1550,22 @@ ALTER TABLE ONLY public.receipts
 
 
 --
+-- Name: refunds refunds_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.refunds
+    ADD CONSTRAINT refunds_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: refunds refunds_razorpay_refund_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.refunds
+    ADD CONSTRAINT refunds_razorpay_refund_id_key UNIQUE (razorpay_refund_id);
+
+
+--
 -- Name: review_comments review_comments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1486,6 +1678,14 @@ ALTER TABLE ONLY public.show_seats
 
 
 --
+-- Name: show_waitlist show_waitlist_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.show_waitlist
+    ADD CONSTRAINT show_waitlist_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: show_zones show_zones_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1534,6 +1734,38 @@ ALTER TABLE ONLY public.terms_acceptances
 
 
 --
+-- Name: ticket_transfer_seats ticket_transfer_seats_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfer_seats
+    ADD CONSTRAINT ticket_transfer_seats_pkey PRIMARY KEY (transfer_id, booking_seat_id);
+
+
+--
+-- Name: ticket_transfer_zones ticket_transfer_zones_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfer_zones
+    ADD CONSTRAINT ticket_transfer_zones_pkey PRIMARY KEY (transfer_id, booking_zone_id);
+
+
+--
+-- Name: ticket_transfers ticket_transfers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfers
+    ADD CONSTRAINT ticket_transfers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ticket_transfers ticket_transfers_qr_token_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfers
+    ADD CONSTRAINT ticket_transfers_qr_token_key UNIQUE (qr_token);
+
+
+--
 -- Name: tickets tickets_booking_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1547,6 +1779,38 @@ ALTER TABLE ONLY public.tickets
 
 ALTER TABLE ONLY public.tickets
     ADD CONSTRAINT tickets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: transfer_demo_payments transfer_demo_payments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transfer_demo_payments
+    ADD CONSTRAINT transfer_demo_payments_pkey PRIMARY KEY (transfer_id);
+
+
+--
+-- Name: transfer_demo_payments transfer_demo_payments_razorpay_order_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transfer_demo_payments
+    ADD CONSTRAINT transfer_demo_payments_razorpay_order_id_key UNIQUE (razorpay_order_id);
+
+
+--
+-- Name: transfer_demo_payments transfer_demo_payments_recipient_payment_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transfer_demo_payments
+    ADD CONSTRAINT transfer_demo_payments_recipient_payment_id_key UNIQUE (recipient_payment_id);
+
+
+--
+-- Name: transfer_demo_payments transfer_demo_payments_refund_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transfer_demo_payments
+    ADD CONSTRAINT transfer_demo_payments_refund_id_key UNIQUE (refund_id);
 
 
 --
@@ -1590,11 +1854,27 @@ ALTER TABLE ONLY public.review_versions
 
 
 --
+-- Name: show_waitlist uq_show_waitlist_show_user; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.show_waitlist
+    ADD CONSTRAINT uq_show_waitlist_show_user UNIQUE (show_id, user_id);
+
+
+--
 -- Name: user_roles user_roles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.user_roles
     ADD CONSTRAINT user_roles_pkey PRIMARY KEY (user_id, role_id);
+
+
+--
+-- Name: user_sessions user_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sessions
+    ADD CONSTRAINT user_sessions_pkey PRIMARY KEY (id);
 
 
 --
@@ -1726,6 +2006,20 @@ ALTER TABLE ONLY public.wishlists
 
 
 --
+-- Name: idx_admin_audit_log_admin; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_admin_audit_log_admin ON public.admin_audit_log USING btree (admin_id, created_at DESC);
+
+
+--
+-- Name: idx_admin_audit_log_target; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_admin_audit_log_target ON public.admin_audit_log USING btree (target_user_id, created_at DESC);
+
+
+--
 -- Name: idx_ai_review_summaries_generated_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1789,17 +2083,17 @@ CREATE INDEX idx_bookings_user_id ON public.bookings USING btree (user_id);
 
 
 --
--- Name: idx_coupons_created_by; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_coupons_created_by ON public.coupons USING btree (created_by);
-
-
---
 -- Name: idx_coupons_event_code; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX idx_coupons_event_code ON public.coupons USING btree (event_id, lower((code)::text));
+
+
+--
+-- Name: idx_coupons_global_code; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_coupons_global_code ON public.coupons USING btree (lower((code)::text)) WHERE (event_id IS NULL);
 
 
 --
@@ -1929,6 +2223,34 @@ CREATE INDEX idx_payments_transaction_id ON public.payments USING btree (transac
 
 
 --
+-- Name: idx_refunds_booking_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_refunds_booking_id ON public.refunds USING btree (booking_id);
+
+
+--
+-- Name: idx_refunds_rzp_refund_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_refunds_rzp_refund_id ON public.refunds USING btree (razorpay_refund_id);
+
+
+--
+-- Name: idx_refunds_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_refunds_status ON public.refunds USING btree (status);
+
+
+--
+-- Name: idx_refunds_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_refunds_user_id ON public.refunds USING btree (user_id);
+
+
+--
 -- Name: idx_review_comments_parent; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2048,6 +2370,20 @@ CREATE INDEX idx_show_seats_status ON public.show_seats USING btree (show_id, st
 
 
 --
+-- Name: idx_show_waitlist_fifo; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_show_waitlist_fifo ON public.show_waitlist USING btree (show_id, created_at, id) WHERE (status = 'waiting'::text);
+
+
+--
+-- Name: idx_show_waitlist_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_show_waitlist_user ON public.show_waitlist USING btree (user_id, created_at DESC) WHERE (status = 'waiting'::text);
+
+
+--
 -- Name: idx_show_zones_show_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2111,6 +2447,48 @@ CREATE INDEX idx_terms_acceptances_user_show ON public.terms_acceptances USING b
 
 
 --
+-- Name: idx_ticket_transfer_seats_seat; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ticket_transfer_seats_seat ON public.ticket_transfer_seats USING btree (booking_seat_id);
+
+
+--
+-- Name: idx_ticket_transfer_zones_booking_zone; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ticket_transfer_zones_booking_zone ON public.ticket_transfer_zones USING btree (booking_zone_id);
+
+
+--
+-- Name: idx_ticket_transfers_booking; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ticket_transfers_booking ON public.ticket_transfers USING btree (booking_id);
+
+
+--
+-- Name: idx_ticket_transfers_from_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ticket_transfers_from_user ON public.ticket_transfers USING btree (from_user_id, created_at DESC);
+
+
+--
+-- Name: idx_ticket_transfers_pending_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ticket_transfers_pending_created ON public.ticket_transfers USING btree (created_at) WHERE ((status)::text = 'pending'::text);
+
+
+--
+-- Name: idx_ticket_transfers_to_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ticket_transfers_to_user ON public.ticket_transfers USING btree (to_user_id, created_at DESC);
+
+
+--
 -- Name: idx_tickets_booking_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2136,6 +2514,27 @@ CREATE INDEX idx_tickets_user_id ON public.tickets USING btree (user_id);
 --
 
 CREATE INDEX idx_user_roles_role_id ON public.user_roles USING btree (role_id);
+
+
+--
+-- Name: idx_user_sessions_last_activity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_sessions_last_activity ON public.user_sessions USING btree (last_activity_at);
+
+
+--
+-- Name: idx_user_sessions_revoked_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_sessions_revoked_at ON public.user_sessions USING btree (revoked_at);
+
+
+--
+-- Name: idx_user_sessions_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_sessions_user_id ON public.user_sessions USING btree (user_id);
 
 
 --
@@ -2353,6 +2752,22 @@ CREATE TRIGGER venue_audit_no_delete BEFORE DELETE ON public.venue_verification_
 --
 
 CREATE TRIGGER venue_audit_no_update BEFORE UPDATE ON public.venue_verification_audit FOR EACH ROW EXECUTE FUNCTION public.prevent_venue_audit_mutation();
+
+
+--
+-- Name: admin_audit_log admin_audit_log_admin_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_audit_log
+    ADD CONSTRAINT admin_audit_log_admin_id_fkey FOREIGN KEY (admin_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: admin_audit_log admin_audit_log_target_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_audit_log
+    ADD CONSTRAINT admin_audit_log_target_user_id_fkey FOREIGN KEY (target_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
 
 --
@@ -2580,6 +2995,38 @@ ALTER TABLE ONLY public.receipts
 
 
 --
+-- Name: refunds refunds_booking_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.refunds
+    ADD CONSTRAINT refunds_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id) ON DELETE CASCADE;
+
+
+--
+-- Name: refunds refunds_payment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.refunds
+    ADD CONSTRAINT refunds_payment_id_fkey FOREIGN KEY (payment_id) REFERENCES public.payments(id) ON DELETE SET NULL;
+
+
+--
+-- Name: refunds refunds_retried_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.refunds
+    ADD CONSTRAINT refunds_retried_by_fkey FOREIGN KEY (retried_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: refunds refunds_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.refunds
+    ADD CONSTRAINT refunds_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: review_comments review_comments_parent_comment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2708,11 +3155,35 @@ ALTER TABLE ONLY public.show_seats
 
 
 --
+-- Name: show_waitlist show_waitlist_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.show_waitlist
+    ADD CONSTRAINT show_waitlist_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
+
+
+--
+-- Name: show_waitlist show_waitlist_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.show_waitlist
+    ADD CONSTRAINT show_waitlist_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: show_zones show_zones_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.show_zones
     ADD CONSTRAINT show_zones_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
+
+
+--
+-- Name: shows shows_cancellation_policy_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shows
+    ADD CONSTRAINT shows_cancellation_policy_id_fkey FOREIGN KEY (cancellation_policy_id) REFERENCES public.cancellation_policies(id) ON DELETE SET NULL;
 
 
 --
@@ -2788,6 +3259,62 @@ ALTER TABLE ONLY public.terms_acceptances
 
 
 --
+-- Name: ticket_transfer_seats ticket_transfer_seats_booking_seat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfer_seats
+    ADD CONSTRAINT ticket_transfer_seats_booking_seat_id_fkey FOREIGN KEY (booking_seat_id) REFERENCES public.booking_seats(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ticket_transfer_seats ticket_transfer_seats_transfer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfer_seats
+    ADD CONSTRAINT ticket_transfer_seats_transfer_id_fkey FOREIGN KEY (transfer_id) REFERENCES public.ticket_transfers(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ticket_transfer_zones ticket_transfer_zones_booking_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfer_zones
+    ADD CONSTRAINT ticket_transfer_zones_booking_zone_id_fkey FOREIGN KEY (booking_zone_id) REFERENCES public.booking_zones(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ticket_transfer_zones ticket_transfer_zones_transfer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfer_zones
+    ADD CONSTRAINT ticket_transfer_zones_transfer_id_fkey FOREIGN KEY (transfer_id) REFERENCES public.ticket_transfers(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ticket_transfers ticket_transfers_booking_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfers
+    ADD CONSTRAINT ticket_transfers_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ticket_transfers ticket_transfers_from_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfers
+    ADD CONSTRAINT ticket_transfers_from_user_id_fkey FOREIGN KEY (from_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ticket_transfers ticket_transfers_to_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfers
+    ADD CONSTRAINT ticket_transfers_to_user_id_fkey FOREIGN KEY (to_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: tickets tickets_booking_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2812,6 +3339,14 @@ ALTER TABLE ONLY public.tickets
 
 
 --
+-- Name: transfer_demo_payments transfer_demo_payments_transfer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transfer_demo_payments
+    ADD CONSTRAINT transfer_demo_payments_transfer_id_fkey FOREIGN KEY (transfer_id) REFERENCES public.ticket_transfers(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: user_roles user_roles_role_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2825,6 +3360,14 @@ ALTER TABLE ONLY public.user_roles
 
 ALTER TABLE ONLY public.user_roles
     ADD CONSTRAINT user_roles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_sessions user_sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sessions
+    ADD CONSTRAINT user_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -2956,6 +3499,21 @@ ALTER TABLE ONLY public.wishlists
 
 
 --
+-- Name: user_sessions Users can view their own sessions; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Users can view their own sessions" ON public.user_sessions FOR SELECT USING (((auth.uid())::text = (( SELECT users.firebase_uid
+   FROM public.users
+  WHERE (users.id = user_sessions.user_id)))::text));
+
+
+--
+-- Name: admin_audit_log; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.admin_audit_log ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: audit_log; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2978,6 +3536,12 @@ ALTER TABLE public.booking_seats ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: cancellation_policies; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.cancellation_policies ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: checklist_templates; Type: ROW SECURITY; Schema: public; Owner: -
@@ -3046,6 +3610,12 @@ ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.receipts ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: refunds; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.refunds ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: review_comments; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3100,6 +3670,12 @@ ALTER TABLE public.seats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.show_seats ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: show_waitlist; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.show_waitlist ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: shows; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3118,10 +3694,40 @@ ALTER TABLE public.support_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_requests ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: ticket_transfer_seats; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ticket_transfer_seats ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ticket_transfer_zones; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ticket_transfer_zones ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ticket_transfers; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ticket_transfers ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: transfer_demo_payments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.transfer_demo_payments ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: trust_tier_rules; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
 ALTER TABLE public.trust_tier_rules ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: user_sessions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.user_sessions ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: users; Type: ROW SECURITY; Schema: public; Owner: -
@@ -3181,5 +3787,5 @@ ALTER TABLE public.wishlists ENABLE ROW LEVEL SECURITY;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict IPDIK6J2FeWwmdFnyD9fnRtdqAh8DyaNmBCpBhkmdqtgNZPciYGoeUuLNSPD4kL
+\unrestrict VIdLvZcIsExq862kZP7pdEgci1Ldp5HTPZAQiS9fgfuiXv4Mc5HQhPAdnDwZ3ah
 
