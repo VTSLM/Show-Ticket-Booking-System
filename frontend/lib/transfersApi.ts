@@ -20,6 +20,9 @@ export interface SentTransfer {
   recipient_contact: string;
   seats: string[];
   used: boolean;
+  requested_share_paise: number | null;
+  demo_amount: number | null;
+  demo_refund_status: "pending" | "processed" | "failed" | null;
   created_at: string | null;
   responded_at: string | null;
 }
@@ -29,6 +32,7 @@ export interface BookingTransfers {
   event_title: string;
   start_time: string | null;
   can_transfer: boolean;
+  demo_payment_available: boolean;
   reason: string | null;
   seats: TransferSeat[];
   zones: { booking_zone_id: string; name: string; quantity: number; available: number }[];
@@ -39,6 +43,9 @@ export interface ReceivedTransfer {
   id: string;
   status: TransferStatus | "booking_cancelled";
   used: boolean;
+  requested_share_paise: number | null;
+  demo_amount: number | null;
+  demo_refund_status: "pending" | "processed" | "failed" | null;
   sender_name: string;
   event_title: string;
   poster_url: string | null;
@@ -47,6 +54,8 @@ export interface ReceivedTransfer {
   city: string;
   screen_name: string;
   seats: string[];
+  demo_payment_available: boolean;
+  demo_refund_target: "buyer" | "recipient" | null;
   qr_data: string | null;
   qr_image: string | null; // base64 PNG
 }
@@ -54,12 +63,16 @@ export interface ReceivedTransfer {
 export const transfersApi = {
   forBooking: (bookingId: string) =>
     api.get<BookingTransfers>(`/api/transfers/booking/${bookingId}`),
-  send: (data: { booking_id: string; seat_ids: string[]; zones: { booking_zone_id: string; quantity: number }[]; recipient: string }) =>
+  send: (data: { booking_id: string; seat_ids: string[]; zones: { booking_zone_id: string; quantity: number }[]; recipient: string; request_demo_payment?: boolean }) =>
     api.post<{ id: string; status: TransferStatus; recipient_name: string; seats: string[]; message: string }>(
       "/api/transfers",
       data,
     ),
   received: () => api.get<ReceivedTransfer[]>("/api/transfers/received"),
+  demoCheckout: (id: string) => api.post<{ order_id: string; amount: number; currency: string; key_id: string }>(
+    `/api/transfers/${id}/demo-checkout`,
+  ),
+  checkDemoCheckout: (id: string) => api.post<{ status: string }>(`/api/transfers/${id}/demo-checkout/check`),
   accept: (id: string) => api.post<{ id: string; status: TransferStatus }>(`/api/transfers/${id}/accept`),
   decline: (id: string) => api.post<{ id: string; status: TransferStatus }>(`/api/transfers/${id}/decline`),
   cancel: (id: string) => api.post<{ id: string; status: TransferStatus }>(`/api/transfers/${id}/cancel`),

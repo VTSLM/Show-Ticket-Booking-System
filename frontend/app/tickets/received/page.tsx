@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import Script from "next/script";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -85,8 +86,53 @@ export default function ReceivedTicketsPage() {
     }
   };
 
+  const checkDemoPayment = async (id: string) => {
+    setBusyId(id);
+    try {
+      const { status } = await transfersApi.checkDemoCheckout(id);
+      if (status === "awaiting_payment") toast("Waiting for Razorpay to confirm the test payment.");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not check the test payment");
+      await load();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const startDemoPayment = async (id: string) => {
+    if (!window.Razorpay) {
+      toast.error("Razorpay is still loading. Try again shortly.");
+      return;
+    }
+    setBusyId(id);
+    try {
+      const order = await transfersApi.demoCheckout(id);
+      const checkout = new window.Razorpay({
+        key: order.key_id,
+        order_id: order.order_id,
+        amount: order.amount,
+        currency: order.currency,
+        name: "TicketFlow",
+        description: "Demo ticket transfer",
+        prefill: { email: user?.email ?? undefined, contact: "" },
+        theme: { color: "#e94560" },
+        retry: { enabled: true },
+        handler: async () => checkDemoPayment(id),
+        modal: { ondismiss: () => { setBusyId(null); void load(); } },
+      });
+      checkout.open();
+    } catch (e) {
+      setBusyId(null);
+      toast.error(e instanceof Error ? e.message : "Could not open demo checkout");
+    }
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+      {items.some((item) => item.demo_payment_available) && (
+        <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="afterInteractive" />
+      )}
       <p className="mb-2 text-xs font-bold uppercase tracking-widest text-[var(--blue)]">From friends</p>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-extrabold tracking-tight text-white">Received tickets</h1>
@@ -151,14 +197,20 @@ export default function ReceivedTicketsPage() {
 
                   {t.status === "pending" && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <button
+                      {!t.requested_share_paise && <button
                         type="button"
                         className="btn-primary text-sm"
                         onClick={() => answer(t.id, true)}
                         disabled={busyId === t.id}
                       >
                         {busyId === t.id ? "Please wait…" : "Accept"}
-                      </button>
+                      </button>}
+                      {t.requested_share_paise && t.demo_payment_available && (
+                        <button type="button" className="btn-secondary text-sm" disabled={busyId === t.id}
+                          onClick={() => startDemoPayment(t.id)}>
+                          {t.demo_amount ? "Resume demo checkout" : `Pay ₹${(t.requested_share_paise / 100).toFixed(2)} & accept (test)`}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn-secondary text-sm"
@@ -167,6 +219,22 @@ export default function ReceivedTicketsPage() {
                       >
                         Decline
                       </button>
+                    </div>
+                  )}
+
+                  {t.status === "pending" && t.requested_share_paise && !t.demo_payment_available && (
+                    <p className="mt-2 text-xs text-[var(--muted)]">Test checkout is unavailable right now.</p>
+                  )}
+                  {t.demo_amount && (
+                    <div className="mt-3 text-xs text-[var(--muted)]">
+                      Test payment: ₹{(t.demo_amount / 100).toFixed(2)}
+                      {t.demo_refund_target && <span>
+                        {" · "}{t.demo_refund_target === "buyer" ? "Original buyer’s refund" : "Your refund"}: {t.demo_refund_status}
+                      </span>}
+                      {t.demo_payment_available && (!t.demo_refund_status || t.demo_refund_status === "pending") && (
+                        <button type="button" className="ml-2 underline" disabled={busyId === t.id}
+                          onClick={() => checkDemoPayment(t.id)}>Check payment</button>
+                      )}
                     </div>
                   )}
 

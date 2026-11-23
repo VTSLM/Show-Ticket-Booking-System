@@ -11,6 +11,7 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
   const [selected, setSelected] = useState<string[]>([]);
   const [zoneQuantities, setZoneQuantities] = useState<Record<string, number>>({});
   const [recipient, setRecipient] = useState("");
+  const [requestPayment, setRequestPayment] = useState(false);
   const [sending, setSending] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -38,11 +39,12 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
     if (!recipient.trim()) return toast.error("Enter their email or phone number");
     setSending(true);
     try {
-      const res = await transfersApi.send({ booking_id: bookingId, seat_ids: selected, zones, recipient: recipient.trim() });
+      const res = await transfersApi.send({ booking_id: bookingId, seat_ids: selected, zones, recipient: recipient.trim(), request_demo_payment: requestPayment });
       toast.success(res.message);
       setSelected([]);
       setZoneQuantities({});
       setRecipient("");
+      setRequestPayment(false);
       setOpen(false);
       await load();
     } catch (e) {
@@ -128,6 +130,12 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
             If they don&apos;t have an account yet, send to their email and they can sign up and verify it.
             Once they accept, those seats get their own QR code and your QR stops working for them.
           </p>
+          {data.demo_payment_available && (
+            <label className="flex items-center gap-2 text-slate-300">
+              <input type="checkbox" checked={requestPayment} onChange={(e) => setRequestPayment(e.target.checked)} />
+              Request their share (test payment)
+            </label>
+          )}
           <div className="flex gap-2">
             <button type="button" className="btn-primary flex-1 text-sm" onClick={send} disabled={sending}>
               {sending ? "Sending…" : "Send tickets"}
@@ -149,6 +157,12 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
                   <span className="font-semibold text-white">{t.seats.join(", ")}</span> → {t.recipient_name}
                   <span className="ml-2 text-xs font-semibold" style={{ color: st.color }}>
                     {t.used ? "Used at venue" : st.label}
+                    {t.status === "pending" && t.requested_share_paise && (
+                      <> · Test share ₹{(t.requested_share_paise / 100).toFixed(2)}</>
+                    )}
+                    {t.demo_refund_status && t.demo_amount && (
+                      <> · Test refund ₹{(t.demo_amount / 100).toFixed(2)}: {t.demo_refund_status}</>
+                    )}
                   </span>
                 </span>
                 {t.status === "pending" && (
