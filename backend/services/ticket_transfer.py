@@ -259,8 +259,10 @@ async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_
     )
     transfer_rows = await conn.fetch(
         """SELECT tt.id, tt.status, tt.recipient_contact, tt.created_at, tt.responded_at, tt.is_used,
-                  u.name AS recipient_name
+                  u.name AS recipient_name, tt.requested_share_paise, dp.amount_paise AS demo_amount,
+                  CASE WHEN dp.refund_target = 'buyer' THEN dp.refund_status END AS demo_refund_status
            FROM ticket_transfers tt
+           LEFT JOIN transfer_demo_payments dp ON dp.transfer_id = tt.id
            LEFT JOIN users u ON u.id = tt.to_user_id
            WHERE tt.booking_id = $1::uuid
            ORDER BY tt.created_at DESC""",
@@ -300,6 +302,9 @@ async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_
                 "recipient_contact": r["recipient_contact"],
                 "seats": seats_by_transfer.get(str(r["id"]), []),
                 "used": r["is_used"],
+                "demo_amount": r.get("demo_amount"),
+                "requested_share_paise": r.get("requested_share_paise"),
+                "demo_refund_status": r.get("demo_refund_status"),
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                 "responded_at": r["responded_at"].isoformat() if r["responded_at"] else None,
             }
@@ -308,8 +313,33 @@ async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_
     }
 
 
+async def quote_demo_share(conn: asyncpg.Connection, transfer_id: str) -> dict:
+    """Allocate the captured amount by item subtotal, rounded down to paise."""
+    quote = await conn.fetchrow(
+        """SELECT p.transaction_id, (p.amount * 100)::bigint AS captured_paise,
+                  floor(p.amount * 100 *
+                    (COALESCE((SELECT sum(bs.unit_price) FROM ticket_transfer_seats ts
+                               JOIN booking_seats bs ON bs.id = ts.booking_seat_id
+                               WHERE ts.transfer_id = tt.id), 0) +
+                     COALESCE((SELECT sum(bz.unit_price * tz.quantity) FROM ticket_transfer_zones tz
+                               JOIN booking_zones bz ON bz.id = tz.booking_zone_id
+                               WHERE tz.transfer_id = tt.id), 0)) / NULLIF(b.subtotal_amount, 0)) AS amount
+           FROM ticket_transfers tt JOIN bookings b ON b.id = tt.booking_id
+           JOIN payments p ON p.booking_id = b.id
+           WHERE tt.id = $1::uuid AND p.status = 'successful'
+             AND p.payment_method = 'razorpay' AND p.currency = 'INR'
+           ORDER BY p.paid_at DESC NULLS LAST LIMIT 1""", transfer_id,
+    )
+    if (not quote or not re.fullmatch(r"pay_[A-Za-z0-9]+", quote["transaction_id"] or "")
+            or quote["amount"] is None
+            or not 100 <= quote["amount"] <= min(quote["captured_paise"], 2_147_483_647)):
+        raise TransferError(409, "This booking has no eligible test payment to reimburse")
+    return dict(quote)
+
+
 async def create_transfer(
     conn: asyncpg.Connection, sender: dict, booking_id: str, booking_seat_ids: list, recipient: str, zones: Optional[list] = None,
+    *, request_demo_payment: bool = False,
 ) -> dict:
     """Create a pending transfer. Returns details for the API response and the email."""
     sender_id = str(sender["id"])
@@ -386,6 +416,14 @@ async def create_transfer(
                 "INSERT INTO ticket_transfer_zones (transfer_id, booking_zone_id, quantity) VALUES ($1::uuid, $2::uuid, $3)",
                 str(transfer_id), zid, zone["quantity"],
             )
+        requested_share = None
+        if request_demo_payment:
+            quote = await quote_demo_share(conn, str(transfer_id))
+            requested_share = int(quote["amount"])
+            await conn.execute(
+                "UPDATE ticket_transfers SET requested_share_paise = $2 WHERE id = $1::uuid",
+                str(transfer_id), requested_share,
+            )
         if to_user:
             await _notify_transfer(conn, str(to_user["id"]), "transfer.received", {
                 "transfer_id": str(transfer_id),
@@ -400,6 +438,7 @@ async def create_transfer(
         "recipient_email": to_user["email"] if to_user else value,
         "invited": to_user is None,
         "recipient_contact": value,
+        "requested_share_paise": requested_share,
         "seats": [seat_label(r) for r in free] + [f"{available[zid]['name']} × {z['quantity']}" for zid, z in zip(zone_ids, zones)],
         "event_title": booking["event_title"],
         "venue_name": booking["venue_name"],
@@ -419,7 +458,8 @@ _TRANSFER_SQL = """
            t.status AS ticket_status, COALESCE(t.is_used, false) AS ticket_used,
            e.title AS event_title,
            fu.name AS sender_name, fu.email AS sender_email,
-           tu.name AS recipient_name
+           tu.name AS recipient_name, tt.requested_share_paise,
+           EXISTS (SELECT 1 FROM transfer_demo_payments dp WHERE dp.transfer_id = tt.id) AS demo_checkout
     FROM ticket_transfers tt
     JOIN bookings b ON b.id = tt.booking_id
     JOIN shows s    ON s.id = b.show_id
@@ -450,10 +490,11 @@ async def _load_for_update(conn: asyncpg.Connection, transfer_id: str) -> Option
 
 
 async def respond_to_transfer(
-    conn: asyncpg.Connection, user_id: str, transfer_id: str, accept: bool,
+    conn: asyncpg.Connection, user_id: str, transfer_id: str, accept: bool, *, paid_checkout: bool = False,
 ) -> dict:
     """Recipient accepts or declines a pending transfer."""
-    await _expire_for_user(conn, user_id)
+    if not paid_checkout:
+        await _expire_for_user(conn, user_id)
     async with conn.transaction():
         tr = await _load_for_update(conn, transfer_id)
         if not tr or str(tr["to_user_id"]) != user_id:
@@ -480,6 +521,8 @@ async def respond_to_transfer(
             })
             return {**tr, "status": "declined"}
 
+        if (tr.get("requested_share_paise") or tr.get("demo_checkout")) and not paid_checkout:
+            raise TransferError(409, "Finish or check your demo checkout before accepting these tickets")
         if tr["booking_status"] != "confirmed" or tr["ticket_status"] == "cancelled":
             raise TransferError(400, "This booking is no longer valid")
         if tr["ticket_used"] or tr["ticket_status"] == "used":
@@ -571,8 +614,10 @@ async def list_received(conn: asyncpg.Connection, user_id: str) -> list[dict]:
                   b.status AS booking_status, t.status AS ticket_status,
                   e.title AS event_title, e.poster_url, s.start_time,
                   v.name AS venue_name, v.city, sc.name AS screen_name,
-                  fu.name AS sender_name
+                  fu.name AS sender_name, tt.requested_share_paise, dp.amount_paise AS demo_amount,
+                  dp.refund_target AS demo_refund_target, dp.refund_status AS demo_refund_status
            FROM ticket_transfers tt
+           LEFT JOIN transfer_demo_payments dp ON dp.transfer_id = tt.id
            JOIN bookings b ON b.id = tt.booking_id
            JOIN shows s    ON s.id = b.show_id
            JOIN events e   ON e.id = s.event_id
@@ -593,6 +638,10 @@ async def list_received(conn: asyncpg.Connection, user_id: str) -> list[dict]:
             "id": str(r["id"]),
             "status": "booking_cancelled" if cancelled and r["status"] == "accepted" else r["status"],
             "used": r["is_used"],
+            "demo_amount": r.get("demo_amount"),
+            "requested_share_paise": r.get("requested_share_paise"),
+            "demo_refund_target": r.get("demo_refund_target"),
+            "demo_refund_status": r.get("demo_refund_status"),
             "sender_name": r["sender_name"],
             "event_title": r["event_title"],
             "poster_url": r["poster_url"],

@@ -32,6 +32,7 @@ from routers.chat import router as chat_router
 from routers.manager_analytics import router as manager_analytics_router
 from routers.ticket_transfers import router as ticket_transfers_router
 from services.ticket_transfer import expire_pending_transfers
+from services.transfer_demo_payments import reconcile_pending
 
 
 async def _cleanup_expired_locks():
@@ -47,6 +48,7 @@ async def _cleanup_expired_locks():
                        WHERE status='locked' AND locked_until < NOW()"""
                 )
                 await expire_pending_transfers(conn)
+                await reconcile_pending(conn)
             if result != "UPDATE 0":
                 print(f"[seat-cleanup] {result}")
         except Exception as e:

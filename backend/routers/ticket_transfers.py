@@ -19,7 +19,7 @@ from database import get_conn
 from dependencies import get_current_user, require_role, security
 from firebase_admin_setup import verify_firebase_token
 from fastapi.security import HTTPAuthorizationCredentials
-from services import ticket_transfer as svc
+from services import ticket_transfer as svc, transfer_demo_payments as demo
 from services.qr_service import generate_qr_bytes
 from services.transfer_email_service import (
     send_ticket_ready_email,
@@ -38,6 +38,7 @@ class ZoneQuantity(BaseModel):
 
 class TransferCreate(BaseModel):
     booking_id: str
+    request_demo_payment: bool = False
     seat_ids: List[str] = Field(default_factory=list, max_length=50)
     zones: List[ZoneQuantity] = Field(default_factory=list, max_length=50)
     recipient: str = Field(..., min_length=1, max_length=255)
@@ -64,7 +65,8 @@ async def booking_transfers(
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     try:
-        return await svc.booking_transfer_view(conn, str(user["id"]), booking_id)
+        result = await svc.booking_transfer_view(conn, str(user["id"]), booking_id)
+        return {**result, "demo_payment_available": demo.enabled()}
     except svc.TransferError as e:
         raise _http(e)
 
@@ -76,9 +78,12 @@ async def create_transfer(
     user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
+    if body.request_demo_payment and not demo.enabled():
+        raise HTTPException(409, "Test payments are unavailable")
     try:
         transfer = await svc.create_transfer(
             conn, user, body.booking_id, body.seat_ids, body.recipient, [zone.model_dump() for zone in body.zones],
+            request_demo_payment=body.request_demo_payment,
         )
     except svc.TransferError as e:
         raise _http(e)
@@ -107,8 +112,43 @@ async def received_transfers(
         await svc.claim_verified_invitations(conn, str(user["id"]), claims["email"])
     items = await svc.list_received(conn, str(user["id"]))
     for item in items:
+        item["demo_payment_available"] = demo.enabled()
         item["qr_image"] = generate_qr_bytes(item["qr_data"]) if item["qr_data"] else None
     return items
+
+
+@router.post("/{transfer_id}/demo-checkout")
+async def demo_checkout(
+    transfer_id: str,
+    user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    try:
+        return await demo.open_checkout(conn, transfer_id, str(user["id"]))
+    except svc.TransferError as e:
+        raise _http(e)
+
+
+@router.post("/{transfer_id}/demo-checkout/check")
+async def check_demo_checkout(
+    transfer_id: str,
+    user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    if not demo.enabled() or not svc.is_uuid(transfer_id):
+        raise HTTPException(404, "Demo payment not found")
+    row = await conn.fetchrow(
+        """SELECT dp.* FROM transfer_demo_payments dp
+           JOIN ticket_transfers tt ON tt.id = dp.transfer_id
+           WHERE dp.transfer_id = $1::uuid AND tt.to_user_id = $2::uuid""",
+        transfer_id, str(user["id"]),
+    )
+    if not row:
+        raise HTTPException(404, "Demo payment not found")
+    try:
+        return {"status": await demo.reconcile(conn, row)}
+    except svc.TransferError as e:
+        raise _http(e)
 
 
 async def _respond(transfer_id: str, accept: bool, user: dict, conn, background_tasks: BackgroundTasks):

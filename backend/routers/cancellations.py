@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from database import get_conn
 from dependencies import get_current_user, require_role
 from config import RAZORPAY_WEBHOOK_SECRET
-from services.ticket_transfer import close_pending_for_booking, has_accepted_transfers
+from services.ticket_transfer import close_pending_for_booking, has_accepted_transfers, is_uuid
 from services.cancellation_policy_service import (
     get_show_cancellation_policy,
     evaluate_cancellation_eligibility,
@@ -541,6 +541,14 @@ async def razorpay_refund_webhook(
 
     if not refund_id:
         return {"status": "ignored", "reason": "No refund entity found"}
+
+    # Demo refunds on an original payment must never match a booking cancellation
+    # by payment ID. Their statuses are reconciled separately.
+    notes = payload.get("notes")
+    if isinstance(notes, dict):
+        demo_transfer_id = notes.get("ticketflow_demo_transfer_id")
+        if is_uuid(demo_transfer_id) and payload.get("receipt") == f"tr_{demo_transfer_id}":
+            return {"status": "ignored", "reason": "Transfer demo refund"}
 
     refund_row = await conn.fetchrow(
         """

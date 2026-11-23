@@ -718,3 +718,21 @@ async def test_cancel_blocked_when_seats_were_transferred(monkeypatch):
     assert exc.value.status_code == 400
     assert "transferred" in exc.value.detail
     assert not any("UPDATE bookings" in str(c) for c in conn.execute.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_webhook_keeps_demo_transfer_refunds_separate(monkeypatch):
+    monkeypatch.setattr(cancellations, "RAZORPAY_WEBHOOK_SECRET", "test-secret")
+    monkeypatch.setattr(cancellations, "verify_razorpay_webhook_signature", lambda *_: True)
+    request = Mock()
+    request.body = AsyncMock(return_value=json.dumps({
+        "event": "refund.processed",
+        "payload": {"refund": {"entity": {
+            "id": "rfnd_demo", "payment_id": "pay_demo", "receipt": f"tr_{BOOKING_ID}",
+            "notes": {"ticketflow_demo_transfer_id": BOOKING_ID},
+        }}},
+    }).encode())
+    conn = AsyncMock()
+    result = await cancellations.razorpay_refund_webhook(request, "signature", conn)
+    assert result["reason"] == "Transfer demo refund"
+    conn.fetchrow.assert_not_awaited()

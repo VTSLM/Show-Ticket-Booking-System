@@ -42,11 +42,14 @@ def build_received_email(transfer: dict) -> tuple[str, str]:
     link = f"{FRONTEND_URL.rstrip('/')}/tickets/received"
     invite = ("Create a TicketFlow account with this email and verify your email address, then open Received tickets."
               if transfer.get("invited") else "Accept them to get your own QR code for entry.")
+    share = transfer.get("requested_share_paise")
+    payment_line = f"<p>Your share is ₹{share / 100:.2f} in test mode.</p>" if share else ""
     body = f"""
         <p>Hi {html.escape(transfer['recipient_name'])},</p>
         <p><strong>{sender}</strong> sent you tickets for <strong>{event}</strong>.</p>
         <p>{_show_line(transfer)}<br>Seats: <strong>{seats}</strong></p>
         <p>{invite}</p>
+        {payment_line}
         <p style="margin-top:20px;">
           <a href="{link}" style="background:#3b82f6;color:white;padding:10px 18px;border-radius:6px;
              text-decoration:none;font-weight:600;">View and accept →</a>
