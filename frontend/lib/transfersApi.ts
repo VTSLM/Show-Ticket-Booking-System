@@ -1,7 +1,7 @@
 // Split & transfer tickets — API helper (backend: routers/ticket_transfers.py)
 import { api, downloadFile } from "./api";
 
-export type TransferStatus = "pending" | "accepted" | "declined" | "cancelled";
+export type TransferStatus = "pending" | "accepted" | "declined" | "cancelled" | "expired";
 
 export interface TransferSeat {
   booking_seat_id: string;
@@ -31,6 +31,7 @@ export interface BookingTransfers {
   can_transfer: boolean;
   reason: string | null;
   seats: TransferSeat[];
+  zones: { booking_zone_id: string; name: string; quantity: number; available: number }[];
   transfers: SentTransfer[];
 }
 
@@ -53,7 +54,7 @@ export interface ReceivedTransfer {
 export const transfersApi = {
   forBooking: (bookingId: string) =>
     api.get<BookingTransfers>(`/api/transfers/booking/${bookingId}`),
-  send: (data: { booking_id: string; seat_ids: string[]; recipient: string }) =>
+  send: (data: { booking_id: string; seat_ids: string[]; zones: { booking_zone_id: string; quantity: number }[]; recipient: string }) =>
     api.post<{ id: string; status: TransferStatus; recipient_name: string; seats: string[]; message: string }>(
       "/api/transfers",
       data,
@@ -71,5 +72,6 @@ export const TRANSFER_STATUS_STYLES: Record<string, { label: string; color: stri
   accepted: { label: "Accepted", color: "#00c977" },
   declined: { label: "Declined", color: "#ff5566" },
   cancelled: { label: "Cancelled", color: "#9ba3b5" },
+  expired: { label: "Expired", color: "#9ba3b5" },
   booking_cancelled: { label: "Booking cancelled", color: "#ff5566" },
 };

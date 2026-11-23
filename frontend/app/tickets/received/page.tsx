@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { ReceivedTransfer, TRANSFER_STATUS_STYLES, transfersApi } from "@/lib/transfersApi";
+import { auth } from "@/lib/firebase";
+import { EMAIL_VERIFICATION_REQUIRED, sendVerificationEmail } from "@/lib/emailVerification";
 
 function fmtDate(iso: string | null) {
   if (!iso) return "—";
@@ -39,7 +41,7 @@ export default function ReceivedTicketsPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
-      router.push("/auth/login");
+      router.push("/auth/login?redirect=%2Ftickets%2Freceived");
       return;
     }
     load();
@@ -93,6 +95,27 @@ export default function ReceivedTicketsPage() {
         </Link>
       </div>
 
+      {!EMAIL_VERIFICATION_REQUIRED && auth.currentUser && !auth.currentUser.emailVerified && (
+        <div className="card mb-4 text-sm">
+          <p>Verify your account email to receive invitations sent before you signed up.</p>
+          <button className="btn-secondary mt-2" onClick={async () => {
+            try {
+              if (!auth.currentUser) return;
+              await sendVerificationEmail(auth.currentUser, "/tickets/received");
+              toast.success("Verification email sent. Open it, then refresh this page.");
+            } catch { toast.error("Could not send the verification email."); }
+          }}>Send verification email</button>
+          <button className="btn-secondary mt-2 ml-2" onClick={async () => {
+            try {
+              if (!auth.currentUser) return;
+              await auth.currentUser.reload();
+              await auth.currentUser.getIdToken(true);
+              await load();
+            } catch { toast.error("Could not refresh verification status."); }
+          }}>I verified my email</button>
+        </div>
+      )}
+
       {loading ? (
         <p className="text-[var(--muted)]">Loading…</p>
       ) : items.length === 0 ? (
@@ -127,7 +150,7 @@ export default function ReceivedTicketsPage() {
                   </p>
 
                   {t.status === "pending" && (
-                    <div className="mt-4 flex gap-2">
+                    <div className="mt-4 flex flex-wrap gap-2">
                       <button
                         type="button"
                         className="btn-primary text-sm"
@@ -154,7 +177,7 @@ export default function ReceivedTicketsPage() {
                       onClick={() => downloadPdf(t.id)}
                       disabled={busyId === t.id}
                     >
-                      {busyId === t.id ? "Downloading…" : "⬇ Download ticket PDF"}
+                      {busyId === t.id ? "Downloading…" : "Download ticket PDF"}
                     </button>
                   )}
                 </div>
