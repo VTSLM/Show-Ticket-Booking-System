@@ -197,7 +197,7 @@ async def test_create_transfer_validates_ids(booking_id, seats, status):
 
 @pytest.mark.asyncio
 async def test_accept_gives_the_seats_a_new_qr_token():
-    conn = make_conn(fetchval=[TRANSFER_ID], fetchrow=[transfer_row()])
+    conn = make_conn(fetchval=[BOOKING_ID, BOOKING_ID, TRANSFER_ID], fetchrow=[transfer_row()])
     result = await svc.respond_to_transfer(conn, FRIEND_ID, TRANSFER_ID, accept=True)
     assert result["status"] == "accepted"
     sql, tid, token = conn.execute.await_args.args
@@ -207,7 +207,7 @@ async def test_accept_gives_the_seats_a_new_qr_token():
 
 @pytest.mark.asyncio
 async def test_decline():
-    conn = make_conn(fetchval=[TRANSFER_ID], fetchrow=[transfer_row()])
+    conn = make_conn(fetchval=[BOOKING_ID, BOOKING_ID, TRANSFER_ID], fetchrow=[transfer_row()])
     result = await svc.respond_to_transfer(conn, FRIEND_ID, TRANSFER_ID, accept=False)
     assert result["status"] == "declined"
     assert "declined" in conn.execute.await_args.args[0]
@@ -215,7 +215,7 @@ async def test_decline():
 
 @pytest.mark.asyncio
 async def test_only_the_recipient_can_answer():
-    conn = make_conn(fetchval=[TRANSFER_ID], fetchrow=[transfer_row()])
+    conn = make_conn(fetchval=[BOOKING_ID, BOOKING_ID, TRANSFER_ID], fetchrow=[transfer_row()])
     with pytest.raises(svc.TransferError) as exc:
         await svc.respond_to_transfer(conn, SENDER["id"], TRANSFER_ID, accept=True)
     assert exc.value.status_code == 404
@@ -229,7 +229,7 @@ async def test_only_the_recipient_can_answer():
     {"start_time": PAST},
 ])
 async def test_accept_refused_when_no_longer_valid(over):
-    conn = make_conn(fetchval=[TRANSFER_ID], fetchrow=[transfer_row(**over)])
+    conn = make_conn(fetchval=[BOOKING_ID, BOOKING_ID, TRANSFER_ID], fetchrow=[transfer_row(**over)])
     with pytest.raises(svc.TransferError) as exc:
         await svc.respond_to_transfer(conn, FRIEND_ID, TRANSFER_ID, accept=True)
     assert exc.value.status_code == 400
@@ -238,13 +238,13 @@ async def test_accept_refused_when_no_longer_valid(over):
 
 @pytest.mark.asyncio
 async def test_sender_cancels_pending_transfer():
-    conn = make_conn(fetchval=[TRANSFER_ID], fetchrow=[transfer_row()])
+    conn = make_conn(fetchval=[BOOKING_ID, BOOKING_ID, TRANSFER_ID], fetchrow=[transfer_row()])
     assert (await svc.cancel_transfer(conn, SENDER["id"], TRANSFER_ID))["status"] == "cancelled"
 
 
 @pytest.mark.asyncio
 async def test_accepted_transfer_cannot_be_cancelled():
-    conn = make_conn(fetchval=[TRANSFER_ID], fetchrow=[transfer_row(status="accepted")])
+    conn = make_conn(fetchval=[BOOKING_ID, BOOKING_ID, TRANSFER_ID], fetchrow=[transfer_row(status="accepted")])
     with pytest.raises(svc.TransferError) as exc:
         await svc.cancel_transfer(conn, SENDER["id"], TRANSFER_ID)
     assert exc.value.status_code == 400
@@ -252,7 +252,7 @@ async def test_accepted_transfer_cannot_be_cancelled():
 
 @pytest.mark.asyncio
 async def test_recipient_cannot_cancel_and_bad_id_is_404():
-    conn = make_conn(fetchval=[TRANSFER_ID], fetchrow=[transfer_row()])
+    conn = make_conn(fetchval=[BOOKING_ID, BOOKING_ID, TRANSFER_ID], fetchrow=[transfer_row()])
     with pytest.raises(svc.TransferError):
         await svc.cancel_transfer(conn, FRIEND_ID, TRANSFER_ID)
     with pytest.raises(svc.TransferError) as exc:
@@ -338,7 +338,7 @@ async def test_scan_endpoint_routes_transfer_qr_codes():
 async def test_booking_qr_refused_when_every_seat_was_transferred():
     ticket = {"id": "t1", "booking_id": BOOKING_ID, "status": "valid", "is_used": False, "is_owner": True}
     seats = [{"row_label": "B", "seat_number": 4, "transferred": True}]
-    conn = make_conn(fetchrow=[ticket], fetch=[seats])
+    conn = make_conn(fetchrow=[ticket], fetch=[seats], fetchval=[BOOKING_ID])
     with pytest.raises(HTTPException) as exc:
         await _scan_and_consume_ticket(BOOKING_ID, MANAGER, conn)
     assert exc.value.status_code == 409

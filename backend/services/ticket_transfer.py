@@ -349,6 +349,12 @@ _TRANSFER_SQL = """
 async def _load_for_update(conn: asyncpg.Connection, transfer_id: str) -> Optional[dict]:
     if not is_uuid(transfer_id):
         return None
+    booking_id = await conn.fetchval(
+        "SELECT booking_id FROM ticket_transfers WHERE id = $1::uuid", transfer_id
+    )
+    if not booking_id:
+        return None
+    await conn.fetchval("SELECT id FROM bookings WHERE id = $1::uuid FOR UPDATE", str(booking_id))
     locked = await conn.fetchval(
         "SELECT id FROM ticket_transfers WHERE id = $1::uuid FOR UPDATE", transfer_id
     )

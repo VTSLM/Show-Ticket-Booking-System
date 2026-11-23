@@ -44,6 +44,12 @@ def _parse_booking_id(qr_data: Optional[str], booking_id: Optional[str]) -> str:
 
 
 async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Connection) -> dict:
+    async with conn.transaction():
+        await conn.fetchval("SELECT id FROM bookings WHERE id = $1::uuid FOR UPDATE", booking_id)
+        return await _scan_locked_ticket(booking_id, user, conn)
+
+
+async def _scan_locked_ticket(booking_id: str, user: dict, conn: asyncpg.Connection) -> dict:
     row = await conn.fetchrow(
         """SELECT t.id, t.booking_id, t.status, t.is_used,
                   e.title as event_title, s.start_time, v.name as venue_name,
@@ -99,7 +105,7 @@ async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Co
     # Atomically mark the ticket as used (prevents concurrent double-scanning)
     updated = await conn.fetchrow(
         """UPDATE tickets
-           SET is_used = true, status = 'used'
+           SET is_used = true, status = 'used', used_at = now()
            WHERE booking_id = $1::uuid AND is_used = false AND status = 'valid'
            RETURNING id, booking_id, status, is_used""",
         booking_id

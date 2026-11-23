@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.routing import APIRoute
@@ -49,6 +49,7 @@ CUSTOMER_USER = {
 
 def make_conn(fetch_rows=None, fetchrow_result=None):
     conn = AsyncMock()
+    conn.transaction = MagicMock()
     conn.fetch = AsyncMock(return_value=fetch_rows or [])
     conn.fetchrow = AsyncMock(return_value=fetchrow_result)
     return conn
@@ -140,7 +141,7 @@ async def test_venue_manager_can_scan_and_admit_200():
         "is_used": True,
     }
 
-    conn = AsyncMock()
+    conn = make_conn()
     conn.fetchrow = AsyncMock(side_effect=[ticket_row, consumed_row])
 
     req = TicketScanRequest(qr_data=f"TICKETFLOW:{SAMPLE_BOOKING_ID}")
@@ -167,7 +168,7 @@ async def test_shows_own_manager_can_scan_and_admit_200():
         "is_used": True,
     }
 
-    conn = AsyncMock()
+    conn = make_conn()
     conn.fetchrow = AsyncMock(side_effect=[ticket_row, consumed_row])
 
     req = TicketScanRequest(qr_data=f"TICKETFLOW:{SAMPLE_BOOKING_ID}")
@@ -194,7 +195,7 @@ async def test_admin_can_scan_any_organizations_ticket_200():
         "is_used": True,
     }
 
-    conn = AsyncMock()
+    conn = make_conn()
     conn.fetchrow = AsyncMock(side_effect=[ticket_row, consumed_row])
 
     req = TicketScanRequest(booking_id=SAMPLE_BOOKING_ID)
@@ -244,7 +245,7 @@ async def test_scan_ticket_by_booking_id_endpoint():
         "is_used": True,
     }
 
-    conn = AsyncMock()
+    conn = make_conn()
     conn.fetchrow = AsyncMock(side_effect=[ticket_row, consumed_row])
 
     result = await scan_ticket_by_booking_id(
