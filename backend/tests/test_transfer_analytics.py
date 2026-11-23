@@ -1,7 +1,35 @@
+from datetime import date
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
+
+from routers.manager_analytics import transfer_statistics
+
+
+@pytest.mark.asyncio
+async def test_transfer_statistics_are_scoped_to_manager():
+    conn = AsyncMock()
+    conn.fetch.return_value = [{"status": "accepted", "count": 2}, {"status": "pending", "count": 1}]
+    result = await transfer_statistics(days=30, start=date(2026, 1, 1), end=date(2026, 1, 31),
+                                       event_id=None, user={"id": "manager-id", "roles": ["manager"]}, conn=conn)
+    assert result["total"] == 3
+    assert result["statuses"]["expired"] == 0
+    assert conn.fetch.await_args.args[1:] == ("manager-id", None, date(2026, 1, 1), date(2026, 1, 31))
+
+
+@pytest.mark.asyncio
+async def test_transfer_statistics_admin_can_see_all_and_rejects_invalid_event():
+    conn = AsyncMock()
+    conn.fetch.return_value = []
+    await transfer_statistics(days=30, start=None, end=None, event_id=None,
+                              user={"id": "admin-id", "roles": ["admin"]}, conn=conn)
+    assert conn.fetch.await_args.args[1] is None
+    with pytest.raises(HTTPException) as error:
+        await transfer_statistics(days=30, start=None, end=None, event_id="invalid",
+                                  user={"id": "admin-id", "roles": ["admin"]}, conn=conn)
+    assert error.value.status_code == 400
+
 
 
 @pytest.mark.asyncio

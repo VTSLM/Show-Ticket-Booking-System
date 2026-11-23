@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from database import get_conn
 from dependencies import require_role
-from services.manager_analytics import build_event_detail, build_overview, resolve_range
+from services.manager_analytics import build_event_detail, build_overview, resolve_range, transfer_counts
 
 # Note: the path avoids the word "analytics" — ad/privacy blockers block URLs like /analytics/events.
 router = APIRouter(prefix="/api/manager/insights", tags=["manager-analytics"])
@@ -33,6 +33,25 @@ def _range(days: int, start: Optional[date], end: Optional[date]):
         return resolve_range(days, start, end)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/transfers")
+async def transfer_statistics(
+    days: int = Query(30, ge=1, le=366),
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    event_id: Optional[str] = Query(None),
+    user: dict = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    """Counts for transfers created during the selected period and event scope."""
+    d_from, d_to = _range(days, start, end)
+    if event_id:
+        try:
+            event_id = str(uuid.UUID(event_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid event_id")
+    return await transfer_counts(conn, _owner(user), event_id, d_from, d_to)
 
 
 @router.get("")

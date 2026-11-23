@@ -644,3 +644,27 @@ async def build_event_detail(conn: asyncpg.Connection, owner: Optional[str], eve
         } for r in latest],
         "wishlisted": wishlisted,
     }
+
+
+async def transfer_counts(conn: asyncpg.Connection, owner: Optional[str], event_id: Optional[str],
+                          d_from: date, d_to: date) -> dict:
+    rows = await conn.fetch(
+        """SELECT CASE WHEN tt.status = 'pending' AND
+                      (tt.created_at + interval '24 hours' <= statement_timestamp()
+                       OR s.start_time <= statement_timestamp()) THEN 'expired' ELSE tt.status END AS status,
+                  COUNT(*) AS count
+           FROM ticket_transfers tt
+           JOIN bookings b ON b.id = tt.booking_id
+           JOIN shows s ON s.id = b.show_id
+           JOIN events e ON e.id = s.event_id
+           LEFT JOIN organizer_profiles op ON op.id = e.organizer_id
+           WHERE ($1::uuid IS NULL OR op.user_id = $1::uuid)
+             AND ($2::uuid IS NULL OR e.id = $2::uuid)
+             AND (tt.created_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $3 AND $4
+           GROUP BY 1""",
+        owner, event_id, d_from, d_to,
+    )
+    counts = {status: 0 for status in ("pending", "accepted", "declined", "cancelled", "expired")}
+    for row in rows:
+        counts[row["status"]] = row["count"]
+    return {"total": sum(counts.values()), "statuses": counts}
