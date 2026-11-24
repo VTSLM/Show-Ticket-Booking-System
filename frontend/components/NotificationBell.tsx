@@ -109,9 +109,9 @@ export default function NotificationBell() {
               notifications.map((notif) => {
                 const p = notif.payload || {};
                 const isUnread = !notif.read_at;
-                const isRecipientTransfer = ["transfer.received", "transfer.cancelled"].includes(notif.event_name)
+                const isRecipientTransfer = ["transfer.received", "transfer.cancelled", "transfer.payment_requested", "transfer.payment_returned"].includes(notif.event_name)
                   || (notif.event_name === "transfer.expired" && p.received === true);
-                const linkHref = isRecipientTransfer ? "/tickets/received" : p.booking_id ? `/bookings/${p.booking_id}` : "#";
+                const linkHref = isRecipientTransfer ? "/tickets" : p.booking_id ? `/bookings/${p.booking_id}` : "#";
 
                 return (
                   <Link
@@ -134,6 +134,10 @@ export default function NotificationBell() {
                           {notif.event_name === "transfer.declined" && "Ticket transfer declined"}
                           {notif.event_name === "transfer.cancelled" && "Ticket transfer cancelled"}
                           {notif.event_name === "transfer.expired" && "Ticket transfer expired"}
+                          {notif.event_name === "transfer.forwarded" && "Your seats were forwarded"}
+                          {notif.event_name === "transfer.payment_requested" && "Payment requested"}
+                          {notif.event_name === "transfer.payment_received" && "Payment received"}
+                          {notif.event_name === "transfer.payment_returned" && "Payment returned"}
                           {!notif.event_name.startsWith("refund") && !notif.event_name.startsWith("booking") && !notif.event_name.startsWith("transfer.") && notif.event_name}
                           {isUnread && (
                             <span className="h-1.5 w-1.5 rounded-full bg-blue-400 inline-block" />

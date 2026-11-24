@@ -323,15 +323,15 @@ def received_row(**over):
 @pytest.mark.asyncio
 async def test_received_shows_qr_only_for_valid_accepted_transfers():
     seats = [{"transfer_id": TRANSFER_ID, "row_label": "B", "seat_number": 4, "seat_type": "standard"}]
-    conn = make_conn(fetch=[[received_row()], seats, []])
+    conn = make_conn(fetch=[[received_row()], seats, [], []])
     [item] = await svc.list_received(conn, FRIEND_ID)
     assert item["qr_data"] == "TICKETFLOW-T:tok123"
     assert item["seats"] == ["B4"]
 
-    conn = make_conn(fetch=[[received_row(status="pending", qr_token=None)], [], []])
+    conn = make_conn(fetch=[[received_row(status="pending", qr_token=None)], [], [], []])
     assert (await svc.list_received(conn, FRIEND_ID))[0]["qr_data"] is None
 
-    conn = make_conn(fetch=[[received_row(booking_status="cancelled")], [], []])
+    conn = make_conn(fetch=[[received_row(booking_status="cancelled")], [], [], []])
     [item] = await svc.list_received(conn, FRIEND_ID)
     assert item["qr_data"] is None and item["status"] == "booking_cancelled"
 
@@ -507,7 +507,7 @@ async def test_decline_does_not_send_a_ticket():
     tasks = BackgroundTasks()
     with patch.object(transfer_router.svc, "respond_to_transfer", new=AsyncMock(return_value={"status": "declined"})):
         await transfer_router.decline_transfer(TRANSFER_ID, tasks, {"id": FRIEND_ID}, make_conn())
-    assert [t.func for t in tasks.tasks] == [transfer_router.send_transfer_response_email]
+    assert [t.func for t in tasks.tasks] == [transfer_router.send_transfer_response_email, transfer_router.deliver_in_background]
 
 
 @pytest.mark.asyncio
@@ -589,7 +589,7 @@ async def test_zone_transfer_rejects_overallocation():
 
 @pytest.mark.asyncio
 async def test_cancelled_transfer_stays_visible_without_qr():
-    conn = make_conn(fetch=[[received_row(status="cancelled", qr_token=None)], [], []])
+    conn = make_conn(fetch=[[received_row(status="cancelled", qr_token=None)], [], [], []])
     [item] = await svc.list_received(conn, FRIEND_ID)
     assert item["status"] == "cancelled"
     assert item["qr_data"] is None

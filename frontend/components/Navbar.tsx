@@ -45,6 +45,9 @@ export default function Navbar() {
             <Link href="/bookings" className="hover:text-red-300">
               My Bookings
             </Link>
+            <Link href="/tickets" className="hover:text-red-300">
+              Tickets
+            </Link>
             <Link href="/wishlist" className="hover:text-red-300">
               ❤️ Wishlist
             </Link>

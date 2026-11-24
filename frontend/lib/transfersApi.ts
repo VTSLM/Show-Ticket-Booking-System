@@ -54,13 +54,60 @@ export interface ReceivedTransfer {
   city: string;
   screen_name: string;
   seats: string[];
+  /** true when this transfer was forwarded to you by someone who received it first */
+  is_forward: boolean;
+  /** seats you passed on to someone else (no longer on your QR) */
+  forwarded_seats: string[];
+  /** seats you still hold, with ids for the forward request */
+  seat_items: { booking_seat_id: string; label: string; forwarded: boolean; forward_pending: boolean }[];
+  can_forward: boolean;
   demo_payment_available: boolean;
   demo_refund_target: "buyer" | "recipient" | null;
   qr_data: string | null;
   qr_image: string | null; // base64 PNG
 }
 
+/** A booking with seats you still hold — the "Available" section. */
+export interface AvailableBooking {
+  booking_id: string;
+  event_title: string;
+  poster_url: string | null;
+  start_time: string | null;
+  venue_name: string;
+  city: string;
+  seats: string[];
+  pending_count: number;
+}
+
+/** A transfer you made — the "Split" section. */
+export interface SplitTransfer {
+  id: string;
+  booking_id: string;
+  status: TransferStatus;
+  used: boolean;
+  is_forward: boolean;
+  recipient_name: string;
+  event_title: string;
+  start_time: string | null;
+  venue_name: string;
+  city: string;
+  seats: string[];
+  created_at: string | null;
+}
+
+export interface TicketsOverview {
+  available: AvailableBooking[];
+  split: SplitTransfer[];
+  received: ReceivedTransfer[];
+}
+
 export const transfersApi = {
+  overview: () => api.get<TicketsOverview>("/api/transfers/overview"),
+  forward: (id: string, data: { seat_ids: string[]; recipient: string }) =>
+    api.post<{ id: string; status: TransferStatus; recipient_name: string; seats: string[]; message: string }>(
+      `/api/transfers/${id}/forward`,
+      data,
+    ),
   forBooking: (bookingId: string) =>
     api.get<BookingTransfers>(`/api/transfers/booking/${bookingId}`),
   send: (data: { booking_id: string; seat_ids: string[]; zones: { booking_zone_id: string; quantity: number }[]; recipient: string; request_demo_payment?: boolean }) =>

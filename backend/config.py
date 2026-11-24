@@ -144,3 +144,9 @@ def check_production_settings() -> None:
         raise RuntimeError(
             "DATABASE_SSL must be 'verify' in production"
         )
+
+# WhatsApp messages for ticket transfers (Twilio WhatsApp; the sandbox number works for demos).
+# Leave blank to skip WhatsApp - the delivery is then recorded as "skipped".
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM", "")  # e.g. whatsapp:+14155238886

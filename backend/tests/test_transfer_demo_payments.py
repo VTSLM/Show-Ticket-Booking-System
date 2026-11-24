@@ -41,7 +41,11 @@ async def test_only_matching_captured_payment_can_accept_transfer(monkeypatch, i
 async def test_refund_target_and_idempotency_follow_transfer_result(monkeypatch, expired, payment, target):
     accept = AsyncMock(side_effect=transfers.TransferError(400, "Expired") if expired else None)
     monkeypatch.setattr(transfers, "respond_to_transfer", accept)
-    monkeypatch.setattr(transfers, "_load_for_update", AsyncMock(return_value={"to_user_id": "recipient"}))
+    monkeypatch.setattr(transfers, "_load_for_update", AsyncMock(return_value={
+        "to_user_id": "recipient", "from_user_id": "buyer", "booking_id": "booking",
+        "event_title": "Hamlet", "recipient_name": "Ravi"}))
+    notify = AsyncMock()
+    monkeypatch.setattr(transfers, "_notify_transfer", notify)
     conn = MagicMock()
     conn.fetchrow = AsyncMock(side_effect=[
         ROW, {**ROW, "recipient_payment_id": ITEM["id"], "refund_target": target, "refund_status": "pending"},
@@ -57,6 +61,8 @@ async def test_refund_target_and_idempotency_follow_transfer_result(monkeypatch,
     assert gateway.await_args.args == ("POST", f"payments/{payment}/refund")
     assert gateway.await_args.kwargs["headers"]["X-Refund-Idempotency"] == f"ticketflow-{TRANSFER}"
     assert conn.execute.await_args.args[1:] == (TRANSFER, "rfnd_demo", "processed")
+    # payment messages: the buyer hears about a paid share, the friend about a returned one
+    assert notify.await_args.args[2] == ("transfer.payment_returned" if expired else "transfer.payment_received")
 
 
 @pytest.mark.asyncio

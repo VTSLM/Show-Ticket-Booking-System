@@ -134,7 +134,7 @@ async def find_recipient(conn: asyncpg.Connection, kind: str, value: str) -> dic
     return user
 
 
-async def _seats_by_transfer(conn: asyncpg.Connection, transfer_ids: list) -> dict:
+async def _seats_by_transfer(conn: asyncpg.Connection, transfer_ids: list, *, active_only: bool = False) -> dict:
     if not transfer_ids:
         return {}
     rows = await conn.fetch(
@@ -143,9 +143,9 @@ async def _seats_by_transfer(conn: asyncpg.Connection, transfer_ids: list) -> di
            JOIN booking_seats bs ON bs.id = tts.booking_seat_id
            JOIN show_seats ss ON ss.id = bs.show_seat_id
            JOIN seats s ON s.id = ss.seat_id
-           WHERE tts.transfer_id = ANY($1::uuid[])
+           WHERE tts.transfer_id = ANY($1::uuid[]) AND ($2::boolean = false OR tts.released_at IS NULL)
            ORDER BY s.row_label, s.seat_number""",
-        [str(t) for t in transfer_ids],
+        [str(t) for t in transfer_ids], active_only,
     )
     out: dict = {}
     for r in rows:
@@ -245,14 +245,16 @@ async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_
 
     seat_rows = await conn.fetch(
         """SELECT bs.id AS booking_seat_id, s.row_label, s.seat_number, s.seat_type,
-                  bs.unit_price, tt.id AS transfer_id, tt.status AS transfer_status
+                  bs.unit_price, tt.transfer_id, tt.transfer_status
            FROM booking_seats bs
            JOIN show_seats ss ON ss.id = bs.show_seat_id
            JOIN seats s ON s.id = ss.seat_id
-           LEFT JOIN ticket_transfer_seats tts ON tts.booking_seat_id = bs.id
-                AND EXISTS (SELECT 1 FROM ticket_transfers x
-                            WHERE x.id = tts.transfer_id AND x.status IN ('pending', 'accepted'))
-           LEFT JOIN ticket_transfers tt ON tt.id = tts.transfer_id
+           LEFT JOIN LATERAL (
+                SELECT x.id, x.status FROM ticket_transfer_seats ts
+                JOIN ticket_transfers x ON x.id = ts.transfer_id
+                WHERE ts.booking_seat_id = bs.id AND x.status IN ('pending', 'accepted')
+                ORDER BY (x.status = 'accepted') DESC, x.created_at LIMIT 1
+           ) tt(transfer_id, transfer_status) ON true
            WHERE bs.booking_id = $1::uuid
            ORDER BY s.row_label, s.seat_number""",
         booking_id,
@@ -264,9 +266,9 @@ async def booking_transfer_view(conn: asyncpg.Connection, user_id: str, booking_
            FROM ticket_transfers tt
            LEFT JOIN transfer_demo_payments dp ON dp.transfer_id = tt.id
            LEFT JOIN users u ON u.id = tt.to_user_id
-           WHERE tt.booking_id = $1::uuid
+           WHERE tt.booking_id = $1::uuid AND tt.from_user_id = $2::uuid
            ORDER BY tt.created_at DESC""",
-        booking_id,
+        booking_id, user_id,
     )
     seats_by_transfer = await _seats_by_transfer(conn, [r["id"] for r in transfer_rows])
 
@@ -429,7 +431,16 @@ async def create_transfer(
                 "transfer_id": str(transfer_id),
                 "event_title": booking["event_title"],
                 "sender_name": sender.get("name") or "A TicketFlow user",
+                "seats": [seat_label(r) for r in free] + [f"{available[zid]['name']} × {z['quantity']}" for zid, z in zip(zone_ids, zones)],
+                "share_paise": requested_share,
             })
+            if requested_share:
+                await _notify_transfer(conn, str(to_user["id"]), "transfer.payment_requested", {
+                    "transfer_id": str(transfer_id),
+                    "event_title": booking["event_title"],
+                    "sender_name": sender.get("name") or "A TicketFlow user",
+                    "amount_paise": requested_share,
+                })
 
     return {
         "id": str(transfer_id),
@@ -453,7 +464,7 @@ async def create_transfer(
 # ---------------------------------------------------------------------------
 
 _TRANSFER_SQL = """
-    SELECT tt.id, tt.booking_id, tt.from_user_id, tt.to_user_id, tt.status,
+    SELECT tt.id, tt.booking_id, tt.from_user_id, tt.to_user_id, tt.status, tt.parent_transfer_id, tt.is_used,
            b.status AS booking_status, s.start_time,
            t.status AS ticket_status, COALESCE(t.is_used, false) AS ticket_used,
            e.title AS event_title,
@@ -530,6 +541,9 @@ async def respond_to_transfer(
         if _started(tr["start_time"]):
             raise TransferError(400, "This show has already started")
 
+        if tr.get("parent_transfer_id"):
+            await _release_parent_seats(conn, str(tr["parent_transfer_id"]), transfer_id)
+
         token = secrets.token_urlsafe(24)
         updated = await conn.execute(
             """UPDATE ticket_transfers tt
@@ -548,6 +562,16 @@ async def respond_to_transfer(
             "event_title": tr["event_title"],
             "recipient_name": tr["recipient_name"],
         })
+        if tr.get("parent_transfer_id"):
+            # the person who bought the booking hears that their seats moved on
+            await _notify_transfer(conn, str(await conn.fetchval(
+                "SELECT user_id FROM bookings WHERE id = $1::uuid", str(tr["booking_id"]))), "transfer.forwarded", {
+                "transfer_id": transfer_id,
+                "booking_id": str(tr["booking_id"]),
+                "event_title": tr["event_title"],
+                "sender_name": tr["sender_name"],
+                "recipient_name": tr["recipient_name"],
+            })
         return {**tr, "status": "accepted"}
 
 
@@ -607,10 +631,39 @@ async def claim_verified_invitations(conn: asyncpg.Connection, user_id: str, ema
     )
 
 
+async def _seat_items(conn: asyncpg.Connection, transfer_ids: list) -> dict:
+    """Per transfer: seats with ids, whether they were forwarded on, and whether a forward is pending."""
+    if not transfer_ids:
+        return {}
+    rows = await conn.fetch(
+        """SELECT tts.transfer_id, tts.booking_seat_id, tts.released_at, s.row_label, s.seat_number,
+                  EXISTS (SELECT 1 FROM ticket_transfers c
+                          JOIN ticket_transfer_seats cs ON cs.transfer_id = c.id
+                          WHERE c.parent_transfer_id = tts.transfer_id AND c.status = 'pending'
+                            AND cs.booking_seat_id = tts.booking_seat_id) AS forward_pending
+           FROM ticket_transfer_seats tts
+           JOIN booking_seats bs ON bs.id = tts.booking_seat_id
+           JOIN show_seats ss ON ss.id = bs.show_seat_id
+           JOIN seats s ON s.id = ss.seat_id
+           WHERE tts.transfer_id = ANY($1::uuid[])
+           ORDER BY s.row_label, s.seat_number""",
+        [str(t) for t in transfer_ids],
+    )
+    out: dict = {}
+    for r in rows:
+        out.setdefault(str(r["transfer_id"]), []).append({
+            "booking_seat_id": str(r["booking_seat_id"]),
+            "label": seat_label(r),
+            "forwarded": r["released_at"] is not None,
+            "forward_pending": bool(r["forward_pending"]),
+        })
+    return out
+
+
 async def list_received(conn: asyncpg.Connection, user_id: str) -> list[dict]:
     await _expire_for_user(conn, user_id)
     rows = await conn.fetch(
-        """SELECT tt.id, tt.status, tt.qr_token, tt.is_used, tt.created_at, tt.booking_id,
+        """SELECT tt.id, tt.status, tt.qr_token, tt.is_used, tt.created_at, tt.booking_id, tt.parent_transfer_id,
                   b.status AS booking_status, t.status AS ticket_status,
                   e.title AS event_title, e.poster_url, s.start_time,
                   v.name AS venue_name, v.city, sc.name AS screen_name,
@@ -630,14 +683,23 @@ async def list_received(conn: asyncpg.Connection, user_id: str) -> list[dict]:
         user_id,
     )
     seats = await _seats_by_transfer(conn, [r["id"] for r in rows])
+    items = await _seat_items(conn, [r["id"] for r in rows])
     out = []
     for r in rows:
         cancelled = r["booking_status"] == "cancelled" or r["ticket_status"] == "cancelled"
-        show_qr = r["status"] == "accepted" and not cancelled
+        tid = str(r["id"])
+        mine = items.get(tid, [])
+        active = [i for i in mine if not i["forwarded"]]
+        show_qr = r["status"] == "accepted" and not cancelled and (bool(active) or not mine)
+        can_forward = (
+            r["status"] == "accepted" and not cancelled and not r["is_used"] and not _started(r["start_time"])
+            and any(not i["forward_pending"] for i in active)
+        )
         out.append({
-            "id": str(r["id"]),
+            "id": tid,
             "status": "booking_cancelled" if cancelled and r["status"] == "accepted" else r["status"],
             "used": r["is_used"],
+            "is_forward": r.get("parent_transfer_id") is not None,
             "demo_amount": r.get("demo_amount"),
             "requested_share_paise": r.get("requested_share_paise"),
             "demo_refund_target": r.get("demo_refund_target"),
@@ -649,10 +711,215 @@ async def list_received(conn: asyncpg.Connection, user_id: str) -> list[dict]:
             "venue_name": r["venue_name"],
             "city": r["city"],
             "screen_name": r["screen_name"],
-            "seats": seats.get(str(r["id"]), []),
+            "seats": [i["label"] for i in active] if mine else seats.get(tid, []),
+            "forwarded_seats": [i["label"] for i in mine if i["forwarded"]],
+            "seat_items": active,
+            "can_forward": can_forward,
             "qr_data": f"{TRANSFER_QR_PREFIX}{r['qr_token']}" if show_qr else None,
         })
     return out
+
+
+async def list_sent(conn: asyncpg.Connection, user_id: str) -> list[dict]:
+    """Every transfer this user made, from their own bookings or by forwarding what they received."""
+    await _expire_for_user(conn, user_id)
+    rows = await conn.fetch(
+        """SELECT tt.id, tt.status, tt.is_used, tt.created_at, tt.booking_id, tt.parent_transfer_id,
+                  tt.recipient_contact, tu.name AS recipient_name, e.title AS event_title,
+                  s.start_time, v.name AS venue_name, v.city
+           FROM ticket_transfers tt
+           JOIN bookings b ON b.id = tt.booking_id
+           JOIN shows s    ON s.id = b.show_id
+           JOIN events e   ON e.id = s.event_id
+           JOIN screens sc ON sc.id = s.screen_id
+           JOIN venues v   ON v.id = sc.venue_id
+           LEFT JOIN users tu ON tu.id = tt.to_user_id
+           WHERE tt.from_user_id = $1::uuid
+           ORDER BY tt.created_at DESC LIMIT 100""",
+        user_id,
+    )
+    seats = await _seats_by_transfer(conn, [r["id"] for r in rows])
+    return [{
+        "id": str(r["id"]),
+        "booking_id": str(r["booking_id"]),
+        "status": r["status"],
+        "used": r["is_used"],
+        "is_forward": r.get("parent_transfer_id") is not None,
+        "recipient_name": r["recipient_name"] or r["recipient_contact"],
+        "event_title": r["event_title"],
+        "start_time": r["start_time"].isoformat() if r["start_time"] else None,
+        "venue_name": r["venue_name"],
+        "city": r["city"],
+        "seats": seats.get(str(r["id"]), []),
+        "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+    } for r in rows]
+
+
+async def list_available(conn: asyncpg.Connection, user_id: str) -> list[dict]:
+    """Upcoming confirmed bookings with the seats this user still holds (not sent to anyone)."""
+    rows = await conn.fetch(
+        """SELECT b.id AS booking_id, e.title AS event_title, e.poster_url, s.start_time,
+                  v.name AS venue_name, v.city,
+                  array_agg(st.row_label || st.seat_number ORDER BY st.row_label, st.seat_number) AS seats,
+                  count(*) FILTER (WHERE tr.id IS NOT NULL AND tr.status = 'pending') AS pending_count
+           FROM bookings b
+           JOIN shows s    ON s.id = b.show_id
+           JOIN events e   ON e.id = s.event_id
+           JOIN screens sc ON sc.id = s.screen_id
+           JOIN venues v   ON v.id = sc.venue_id
+           JOIN booking_seats bs ON bs.booking_id = b.id
+           JOIN show_seats ss ON ss.id = bs.show_seat_id
+           JOIN seats st ON st.id = ss.seat_id
+           LEFT JOIN LATERAL (
+                SELECT x.id, x.status FROM ticket_transfer_seats ts
+                JOIN ticket_transfers x ON x.id = ts.transfer_id
+                WHERE ts.booking_seat_id = bs.id AND x.status IN ('pending', 'accepted')
+                ORDER BY (x.status = 'accepted') DESC LIMIT 1
+           ) tr ON true
+           LEFT JOIN tickets t ON t.booking_id = b.id
+           WHERE b.user_id = $1::uuid AND b.status = 'confirmed' AND s.start_time > now()
+             AND COALESCE(t.status, '') NOT IN ('cancelled', 'used')
+             AND (tr.id IS NULL OR tr.status = 'pending')
+           GROUP BY b.id, e.title, e.poster_url, s.start_time, v.name, v.city
+           ORDER BY s.start_time LIMIT 50""",
+        user_id,
+    )
+    return [{
+        "booking_id": str(r["booking_id"]),
+        "event_title": r["event_title"],
+        "poster_url": r["poster_url"],
+        "start_time": r["start_time"].isoformat() if r["start_time"] else None,
+        "venue_name": r["venue_name"],
+        "city": r["city"],
+        "seats": list(r["seats"]),
+        "pending_count": int(r["pending_count"]),
+    } for r in rows]
+
+
+async def tickets_overview(conn: asyncpg.Connection, user_id: str) -> dict:
+    """One call for the Tickets page: Available, Split (sent to others) and Received."""
+    return {
+        "available": await list_available(conn, user_id),
+        "split": await list_sent(conn, user_id),
+        "received": await list_received(conn, user_id),
+    }
+
+
+async def _release_parent_seats(conn: asyncpg.Connection, parent_id: str, child_id: str) -> None:
+    """The forward is being accepted: the forwarder's QR stops admitting those seats."""
+    parent = await conn.fetchrow(
+        "SELECT status, is_used FROM ticket_transfers WHERE id = $1::uuid FOR UPDATE", parent_id,
+    )
+    if not parent or parent["status"] != "accepted" or parent["is_used"]:
+        raise TransferError(400, "The person who forwarded these tickets can no longer pass them on")
+    wanted = await conn.fetchval(
+        "SELECT count(*) FROM ticket_transfer_seats WHERE transfer_id = $1::uuid", child_id)
+    result = await conn.execute(
+        """UPDATE ticket_transfer_seats p SET released_at = clock_timestamp()
+           FROM ticket_transfer_seats c
+           WHERE p.transfer_id = $1::uuid AND c.transfer_id = $2::uuid
+             AND p.booking_seat_id = c.booking_seat_id AND p.released_at IS NULL""",
+        parent_id, child_id,
+    )
+    if int(result.split()[-1]) != wanted:
+        raise TransferError(400, "Those seats are no longer held by the person who forwarded them")
+
+
+async def forward_transfer(
+    conn: asyncpg.Connection, sender: dict, parent_id: str, booking_seat_ids: list, recipient: str,
+) -> dict:
+    """A receiver passes some of the seats they accepted on to someone else.
+
+    Creates a normal pending transfer (parent_transfer_id points at the one they received).
+    The forwarder keeps their QR until the new person accepts; then those seats move over.
+    """
+    sender_id = str(sender["id"])
+    if not is_uuid(parent_id):
+        raise TransferError(404, "Transfer not found")
+    seat_ids = list(dict.fromkeys(str(x) for x in booking_seat_ids or []))
+    if not seat_ids:
+        raise TransferError(400, "Choose at least one seat to forward")
+    if not all(is_uuid(x) for x in seat_ids):
+        raise TransferError(400, "Invalid seat in the request")
+    kind, value = parse_recipient(recipient)
+
+    async with conn.transaction():
+        parent = await _load_for_update(conn, parent_id)
+        if not parent or str(parent["to_user_id"]) != sender_id:
+            raise TransferError(404, "Transfer not found")
+        if parent["status"] != "accepted":
+            raise TransferError(400, "Only tickets you have accepted can be forwarded")
+        if parent["is_used"]:
+            raise TransferError(400, "These tickets were already used at the venue")
+        booking_id = str(parent["booking_id"])
+        booking = dict(await conn.fetchrow(_BOOKING_SQL, booking_id))
+        reason = _transfer_block_reason(booking)
+        if reason:
+            raise TransferError(400, reason)
+
+        try:
+            to_user = await find_recipient(conn, kind, value)
+        except TransferError as exc:
+            if exc.status_code != 404 or kind != "email":
+                raise
+            to_user = None
+        if to_user and str(to_user["id"]) == sender_id:
+            raise TransferError(400, "You can't forward tickets to yourself")
+
+        await _expire_for_booking(conn, booking_id)
+        free = await conn.fetch(
+            """SELECT tts.booking_seat_id, s.row_label, s.seat_number
+               FROM ticket_transfer_seats tts
+               JOIN booking_seats bs ON bs.id = tts.booking_seat_id
+               JOIN show_seats ss ON ss.id = bs.show_seat_id
+               JOIN seats s ON s.id = ss.seat_id
+               WHERE tts.transfer_id = $1::uuid AND tts.released_at IS NULL
+                 AND tts.booking_seat_id = ANY($2::uuid[])
+                 AND NOT EXISTS (
+                     SELECT 1 FROM ticket_transfers c
+                     JOIN ticket_transfer_seats cs ON cs.transfer_id = c.id
+                     WHERE c.parent_transfer_id = tts.transfer_id AND c.status = 'pending'
+                       AND cs.booking_seat_id = tts.booking_seat_id)
+               ORDER BY s.row_label, s.seat_number""",
+            parent_id, seat_ids,
+        )
+        if len(free) != len(seat_ids):
+            raise TransferError(400, "Some of these seats aren't yours to forward or are already being forwarded")
+
+        transfer_id = await conn.fetchval(
+            """INSERT INTO ticket_transfers (booking_id, from_user_id, to_user_id, recipient_contact, parent_transfer_id)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::uuid) RETURNING id""",
+            booking_id, sender_id, str(to_user["id"]) if to_user else None, value, parent_id,
+        )
+        await conn.execute(
+            """INSERT INTO ticket_transfer_seats (transfer_id, booking_seat_id)
+               SELECT $1::uuid, unnest($2::uuid[])""",
+            str(transfer_id), seat_ids,
+        )
+        if to_user:
+            await _notify_transfer(conn, str(to_user["id"]), "transfer.received", {
+                "transfer_id": str(transfer_id),
+                "event_title": booking["event_title"],
+                "sender_name": sender.get("name") or "A TicketFlow user",
+                "forwarded": True,
+                "seats": [seat_label(r) for r in free],
+            })
+
+    return {
+        "id": str(transfer_id),
+        "status": "pending",
+        "recipient_name": to_user["name"] if to_user else value,
+        "recipient_email": to_user["email"] if to_user else value,
+        "invited": to_user is None,
+        "recipient_contact": value,
+        "requested_share_paise": None,
+        "seats": [seat_label(r) for r in free],
+        "event_title": booking["event_title"],
+        "venue_name": booking["venue_name"],
+        "city": booking["city"],
+        "start_time": booking["start_time"],
+        "sender_name": sender.get("name") or "A TicketFlow user",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -694,6 +961,9 @@ async def scan_transfer_qr(conn: asyncpg.Connection, scanner: dict, token: str) 
     if row["is_used"]:
         raise TransferError(409, "Ticket has already been scanned and used. Duplicate entry is not permitted.")
 
+    seats = (await _seats_by_transfer(conn, [row["id"]], active_only=True)).get(str(row["id"]), [])
+    if not seats:
+        raise TransferError(400, "These tickets were forwarded to someone else, so this QR code is no longer valid")
     updated = await conn.fetchval(
         """UPDATE ticket_transfers SET is_used = true, used_at = now()
            WHERE id = $1::uuid AND is_used = false RETURNING id""",
@@ -701,7 +971,6 @@ async def scan_transfer_qr(conn: asyncpg.Connection, scanner: dict, token: str) 
     )
     if not updated:
         raise TransferError(409, "Ticket was already scanned and consumed by another scanner")
-    seats = (await _seats_by_transfer(conn, [row["id"]])).get(str(row["id"]), [])
     return {
         "success": True,
         "valid": True,
@@ -796,7 +1065,7 @@ async def received_ticket_data(conn: asyncpg.Connection, user_id: str, transfer_
            JOIN booking_seats bs ON bs.id = tts.booking_seat_id
            JOIN show_seats ss ON ss.id = bs.show_seat_id
            JOIN seats s ON s.id = ss.seat_id
-           WHERE tts.transfer_id = $1::uuid
+           WHERE tts.transfer_id = $1::uuid AND tts.released_at IS NULL
            ORDER BY s.row_label, s.seat_number""",
         transfer_id,
     )
@@ -808,6 +1077,8 @@ async def received_ticket_data(conn: asyncpg.Connection, user_id: str, transfer_
     )
     seat_list.extend({"row_label": z["name"], "seat_number": f" × {z['quantity']}",
                       "seat_type": "standing", "price": z["unit_price"] * z["quantity"]} for z in zone_rows)
+    if not seat_list and not zone_rows:
+        raise TransferError(400, "These tickets were forwarded to someone else")
     return {
         "transfer_id": str(row["id"]),
         # the PDF prints this as the ticket reference; the transfer id is the recipient's own reference

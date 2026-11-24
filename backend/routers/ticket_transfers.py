@@ -2,7 +2,9 @@
 
 GET  /api/transfers/booking/{booking_id}  seats of my booking + transfers I made from it
 POST /api/transfers                       send seats to a user by email or phone
+GET  /api/transfers/overview              Tickets page: available / split (sent) / received
 GET  /api/transfers/received              transfers sent to me (QR when accepted)
+POST /api/transfers/{id}/forward          receiver passes accepted seats on to someone else
 POST /api/transfers/{id}/accept|decline   recipient answers
 POST /api/transfers/{id}/cancel           sender takes back a pending transfer
 GET  /api/transfers/{id}/pdf              recipient's PDF ticket with their own QR
@@ -21,6 +23,7 @@ from firebase_admin_setup import verify_firebase_token
 from fastapi.security import HTTPAuthorizationCredentials
 from services import ticket_transfer as svc, transfer_demo_payments as demo
 from services.qr_service import generate_qr_bytes
+from services.transfer_notifier import deliver_in_background
 from services.transfer_email_service import (
     send_ticket_ready_email,
     send_transfer_received_email,
@@ -34,6 +37,11 @@ router = APIRouter(prefix="/api/transfers", tags=["ticket transfers"])
 class ZoneQuantity(BaseModel):
     booking_zone_id: str
     quantity: int = Field(..., strict=True, gt=0, le=2_147_483_647)
+
+
+class ForwardCreate(BaseModel):
+    seat_ids: List[str] = Field(..., min_length=1, max_length=50)
+    recipient: str = Field(..., min_length=1, max_length=255)
 
 
 class TransferCreate(BaseModel):
@@ -88,6 +96,7 @@ async def create_transfer(
     except svc.TransferError as e:
         raise _http(e)
     background_tasks.add_task(send_transfer_received_email, transfer)
+    background_tasks.add_task(deliver_in_background)
     return {
         "id": transfer["id"],
         "status": transfer["status"],
@@ -97,6 +106,41 @@ async def create_transfer(
                     if transfer.get("invited") else
                     f"Transfer created for {transfer['recipient_name']}. "
                     "They need to accept before the seats move."),
+    }
+
+
+@router.get("/overview")
+async def tickets_overview(
+    user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    result = await svc.tickets_overview(conn, str(user["id"]))
+    for item in result["received"]:
+        item["demo_payment_available"] = demo.enabled()
+        item["qr_image"] = generate_qr_bytes(item["qr_data"]) if item["qr_data"] else None
+    return result
+
+
+@router.post("/{transfer_id}/forward", status_code=201)
+async def forward_transfer(
+    transfer_id: str,
+    body: ForwardCreate,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_conn),
+):
+    try:
+        transfer = await svc.forward_transfer(conn, user, transfer_id, body.seat_ids, body.recipient)
+    except svc.TransferError as e:
+        raise _http(e)
+    background_tasks.add_task(send_transfer_received_email, transfer)
+    background_tasks.add_task(deliver_in_background)
+    return {
+        "id": transfer["id"],
+        "status": transfer["status"],
+        "recipient_name": transfer["recipient_name"],
+        "seats": transfer["seats"],
+        "message": f"Forwarded to {transfer['recipient_name']}. Your QR keeps working until they accept.",
     }
 
 
@@ -120,18 +164,22 @@ async def received_transfers(
 @router.post("/{transfer_id}/demo-checkout")
 async def demo_checkout(
     transfer_id: str,
+    background_tasks: BackgroundTasks,
     user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
     try:
-        return await demo.open_checkout(conn, transfer_id, str(user["id"]))
+        result = await demo.open_checkout(conn, transfer_id, str(user["id"]))
     except svc.TransferError as e:
         raise _http(e)
+    background_tasks.add_task(deliver_in_background)
+    return result
 
 
 @router.post("/{transfer_id}/demo-checkout/check")
 async def check_demo_checkout(
     transfer_id: str,
+    background_tasks: BackgroundTasks,
     user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
@@ -146,9 +194,11 @@ async def check_demo_checkout(
     if not row:
         raise HTTPException(404, "Demo payment not found")
     try:
-        return {"status": await demo.reconcile(conn, row)}
+        status = await demo.reconcile(conn, row)
     except svc.TransferError as e:
         raise _http(e)
+    background_tasks.add_task(deliver_in_background)
+    return {"status": status}
 
 
 async def _respond(transfer_id: str, accept: bool, user: dict, conn, background_tasks: BackgroundTasks):
@@ -157,6 +207,7 @@ async def _respond(transfer_id: str, accept: bool, user: dict, conn, background_
     except svc.TransferError as e:
         raise _http(e)
     background_tasks.add_task(send_transfer_response_email, transfer)
+    background_tasks.add_task(deliver_in_background)
     if accept:
         # email the recipient their PDF ticket; never fail the accept because of it
         try:
@@ -190,6 +241,7 @@ async def decline_transfer(
 @router.post("/{transfer_id}/cancel")
 async def cancel_transfer(
     transfer_id: str,
+    background_tasks: BackgroundTasks,
     user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_conn),
 ):
@@ -197,6 +249,7 @@ async def cancel_transfer(
         transfer = await svc.cancel_transfer(conn, str(user["id"]), transfer_id)
     except svc.TransferError as e:
         raise _http(e)
+    background_tasks.add_task(deliver_in_background)
     return {"id": transfer_id, "status": transfer["status"]}
 
 

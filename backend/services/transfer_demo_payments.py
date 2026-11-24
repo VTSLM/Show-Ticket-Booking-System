@@ -117,12 +117,21 @@ async def reconcile(conn: asyncpg.Connection, row: dict) -> str:
                         conn, str(tr["to_user_id"]), transfer_id, accept=True, paid_checkout=True,
                     )
                     target = "buyer"
+                    await transfers._notify_transfer(conn, str(tr["from_user_id"]), "transfer.payment_received", {
+                        "transfer_id": transfer_id, "booking_id": str(tr["booking_id"]),
+                        "event_title": tr["event_title"], "recipient_name": tr["recipient_name"],
+                        "amount_paise": row["amount_paise"],
+                    })
                 except transfers.TransferError as exc:
                     if exc.status_code not in (400, 404, 409):
                         raise
                     # A scan, cancellation or expiry won. Return the test charge
                     # to the friend without issuing a ticket.
                     target = "recipient"
+                    await transfers._notify_transfer(conn, str(tr["to_user_id"]), "transfer.payment_returned", {
+                        "transfer_id": transfer_id, "event_title": tr["event_title"],
+                        "amount_paise": row["amount_paise"],
+                    })
                 row = await conn.fetchrow(
                     """UPDATE transfer_demo_payments SET recipient_payment_id = $2, refund_target = $3,
                               refund_status = 'pending' WHERE transfer_id = $1::uuid RETURNING *""",

@@ -33,35 +33,81 @@ from routers.manager_analytics import router as manager_analytics_router
 from routers.ticket_transfers import router as ticket_transfers_router
 from services.ticket_transfer import expire_pending_transfers
 from services.transfer_demo_payments import reconcile_pending
+from services.transfer_notifier import deliver_pending
 
 
 async def _cleanup_expired_locks():
-    """Background task: release seat locks whose timer has expired."""
+    """Background task: release seat locks whose timer has expired and notify clients."""
+    from routers.seats import manager
     while True:
         await asyncio.sleep(120)  # runs every 2 minutes
         try:
             pool = await get_pool()
             async with pool.acquire() as conn:
-                result = await conn.execute(
+                rows = await conn.fetch(
                     """UPDATE show_seats
-                       SET status='available', locked_by=NULL, locked_until=NULL
-                       WHERE status='locked' AND locked_until < NOW()"""
+                       SET status='available', locked_by=NULL, locked_until=NULL, locked_price=NULL
+                       WHERE status='locked' AND locked_until < NOW()
+                       RETURNING id, show_id"""
                 )
+                if rows:
+                    by_show: dict[str, list[str]] = {}
+                    for r in rows:
+                        by_show.setdefault(str(r["show_id"]), []).append(str(r["id"]))
+                    for s_id, seat_ids in by_show.items():
+                        await manager.broadcast(s_id, {"type": "release", "seat_ids": seat_ids}, conn=conn)
+                    print(f"[seat-cleanup] Released {len(rows)} expired seat lock(s)")
                 await expire_pending_transfers(conn)
                 await reconcile_pending(conn)
-            if result != "UPDATE 0":
-                print(f"[seat-cleanup] {result}")
+                await deliver_pending(conn)
         except Exception as e:
             print(f"[seat-cleanup] error: {e}")
+
+
+async def _listen_seat_events():
+    """Background task: listen to PostgreSQL NOTIFY for cross-instance seat sync."""
+    from routers.seats import manager, INSTANCE_ID
+    import json
+    while True:
+        try:
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                def on_notify(connection, pid, channel, payload):
+                    try:
+                        data = json.loads(payload)
+                        if data.get("instance_id") != INSTANCE_ID:
+                            asyncio.create_task(
+                                manager.broadcast(
+                                    data["show_id"],
+                                    data["message"],
+                                    from_remote=True
+                                )
+                            )
+                    except Exception:
+                        pass
+
+                await conn.add_listener("seat_events", on_notify)
+                try:
+                    while True:
+                        await asyncio.sleep(3600)
+                finally:
+                    await conn.remove_listener("seat_events", on_notify)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            await asyncio.sleep(15)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     check_production_settings()
     init_firebase()
     await get_pool()
-    task = asyncio.create_task(_cleanup_expired_locks())
+    cleanup_task = asyncio.create_task(_cleanup_expired_locks())
+    listen_task = asyncio.create_task(_listen_seat_events())
     yield
-    task.cancel()
+    cleanup_task.cancel()
+    listen_task.cancel()
     await close_pool()
 
 
