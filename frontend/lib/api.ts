@@ -5,6 +5,18 @@ import {
   friendlyNetworkMessage,
 } from "./errorMessages";
 
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(status: number, message: string, detail?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const SESSION_STORAGE_KEY = "ticketflow_session_id";
 
@@ -81,7 +93,7 @@ async function request<T>(
         sessionExpiryHandler();
       }
     }
-    throw new Error(friendlyApiMessage(res.status, rawDetail));
+    throw new ApiError(res.status, friendlyApiMessage(res.status, rawDetail), rawDetail);
   }
 
   if (res.status === 204) return undefined as T;
@@ -119,7 +131,8 @@ export async function downloadFile(path: string): Promise<Blob> {
 }
 
 export const api = {
-  get: <T>(path: string, auth = true) => request<T>("GET", path, undefined, auth),
+  get: <T>(path: string, auth: boolean | "optional" = true) =>
+    request<T>("GET", path, undefined, auth),
   post: <T>(path: string, body?: unknown, auth: boolean | "optional" = true) =>
     request<T>("POST", path, body, auth),
   put: <T>(path: string, body?: unknown, auth = true) =>
@@ -166,7 +179,7 @@ export const wishlistApi = {
 };
 
 export const seatsApi = {
-  map: (showId: string) => api.get<any>(`/api/seats/${showId}/map`, false),
+  map: (showId: string) => api.get<any>(`/api/seats/${showId}/map`, "optional"),
   terms: (showId: string) => api.get<any>(`/api/seats/${showId}/terms`, false),
   lock: (showId: string, seat_ids: string[]) =>
     api.post(`/api/seats/${showId}/lock`, { seat_ids }),

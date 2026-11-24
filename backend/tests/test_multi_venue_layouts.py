@@ -25,27 +25,39 @@ async def test_get_seat_map_with_zones_and_layout():
     show_id = str(uuid.uuid4())
 
     # Mock show seats
+    # get_seat_map makes 3 conn.fetch calls:
+    #   1. Release expired locks (RETURNING id) — may return empty list
+    #   2. Fetch seat rows
+    #   3. Fetch zones
     conn.fetch.side_effect = [
-        # Seat rows
+        # 1. Release expired locks — none expired
+        [],
+        # 2. Seat rows
         [
-            {"show_seat_id": str(uuid.uuid4()), "status": "available", "price": 250.0, "row_label": "A", "seat_number": 1, "seat_type": "standard"},
-            {"show_seat_id": str(uuid.uuid4()), "status": "available", "price": 400.0, "row_label": "B", "seat_number": 1, "seat_type": "premium"}
+            {"show_seat_id": str(uuid.uuid4()), "status": "available", "price": 250.0, "row_label": "A", "seat_number": 1, "seat_type": "standard", "locked_price": None, "x_pos": None, "y_pos": None, "section_name": None, "is_mine": False},
+            {"show_seat_id": str(uuid.uuid4()), "status": "available", "price": 400.0, "row_label": "B", "seat_number": 1, "seat_type": "premium", "locked_price": None, "x_pos": None, "y_pos": None, "section_name": None, "is_mine": False},
         ],
-        # Zones
+        # 3. Zones
         [
             {
                 "id": str(uuid.uuid4()), "name": "Fan Pit (Standing)", "zone_type": "standing",
                 "total_capacity": 500, "booked_count": 50, "locked_count": 10,
                 "price": 6500.0, "color_hex": "#ff3b5c", "display_order": 1,
-                "available_capacity": 440
+                "available_capacity": 440,
+                "polygon_coords": None, "x_pos": None, "y_pos": None,
+                "width": None, "height": None,
             }
-        ]
+        ],
     ]
 
     conn.fetchrow.return_value = {
         "layout_type": "concert",
         "stage_position": "front",
-        "event_type": "concert"
+        "event_type": "concert",
+        "show_terms": None,
+        "event_terms": None,
+        "layout_config": None,
+        # for get_show_pricing (second fetchrow call): missing start_time triggers NO_CHANGE fallback
     }
 
     result = await get_seat_map(show_id=show_id, conn=conn)
