@@ -44,6 +44,7 @@ interface VenueLayoutCanvasProps {
   selectedZoneId?: string | null;
   onToggleSeat: (seat: SeatItem) => void;
   onSelectZone: (zone: ZoneItem) => void;
+  pendingSeatIds?: string[];
 }
 
 export default function VenueLayoutCanvas({
@@ -56,6 +57,7 @@ export default function VenueLayoutCanvas({
   selectedZoneId,
   onToggleSeat,
   onSelectZone,
+  pendingSeatIds = [],
 }: VenueLayoutCanvasProps) {
   // Zoom and pan state
   const [zoom, setZoom] = useState<number>(1.0);
@@ -991,10 +993,11 @@ export default function VenueLayoutCanvas({
             {/* 6. NUMBERED SEATS (STRICTLY ASSIGNED SEATING AREA) */}
             {computedSeats.map((seat) => {
               const isSelected = selectedSeatIds.includes(seat.show_seat_id);
+              const isPending = pendingSeatIds.includes(seat.show_seat_id);
               const isMine = seat.status === "mine" || isSelected;
               const isBooked = seat.status === "booked";
               const isLocked = seat.status === "locked" && !isMine;
-              const isAvailable = seat.status === "available" || isMine;
+              const isAvailable = (seat.status === "available" || isMine) && !isPending;
               const isPremium = seat.seat_type === "premium";
               const isAccessible = seat.seat_type === "accessible";
               const inActiveSection = isSeatInActiveSection(seat);
@@ -1004,7 +1007,11 @@ export default function VenueLayoutCanvas({
               let stroke = "#10b981";
               let textColor = "#34d399";
 
-              if (isMine) {
+              if (isPending) {
+                fill = "#2a1c07";
+                stroke = "#eab308";
+                textColor = "#fef08a";
+              } else if (isMine) {
                 fill = "#1d4ed8";
                 stroke = "#60a5fa";
                 textColor = "#ffffff";
@@ -1038,13 +1045,15 @@ export default function VenueLayoutCanvas({
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (isAvailable) onToggleSeat(seat);
+                    if ((isAvailable || isMine) && !isPending) onToggleSeat(seat);
                   }}
                   onMouseEnter={() => handleSeatEnter(seat)}
                   className={
-                    isAvailable
-                      ? "cursor-pointer transition-opacity duration-100 hover:opacity-90"
-                      : "cursor-not-allowed opacity-50"
+                    isPending
+                      ? "cursor-wait opacity-80 animate-pulse"
+                      : isAvailable || isMine
+                        ? "cursor-pointer transition-opacity duration-100 hover:opacity-90"
+                        : "cursor-not-allowed opacity-50"
                   }
                   opacity={inActiveSection ? 1 : 0.25}
                 >
@@ -1185,6 +1194,7 @@ export default function VenueLayoutCanvas({
           (() => {
             const seat = activeInfo.data as SeatItem;
             const isMine = selectedSeatIds.includes(seat.show_seat_id);
+            const isPending = pendingSeatIds.includes(seat.show_seat_id);
             return (
               <div className="flex flex-wrap items-center gap-2.5">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -1198,14 +1208,18 @@ export default function VenueLayoutCanvas({
                 <span className="text-slate-500">•</span>
                 <span
                   className={`font-semibold ${
-                    isMine
+                    isPending
+                      ? "text-yellow-400 animate-pulse"
+                      : isMine
                       ? "text-blue-400"
                       : seat.status === "available"
                       ? "text-emerald-400"
                       : "text-amber-400"
                   }`}
                 >
-                  {isMine
+                  {isPending
+                    ? "⏳ Locking seat..."
+                    : isMine
                     ? "✓ Selected (Click to deselect)"
                     : seat.status === "available"
                     ? "● Available (Click to select)"

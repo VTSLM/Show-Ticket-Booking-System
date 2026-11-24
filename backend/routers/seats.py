@@ -1,15 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from typing import List, Optional
 import asyncpg
 import json
+import uuid as uuid_lib
 from datetime import datetime, timezone
-from database import get_conn
+from database import get_conn, get_pool
 from dependencies import get_current_user
+from firebase_admin_setup import verify_firebase_token
 from services.dynamic_pricing import get_show_pricing, apply_multiplier
 from services.terms_service import resolve_show_terms
 
 router = APIRouter(prefix="/api/seats", tags=["seats"])
+
+optional_security = HTTPBearer(auto_error=False)
+INSTANCE_ID = str(uuid_lib.uuid4())
 
 # ---- WebSocket Connection Manager ----
 class ConnectionManager:
@@ -22,18 +28,45 @@ class ConnectionManager:
 
     def disconnect(self, show_id: str, ws: WebSocket):
         if show_id in self.active:
-            self.active[show_id].discard(ws) if isinstance(self.active[show_id], set) else \
-                (self.active[show_id].remove(ws) if ws in self.active[show_id] else None)
+            if isinstance(self.active[show_id], set):
+                self.active[show_id].discard(ws)
+            elif ws in self.active[show_id]:
+                self.active[show_id].remove(ws)
 
-    async def broadcast(self, show_id: str, message: dict):
+    async def broadcast(
+        self,
+        show_id: str,
+        message: dict,
+        from_remote: bool = False,
+        conn: Optional[asyncpg.Connection] = None
+    ):
         dead = []
-        for ws in self.active.get(show_id, []):
+        for ws in list(self.active.get(show_id, [])):
             try:
                 await ws.send_json(message)
             except Exception:
                 dead.append(ws)
         for ws in dead:
             self.disconnect(show_id, ws)
+
+        # Cross-instance synchronization via PostgreSQL NOTIFY
+        if not from_remote:
+            try:
+                payload = json.dumps({
+                    "show_id": show_id,
+                    "instance_id": INSTANCE_ID,
+                    "message": message,
+                })
+                if conn and hasattr(conn, "execute"):
+                    await conn.execute("SELECT pg_notify('seat_events', $1)", payload)
+                else:
+                    pool = await get_pool()
+                    if pool:
+                        async with pool.acquire() as c:
+                            await c.execute("SELECT pg_notify('seat_events', $1)", payload)
+            except Exception:
+                # Local broadcast succeeded; remote notification is best-effort / fallback
+                pass
 
 manager = ConnectionManager()
 
@@ -65,7 +98,11 @@ def display_layout(event_type: Optional[str], venue_layout: Optional[str]) -> st
 
 # ---- REST endpoints ----
 @router.get("/{show_id}/map")
-async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn)):
+async def get_seat_map(
+    show_id: str,
+    conn: asyncpg.Connection = Depends(get_conn),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+):
     # Fetch screen and event layout metadata
     show_meta = await conn.fetchrow(
         """SELECT sc.layout_type, sc.stage_position, sc.layout_config,
@@ -80,21 +117,40 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
     if not show_meta:
         raise HTTPException(status_code=404, detail="Show not found")
 
-    # Release expired locks in DB before returning the map
-    await conn.execute(
+    # Resolve user_id if authenticated (to mark the user's own locked seats)
+    user_id = None
+    if isinstance(auth, HTTPAuthorizationCredentials) and auth.credentials:
+        try:
+            decoded = verify_firebase_token(auth.credentials)
+            uid = decoded.get("uid")
+            if uid:
+                user_row = await conn.fetchrow("SELECT id FROM users WHERE firebase_uid = $1", uid)
+                if user_row:
+                    user_id = user_row["id"]
+        except Exception:
+            pass
+
+    # Release expired locks in DB before returning the map and notify connected clients
+    released_rows = await conn.fetch(
         """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL, locked_price=NULL
-           WHERE show_id=$1::uuid AND status='locked' AND locked_until < NOW()""",
+           WHERE show_id=$1::uuid AND status='locked' AND locked_until < NOW()
+           RETURNING id""",
         show_id
     )
+    if released_rows:
+        released_ids = [str(r["id"]) for r in released_rows]
+        await manager.broadcast(show_id, {"type": "release", "seat_ids": released_ids}, conn=conn)
+
     rows = await conn.fetch(
         """SELECT ss.id as show_seat_id, ss.status, ss.price, ss.locked_price,
                   s.row_label, s.seat_number, s.seat_type,
-                  s.x_pos, s.y_pos, s.section_name
+                  s.x_pos, s.y_pos, s.section_name,
+                  CASE WHEN $2::uuid IS NOT NULL AND ss.locked_by = $2::uuid THEN true ELSE false END AS is_mine
            FROM show_seats ss
            JOIN seats s ON s.id = ss.seat_id
            WHERE ss.show_id = $1::uuid
            ORDER BY s.row_label, s.seat_number""",
-        show_id
+        show_id, user_id
     )
 
     zones = await conn.fetch(
@@ -142,6 +198,7 @@ async def get_seat_map(show_id: str, conn: asyncpg.Connection = Depends(get_conn
         seat = dict(r)
         locked_price = seat.pop("locked_price", None)
         seat["base_price"] = seat["price"]
+        seat["is_mine"] = bool(r.get("is_mine", False))
         if pricing["dynamic"]:
             if seat["status"] == "locked" and locked_price is not None:
                 seat["price"] = locked_price
@@ -286,13 +343,14 @@ async def lock_seats(
     from datetime import timedelta
     locked_until = now + timedelta(minutes=LOCK_DURATION_MINUTES)
 
-    # Try to lock requested seats
+    # Concurrency-safe: atomically lock available or expired seats, or refresh own lock
     locked = []
     failed = []
     for seat_id in req.seat_ids:
         result = await conn.execute(
             """UPDATE show_seats SET status='locked', locked_by=$3::uuid, locked_until=$4
-               WHERE id=$1::uuid AND show_id=$2::uuid AND status='available'""",
+               WHERE id=$1::uuid AND show_id=$2::uuid
+                 AND (status='available' OR (status='locked' AND locked_until < NOW()) OR (status='locked' AND locked_by=$3::uuid))""",
             seat_id, show_id, user_id, locked_until
         )
         if result == "UPDATE 1":
@@ -301,7 +359,7 @@ async def lock_seats(
             failed.append(seat_id)
 
     if failed:
-        # Rollback
+        # Rollback any newly acquired locks
         if locked:
             await conn.execute(
                 """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL
@@ -323,7 +381,8 @@ async def lock_seats(
             "UPDATE show_seats SET locked_price = NULL WHERE id = ANY($1::uuid[])", locked
         )
 
-    await manager.broadcast(show_id, {"type": "lock", "seat_ids": locked, "user_id": user_id})
+    # Broadcast lock event without exposing private user ID
+    await manager.broadcast(show_id, {"type": "lock", "seat_ids": locked}, conn=conn)
     return {"locked": locked, "locked_until": locked_until.isoformat()}
 
 
@@ -335,14 +394,18 @@ async def release_seats(
     conn: asyncpg.Connection = Depends(get_conn)
 ):
     user_id = str(current_user["id"])
+    released_ids = []
     if req.seat_ids:
-        await conn.execute(
+        released_rows = await conn.fetch(
             """UPDATE show_seats SET status='available', locked_by=NULL, locked_until=NULL, locked_price=NULL
-               WHERE id=ANY($1::uuid[]) AND show_id=$2::uuid AND locked_by=$3::uuid AND status='locked'""",
+               WHERE id=ANY($1::uuid[]) AND show_id=$2::uuid AND locked_by=$3::uuid AND status='locked'
+               RETURNING id""",
             req.seat_ids, show_id, user_id
         )
-        await manager.broadcast(show_id, {"type": "release", "seat_ids": req.seat_ids})
-    return {"released": req.seat_ids}
+        if released_rows:
+            released_ids = [str(r["id"]) for r in released_rows]
+            await manager.broadcast(show_id, {"type": "release", "seat_ids": released_ids}, conn=conn)
+    return {"released": released_ids}
 
 
 # ---- WebSocket ----

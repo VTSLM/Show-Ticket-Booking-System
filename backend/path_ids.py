@@ -10,7 +10,8 @@ Registered once for the whole app in ``main.py``, so new routes are covered too.
 """
 import uuid
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
+from starlette.requests import HTTPConnection
 
 
 def is_uuid(value: str) -> bool:
@@ -21,7 +22,7 @@ def is_uuid(value: str) -> bool:
     return True
 
 
-async def validate_path_ids(request: Request) -> None:
-    for name, value in request.path_params.items():
+async def validate_path_ids(connection: HTTPConnection) -> None:
+    for name, value in connection.path_params.items():
         if name.endswith("_id") and not is_uuid(value):
             raise HTTPException(status_code=404, detail="Not found")
