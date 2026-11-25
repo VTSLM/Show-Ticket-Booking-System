@@ -1,30 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { ReceivedTransfer, TRANSFER_STATUS_STYLES, transfersApi } from "@/lib/transfersApi";
-
-function fmtDate(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString("en-IN", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { ReceivedTransfer, transfersApi } from "@/lib/transfersApi";
+import ReceivedTicketList from "@/components/ReceivedTicketList";
+import { auth } from "@/lib/firebase";
+import { EMAIL_VERIFICATION_REQUIRED, sendVerificationEmail } from "@/lib/emailVerification";
 
 export default function ReceivedTicketsPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [items, setItems] = useState<ReceivedTransfer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -39,59 +29,42 @@ export default function ReceivedTicketsPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
-      router.push("/auth/login");
+      router.push("/auth/login?redirect=%2Ftickets%2Freceived");
       return;
     }
     load();
   }, [authLoading, user, router, load]);
-
-  const downloadPdf = async (id: string) => {
-    setBusyId(id);
-    try {
-      const blob = await transfersApi.pdf(id);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `ticket_${id.slice(0, 8)}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-      toast.success("Ticket PDF downloaded");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not download the ticket");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const answer = async (id: string, accept: boolean) => {
-    setBusyId(id);
-    try {
-      if (accept) {
-        await transfersApi.accept(id);
-        toast.success("Tickets accepted. Show the QR code at the venue.");
-      } else {
-        await transfersApi.decline(id);
-        toast.success("Tickets declined");
-      }
-      await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Something went wrong");
-    } finally {
-      setBusyId(null);
-    }
-  };
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
       <p className="mb-2 text-xs font-bold uppercase tracking-widest text-[var(--blue)]">From friends</p>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-extrabold tracking-tight text-white">Received tickets</h1>
-        <Link href="/bookings" className="btn-secondary text-sm">
-          ← My Bookings
+        <Link href="/tickets" className="btn-secondary text-sm">
+          ← All tickets
         </Link>
       </div>
+
+      {!EMAIL_VERIFICATION_REQUIRED && auth.currentUser && !auth.currentUser.emailVerified && (
+        <div className="card mb-4 text-sm">
+          <p>Verify your account email to receive invitations sent before you signed up.</p>
+          <button className="btn-secondary mt-2" onClick={async () => {
+            try {
+              if (!auth.currentUser) return;
+              await sendVerificationEmail(auth.currentUser, "/tickets/received");
+              toast.success("Verification email sent. Open it, then refresh this page.");
+            } catch { toast.error("Could not send the verification email."); }
+          }}>Send verification email</button>
+          <button className="btn-secondary mt-2 ml-2" onClick={async () => {
+            try {
+              if (!auth.currentUser) return;
+              await auth.currentUser.reload();
+              await auth.currentUser.getIdToken(true);
+              await load();
+            } catch { toast.error("Could not refresh verification status."); }
+          }}>I verified my email</button>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-[var(--muted)]">Loading…</p>
@@ -103,78 +76,7 @@ export default function ReceivedTicketsPage() {
           </p>
         </div>
       ) : (
-        <ul className="space-y-4">
-          {items.map((t) => {
-            const st = TRANSFER_STATUS_STYLES[t.status] ?? { label: t.status, color: "#9ba3b5" };
-            return (
-              <li key={t.id} className="card flex flex-col gap-4 p-5 sm:flex-row sm:items-start">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-lg font-bold text-white">{t.event_title}</h2>
-                    <span
-                      className="rounded-full px-3 py-0.5 text-xs font-bold"
-                      style={{ color: st.color, background: `${st.color}22` }}
-                    >
-                      {t.used ? "Used at venue" : st.label}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-[var(--muted)]">
-                    {fmtDate(t.start_time)} · {t.venue_name}, {t.city} · {t.screen_name}
-                  </p>
-                  <p className="mt-2 text-sm text-slate-300">
-                    From <span className="font-semibold text-white">{t.sender_name}</span> · Seats{" "}
-                    <span className="font-semibold text-white">{t.seats.join(", ")}</span>
-                  </p>
-
-                  {t.status === "pending" && (
-                    <div className="mt-4 flex gap-2">
-                      <button
-                        type="button"
-                        className="btn-primary text-sm"
-                        onClick={() => answer(t.id, true)}
-                        disabled={busyId === t.id}
-                      >
-                        {busyId === t.id ? "Please wait…" : "Accept"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary text-sm"
-                        onClick={() => answer(t.id, false)}
-                        disabled={busyId === t.id}
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  )}
-
-                  {t.qr_image && (
-                    <button
-                      type="button"
-                      className="btn-secondary mt-4 text-sm"
-                      onClick={() => downloadPdf(t.id)}
-                      disabled={busyId === t.id}
-                    >
-                      {busyId === t.id ? "Downloading…" : "⬇ Download ticket PDF"}
-                    </button>
-                  )}
-                </div>
-
-                {t.qr_image && (
-                  <div className="flex flex-col items-center gap-1 self-center rounded-lg bg-white p-2">
-                    <Image
-                      src={`data:image/png;base64,${t.qr_image}`}
-                      alt={`Entry QR code for seats ${t.seats.join(", ")}`}
-                      width={140}
-                      height={140}
-                      unoptimized
-                    />
-                    <span className="text-[10px] font-semibold text-slate-700">Show this at entry</span>
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        <ReceivedTicketList items={items} onChanged={load} userEmail={user?.email} />
       )}
     </div>
   );

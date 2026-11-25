@@ -2,6 +2,7 @@
 Endpoints for user and admin in-app notifications.
 Allows fetching unread notifications and marking them as read.
 """
+import json
 import asyncpg
 from fastapi import APIRouter, Depends
 from database import get_conn
@@ -41,8 +42,18 @@ async def get_my_notifications(
         user_id,
     )
 
+    notifications = []
+    for row in rows:
+        item = dict(row)
+        if isinstance(item.get("payload"), str):
+            try:
+                item["payload"] = json.loads(item["payload"])
+            except json.JSONDecodeError:
+                item["payload"] = {}
+        notifications.append(item)
+
     return {
-        "notifications": [dict(r) for r in rows],
+        "notifications": notifications,
         "unread_count": unread_count or 0,
     }
 

@@ -31,6 +31,9 @@ from routers.notifications import router as notifications_router
 from routers.chat import router as chat_router
 from routers.manager_analytics import router as manager_analytics_router
 from routers.ticket_transfers import router as ticket_transfers_router
+from services.ticket_transfer import expire_pending_transfers
+from services.transfer_demo_payments import reconcile_pending
+from services.transfer_notifier import deliver_pending
 
 
 async def _cleanup_expired_locks():
@@ -54,6 +57,9 @@ async def _cleanup_expired_locks():
                     for s_id, seat_ids in by_show.items():
                         await manager.broadcast(s_id, {"type": "release", "seat_ids": seat_ids}, conn=conn)
                     print(f"[seat-cleanup] Released {len(rows)} expired seat lock(s)")
+                await expire_pending_transfers(conn)
+                await reconcile_pending(conn)
+                await deliver_pending(conn)
         except Exception as e:
             print(f"[seat-cleanup] error: {e}")
 

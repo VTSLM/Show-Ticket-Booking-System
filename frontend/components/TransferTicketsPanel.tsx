@@ -9,7 +9,9 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
   const [data, setData] = useState<BookingTransfers | null>(null);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+  const [zoneQuantities, setZoneQuantities] = useState<Record<string, number>>({});
   const [recipient, setRecipient] = useState("");
+  const [requestPayment, setRequestPayment] = useState(false);
   const [sending, setSending] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -25,21 +27,24 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
     load();
   }, [load]);
 
-  if (!data || (data.seats.length === 0 && data.transfers.length === 0)) return null;
+  if (!data || (data.seats.length === 0 && data.zones.length === 0 && data.transfers.length === 0)) return null;
 
   const yours = data.seats.filter((s) => s.state === "yours");
   const toggle = (id: string) =>
     setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
   const send = async () => {
-    if (selected.length === 0) return toast.error("Choose at least one seat");
+    const zones = Object.entries(zoneQuantities).filter(([, quantity]) => quantity > 0).map(([booking_zone_id, quantity]) => ({ booking_zone_id, quantity }));
+    if (selected.length === 0 && zones.length === 0) return toast.error("Choose at least one ticket");
     if (!recipient.trim()) return toast.error("Enter their email or phone number");
     setSending(true);
     try {
-      const res = await transfersApi.send({ booking_id: bookingId, seat_ids: selected, recipient: recipient.trim() });
+      const res = await transfersApi.send({ booking_id: bookingId, seat_ids: selected, zones, recipient: recipient.trim(), request_demo_payment: requestPayment });
       toast.success(res.message);
       setSelected([]);
+      setZoneQuantities({});
       setRecipient("");
+      setRequestPayment(false);
       setOpen(false);
       await load();
     } catch (e) {
@@ -65,7 +70,7 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] p-4 text-sm">
       <div className="flex items-center justify-between gap-2">
-        <p className="font-semibold text-white">🎁 Send tickets to a friend</p>
+        <p className="font-semibold text-white">Send tickets to a friend</p>
         {data.can_transfer && !open && (
           <button type="button" className="btn-primary px-3 py-1 text-xs" onClick={() => setOpen(true)}>
             Split / Transfer
@@ -74,7 +79,7 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
       </div>
 
       {!data.can_transfer && data.reason && (
-        <p className="mt-2 text-xs text-[var(--muted)]">🔒 {data.reason}</p>
+        <p className="mt-2 text-xs text-[var(--muted)]">{data.reason}</p>
       )}
 
       {open && data.can_transfer && (
@@ -102,6 +107,14 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
               })}
             </div>
           </div>
+          {data.zones.filter((z) => z.available > 0).map((z) => (
+            <label key={z.booking_zone_id} className="block text-slate-300">
+              {z.name} ({z.available} available)
+              <input type="number" min={0} max={z.available} value={zoneQuantities[z.booking_zone_id] || 0}
+                onChange={(e) => setZoneQuantities((cur) => ({ ...cur, [z.booking_zone_id]: Math.min(z.available, Math.max(0, Math.floor(Number(e.target.value) || 0))) }))}
+                className="input ml-3 w-20" />
+            </label>
+          ))}
           <label className="block">
             <span className="mb-1 block text-xs text-[var(--muted)]">Their email or mobile number</span>
             <input
@@ -114,12 +127,18 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
             />
           </label>
           <p className="text-xs text-[var(--muted)]">
-            They need a TicketFlow account. Once they accept, those seats get their own QR code and your QR
-            stops working for them.
+            If they don&apos;t have an account yet, send to their email and they can sign up and verify it.
+            Once they accept, those seats get their own QR code and your QR stops working for them.
           </p>
+          {data.demo_payment_available && (
+            <label className="flex items-center gap-2 text-slate-300">
+              <input type="checkbox" checked={requestPayment} onChange={(e) => setRequestPayment(e.target.checked)} />
+              Request their share (test payment)
+            </label>
+          )}
           <div className="flex gap-2">
             <button type="button" className="btn-primary flex-1 text-sm" onClick={send} disabled={sending}>
-              {sending ? "Sending…" : `Send ${selected.length || ""} seat${selected.length === 1 ? "" : "s"}`}
+              {sending ? "Sending…" : "Send tickets"}
             </button>
             <button type="button" className="btn-secondary text-sm" onClick={() => setOpen(false)} disabled={sending}>
               Close
@@ -138,6 +157,12 @@ export default function TransferTicketsPanel({ bookingId }: { bookingId: string 
                   <span className="font-semibold text-white">{t.seats.join(", ")}</span> → {t.recipient_name}
                   <span className="ml-2 text-xs font-semibold" style={{ color: st.color }}>
                     {t.used ? "Used at venue" : st.label}
+                    {t.status === "pending" && t.requested_share_paise && (
+                      <> · Test share ₹{(t.requested_share_paise / 100).toFixed(2)}</>
+                    )}
+                    {t.demo_refund_status && t.demo_amount && (
+                      <> · Test refund ₹{(t.demo_amount / 100).toFixed(2)}: {t.demo_refund_status}</>
+                    )}
                   </span>
                 </span>
                 {t.status === "pending" && (

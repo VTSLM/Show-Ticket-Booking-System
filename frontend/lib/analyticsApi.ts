@@ -92,7 +92,19 @@ export interface AnalyticsQuery {
   event_id?: string;
 }
 
+export interface TransferStatistics {
+  total: number;
+  statuses: Record<"pending" | "accepted" | "declined" | "cancelled" | "expired", number>;
+}
+
 export const analyticsApi = {
+  transfers: (q: AnalyticsQuery) => {
+    const params = new URLSearchParams();
+    if (q.start && q.end) { params.set("start", q.start); params.set("end", q.end); }
+    else if (q.days) params.set("days", String(q.days));
+    if (q.event_id) params.set("event_id", q.event_id);
+    return api.get<TransferStatistics>(`/api/manager/insights/transfers?${params.toString()}`);
+  },
   get: (q: AnalyticsQuery) => {
     const params = new URLSearchParams();
     if (q.start && q.end) {

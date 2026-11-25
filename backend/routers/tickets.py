@@ -44,6 +44,12 @@ def _parse_booking_id(qr_data: Optional[str], booking_id: Optional[str]) -> str:
 
 
 async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Connection) -> dict:
+    async with conn.transaction():
+        await conn.fetchval("SELECT id FROM bookings WHERE id = $1::uuid FOR UPDATE", booking_id)
+        return await _scan_locked_ticket(booking_id, user, conn)
+
+
+async def _scan_locked_ticket(booking_id: str, user: dict, conn: asyncpg.Connection) -> dict:
     row = await conn.fetchrow(
         """SELECT t.id, t.booking_id, t.status, t.is_used,
                   e.title as event_title, s.start_time, v.name as venue_name,
@@ -90,7 +96,8 @@ async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Co
 
     # Seats sent to friends have their own QR codes; this one only admits the rest.
     seat_count, seats_left = await transfers.seats_left_on_booking(conn, booking_id)
-    if seat_count and not seats_left:
+    zones_left = await transfers.zones_left_on_booking(conn, booking_id)
+    if (seat_count or zones_left) and not seats_left and not any(z["quantity"] for z in zones_left):
         raise HTTPException(
             status_code=409,
             detail="All seats on this booking were transferred. Scan the QR codes the recipients hold."
@@ -99,7 +106,7 @@ async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Co
     # Atomically mark the ticket as used (prevents concurrent double-scanning)
     updated = await conn.fetchrow(
         """UPDATE tickets
-           SET is_used = true, status = 'used'
+           SET is_used = true, status = 'used', used_at = now()
            WHERE booking_id = $1::uuid AND is_used = false AND status = 'valid'
            RETURNING id, booking_id, status, is_used""",
         booking_id
@@ -121,6 +128,8 @@ async def _scan_and_consume_ticket(booking_id: str, user: dict, conn: asyncpg.Co
         "status": updated["status"],
         "used": updated["is_used"],
         "seats": seats_left,
+        "zones": [{k: z[k] for k in ("booking_zone_id", "name", "quantity")}
+                  for z in zones_left if z["quantity"] > 0],
         "attendee": {
             "name": row["user_name"],
             "email": row["user_email"]
@@ -165,7 +174,16 @@ async def _get_booking_seats(booking_id: str, conn: asyncpg.Connection) -> list:
                              WHERE tts.booking_seat_id = bs.id AND tt.status = 'accepted')""",
         booking_id
     )
-    return [dict(r) for r in rows]
+    seats = [dict(r) for r in rows]
+    for zone in await transfers.zones_left_on_booking(conn, booking_id):
+        if zone["quantity"] > 0:
+            seats.append({
+                "row_label": zone["name"],
+                "seat_number": f" × {zone['quantity']}",
+                "seat_type": "standing",
+                "price": zone["unit_price"] * zone["quantity"],
+            })
+    return seats
 
 
 @router.post("/bookings/{booking_id}/confirm")

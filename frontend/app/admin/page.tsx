@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { adminApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
@@ -33,6 +34,7 @@ export default function AdminPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">Admin — Pending Approvals</h1>
+      <Link href="/admin/transfers" className="text-blue-400 inline-block mb-6">View ticket transfers →</Link>
       {pending.length === 0 ? (
         <div className="card text-center py-8 text-gray-400">No pending approvals.</div>
       ) : (

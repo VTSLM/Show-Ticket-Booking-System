@@ -8,7 +8,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
-import { analyticsApi, EventAnalytics, ManagerAnalytics } from "@/lib/analyticsApi";
+import { analyticsApi, EventAnalytics, ManagerAnalytics, TransferStatistics } from "@/lib/analyticsApi";
 
 const C = {
   blue: "#287cff", green: "#00c977", amber: "#ffb300", red: "#ff4455", violet: "#8b5cf6",
@@ -302,6 +302,7 @@ export default function ManagerAnalyticsPage() {
   const [eventId, setEventId] = useState("");
   const [data, setData] = useState<ManagerAnalytics | null>(null);
   const [detail, setDetail] = useState<EventAnalytics | null>(null);
+  const [transfers, setTransfers] = useState<TransferStatistics | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -311,10 +312,13 @@ export default function ManagerAnalyticsPage() {
         ? { start: custom.start, end: custom.end, event_id: eventId || undefined }
         : { days, event_id: eventId || undefined };
       // Load both independently: if one fails, the other still updates the page
-      const [overview, eventDetail] = await Promise.allSettled([
+      const [overview, eventDetail, transferStats] = await Promise.allSettled([
         analyticsApi.get(q),
         eventId ? analyticsApi.event(eventId, q) : Promise.resolve(null),
+        analyticsApi.transfers(q),
       ]);
+      if (transferStats.status === "fulfilled") setTransfers(transferStats.value);
+      else { setTransfers(null); toast.error("Could not load transfer statistics"); }
       if (overview.status === "fulfilled") setData(overview.value);
       else toast.error(overview.reason?.message || "Could not load analytics");
       if (eventDetail.status === "fulfilled") setDetail(eventDetail.value);
@@ -440,6 +444,11 @@ export default function ManagerAnalyticsPage() {
       </div>
 
       {eventId && detail && <EventDetail d={detail} onBack={() => setEventId("")} />}
+
+      {transfers && <Card title="Ticket transfers" className="mb-6">
+        <p className="text-sm text-slate-300">{num(transfers.total)} transfers created in this period</p>
+        <p className="text-sm text-slate-400 mt-2">{num(transfers.statuses.accepted)} accepted · {num(transfers.statuses.pending)} pending · {num(transfers.statuses.declined)} declined · {num(transfers.statuses.cancelled)} cancelled · {num(transfers.statuses.expired)} expired</p>
+      </Card>}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
