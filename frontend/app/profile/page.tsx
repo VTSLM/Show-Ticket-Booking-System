@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { profileApi, MyProfile, BIO_MAX, PHOTO_TYPES, PHOTO_MAX_BYTES } from "@/lib/profileApi";
+import PreferencesForm from "@/components/PreferencesForm";
 
 type Form = { name: string; phone: string; birthdate: string; bio: string };
 
@@ -220,6 +221,8 @@ export default function ProfilePage() {
           </button>
         </div>
       </form>
+
+      <PreferencesForm />
     </div>
   );
 }

@@ -85,6 +85,10 @@ DEFAULT_RULES: List[Rule] = [
     _rule("browse-search", "GET", r"^/api/browse/shows$", 180, MIN),
     # Assistant: each message calls OpenAI (costs money)
     _rule("chat", "POST", r"^/api/chat(/stream)?$", 20, MIN),
+    # Recommendations may ask the model for reasons (cached per user and picks)
+    _rule("recommendations", "GET", r"^/api/recommendations$", 30, MIN),
+    _rule("event-view", "POST", r"^/api/recommendations/views/[^/]+$", 60, MIN),
+    _rule("preferences-write", "PUT", r"^/api/recommendations/preferences$", 20, MIN),
 ]
 
 EXEMPT_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json"}

@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
-import { browseApi } from "@/lib/api";
+import { browseApi, recommendationsApi } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import ShowDetailsView from "@/components/ShowDetailsView";
 
 export default function EventDetailsPage() {
@@ -13,6 +14,15 @@ export default function EventDetailsPage() {
 
   const [eventData, setEventData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const uid = user?.uid;
+  const loadedEventId = eventData ? eventId : null; // set once the published event loaded
+
+  // Browsing behaviour for recommendations (#218): count one view per page open
+  useEffect(() => {
+    if (!uid || !loadedEventId) return;
+    recommendationsApi.recordView(String(loadedEventId)).catch(() => {});
+  }, [uid, loadedEventId]);
 
   useEffect(() => {
     let isMounted = true;

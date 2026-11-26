@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "@/contexts/LocationContext";
+import RecommendationRows from "@/components/RecommendationRows";
 
 export default function Home() {
   const { user } = useAuth();
@@ -56,6 +57,8 @@ export default function Home() {
           </Link>
         </div>
       </section>
+
+      <RecommendationRows />
 
       {/* Features */}
       <section className="py-16 px-6 bg-[var(--surface)]">
