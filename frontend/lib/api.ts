@@ -171,6 +171,57 @@ export const browseApi = {
     api.get<{ name: string; state: string; lat: number; lng: number }[]>("/api/browse/india-cities", false),
 };
 
+export interface RecommendedEvent {
+  event_id: string;
+  title: string;
+  event_type: string;
+  genre: string | null;
+  language: string | null;
+  poster_url: string | null;
+  next_show_time: string | null;
+  city: string | null;
+  price_from: number | null;
+  avg_rating: number | null;
+  review_count: number;
+  link: string;
+  match?: string[];
+  reason?: string | null;
+  recent_bookings?: number;
+}
+
+export interface RecommendationsResponse {
+  personalized: boolean;
+  recommended: RecommendedEvent[];
+  trending: RecommendedEvent[];
+  ai_reasons: boolean;
+  fallback: "guest" | "no_history" | "ai_timeout" | "ai_unavailable" | "ai_off" | null;
+  based_on: string[];
+}
+
+export interface UserPreferences {
+  genres: string[];
+  artists: string[];
+  cities: string[];
+  updated_at?: string | null;
+}
+
+export const recommendationsApi = {
+  get: (near?: { lat: number; lng: number } | null) => {
+    const qs = near ? `?lat=${near.lat}&lng=${near.lng}` : "";
+    return api.get<RecommendationsResponse>(`/api/recommendations${qs}`, "optional");
+  },
+  recordView: (eventId: string) =>
+    api.post<{ recorded: boolean }>(`/api/recommendations/views/${eventId}`),
+  preferences: () => api.get<UserPreferences>("/api/recommendations/preferences"),
+  savePreferences: (prefs: UserPreferences) =>
+    api.put<UserPreferences>("/api/recommendations/preferences", prefs),
+  preferenceOptions: () =>
+    api.get<{ genres: string[]; artists: string[]; cities: string[] }>(
+      "/api/recommendations/preference-options",
+      false
+    ),
+};
+
 export const wishlistApi = {
   list: () => api.get<any[]>("/api/wishlist"),
   ids: () => api.get<{ event_ids: string[] }>("/api/wishlist/ids"),

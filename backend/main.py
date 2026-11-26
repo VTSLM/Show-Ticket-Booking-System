@@ -31,6 +31,7 @@ from routers.notifications import router as notifications_router
 from routers.chat import router as chat_router
 from routers.manager_analytics import router as manager_analytics_router
 from routers.ticket_transfers import router as ticket_transfers_router
+from routers.recommendations import router as recommendations_router
 from services.ticket_transfer import expire_pending_transfers
 from services.transfer_demo_payments import reconcile_pending
 from services.transfer_notifier import deliver_pending
@@ -163,6 +164,7 @@ app.include_router(notifications_router)
 app.include_router(chat_router)
 app.include_router(manager_analytics_router)
 app.include_router(ticket_transfers_router)
+app.include_router(recommendations_router)
 
 @app.get("/")
 def root():

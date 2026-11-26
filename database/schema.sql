@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict VIdLvZcIsExq862kZP7pdEgci1Ldp5HTPZAQiS9fgfuiXv4Mc5HQhPAdnDwZ3ah
+\restrict qLe0ciBkqFXyefKI1oKefOBWIgj62OIKAfNV9uurLTk7b9kpZc21x8JeBjIDxlL
 
--- Dumped from database version 16.16
--- Dumped by pg_dump version 16.16
+-- Dumped from database version 16.15
+-- Dumped by pg_dump version 16.15
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -245,6 +245,24 @@ BEGIN
     RAISE EXCEPTION 'venue verification audit rows are immutable';
 END;
 $$;
+
+
+--
+-- Name: queue_transfer_messages(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.queue_transfer_messages() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.event_name LIKE 'transfer.%' THEN
+        INSERT INTO public.transfer_message_deliveries (notification_id, user_id, event_name, channel)
+        VALUES (NEW.id, NEW.user_id, NEW.event_name, 'email'),
+               (NEW.id, NEW.user_id, NEW.event_name, 'whatsapp')
+        ON CONFLICT DO NOTHING;
+    END IF;
+    RETURN NEW;
+END $$;
 
 
 --
@@ -518,6 +536,20 @@ CREATE TABLE public.duplicate_fingerprints (
     case_type character varying(30) DEFAULT 'ORGANIZER'::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT duplicate_fingerprints_case_type_check CHECK (((case_type)::text = ANY ((ARRAY['ORGANIZER'::character varying, 'VENUE'::character varying, 'LISTING'::character varying])::text[])))
+);
+
+
+--
+-- Name: event_views; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.event_views (
+    user_id uuid NOT NULL,
+    event_id uuid NOT NULL,
+    view_count integer DEFAULT 1 NOT NULL,
+    first_viewed_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_viewed_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT event_views_view_count_check CHECK ((view_count > 0))
 );
 
 
@@ -1016,7 +1048,8 @@ CREATE TABLE public.terms_acceptances (
 
 CREATE TABLE public.ticket_transfer_seats (
     transfer_id uuid NOT NULL,
-    booking_seat_id uuid NOT NULL
+    booking_seat_id uuid NOT NULL,
+    released_at timestamp with time zone
 );
 
 
@@ -1049,7 +1082,9 @@ CREATE TABLE public.ticket_transfers (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     responded_at timestamp with time zone,
     requested_share_paise integer,
+    parent_transfer_id uuid,
     CONSTRAINT chk_ticket_transfers_not_self CHECK ((from_user_id <> to_user_id)),
+    CONSTRAINT chk_ticket_transfers_parent_not_self CHECK (((parent_transfer_id IS NULL) OR (parent_transfer_id <> id))),
     CONSTRAINT chk_ticket_transfers_token CHECK ((((status)::text <> 'accepted'::text) OR (qr_token IS NOT NULL))),
     CONSTRAINT chk_ticket_transfers_used CHECK ((((is_used = false) AND (used_at IS NULL)) OR ((is_used = true) AND (used_at IS NOT NULL)))),
     CONSTRAINT ticket_transfers_recipient_required CHECK ((((status)::text <> 'accepted'::text) OR (to_user_id IS NOT NULL))),
@@ -1098,6 +1133,27 @@ CREATE TABLE public.transfer_demo_payments (
 
 
 --
+-- Name: transfer_message_deliveries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.transfer_message_deliveries (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    notification_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    event_name character varying(100) NOT NULL,
+    channel character varying(20) NOT NULL,
+    status character varying(20) DEFAULT 'pending'::character varying NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    claimed_at timestamp with time zone,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    sent_at timestamp with time zone,
+    CONSTRAINT transfer_message_deliveries_channel_check CHECK (((channel)::text = ANY ((ARRAY['email'::character varying, 'whatsapp'::character varying])::text[]))),
+    CONSTRAINT transfer_message_deliveries_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'sending'::character varying, 'sent'::character varying, 'failed'::character varying, 'skipped'::character varying])::text[])))
+);
+
+
+--
 -- Name: trust_tier_rules; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1111,6 +1167,19 @@ CREATE TABLE public.trust_tier_rules (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT trust_tier_rules_max_live_shows_check CHECK ((max_live_shows >= 0)),
     CONSTRAINT trust_tier_rules_payout_hold_days_check CHECK ((payout_hold_days >= 0))
+);
+
+
+--
+-- Name: user_preferences; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_preferences (
+    user_id uuid NOT NULL,
+    genres text[] DEFAULT '{}'::text[] NOT NULL,
+    artists text[] DEFAULT '{}'::text[] NOT NULL,
+    cities text[] DEFAULT '{}'::text[] NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -1459,6 +1528,14 @@ ALTER TABLE ONLY public.duplicate_fingerprints
 
 ALTER TABLE ONLY public.duplicate_fingerprints
     ADD CONSTRAINT duplicate_fingerprints_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: event_views event_views_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_views
+    ADD CONSTRAINT event_views_pkey PRIMARY KEY (user_id, event_id);
 
 
 --
@@ -1814,6 +1891,22 @@ ALTER TABLE ONLY public.transfer_demo_payments
 
 
 --
+-- Name: transfer_message_deliveries transfer_message_deliveries_notification_id_channel_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transfer_message_deliveries
+    ADD CONSTRAINT transfer_message_deliveries_notification_id_channel_key UNIQUE (notification_id, channel);
+
+
+--
+-- Name: transfer_message_deliveries transfer_message_deliveries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transfer_message_deliveries
+    ADD CONSTRAINT transfer_message_deliveries_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: trust_tier_rules trust_tier_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1859,6 +1952,14 @@ ALTER TABLE ONLY public.review_versions
 
 ALTER TABLE ONLY public.show_waitlist
     ADD CONSTRAINT uq_show_waitlist_show_user UNIQUE (show_id, user_id);
+
+
+--
+-- Name: user_preferences user_preferences_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_preferences
+    ADD CONSTRAINT user_preferences_pkey PRIMARY KEY (user_id);
 
 
 --
@@ -2069,6 +2170,13 @@ CREATE INDEX idx_booking_zones_booking_id ON public.booking_zones USING btree (b
 
 
 --
+-- Name: idx_bookings_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_bookings_created_at ON public.bookings USING btree (created_at);
+
+
+--
 -- Name: idx_bookings_show_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2101,6 +2209,13 @@ CREATE UNIQUE INDEX idx_coupons_global_code ON public.coupons USING btree (lower
 --
 
 CREATE INDEX idx_dup_fingerprints_case ON public.duplicate_fingerprints USING btree (case_id, case_type);
+
+
+--
+-- Name: idx_event_views_recent; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_event_views_recent ON public.event_views USING btree (user_id, last_viewed_at DESC);
 
 
 --
@@ -2475,6 +2590,13 @@ CREATE INDEX idx_ticket_transfers_from_user ON public.ticket_transfers USING btr
 
 
 --
+-- Name: idx_ticket_transfers_parent; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ticket_transfers_parent ON public.ticket_transfers USING btree (parent_transfer_id) WHERE (parent_transfer_id IS NOT NULL);
+
+
+--
 -- Name: idx_ticket_transfers_pending_created; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2507,6 +2629,13 @@ CREATE INDEX idx_tickets_qr_code ON public.tickets USING btree (qr_code_data);
 --
 
 CREATE INDEX idx_tickets_user_id ON public.tickets USING btree (user_id);
+
+
+--
+-- Name: idx_transfer_deliveries_pending; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_transfer_deliveries_pending ON public.transfer_message_deliveries USING btree (created_at) WHERE ((status)::text = 'pending'::text);
 
 
 --
@@ -2713,6 +2842,13 @@ CREATE TRIGGER trg_payment_orders_updated_at BEFORE UPDATE ON public.payment_ord
 
 
 --
+-- Name: notifications trg_queue_transfer_messages; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_queue_transfer_messages AFTER INSERT ON public.notifications FOR EACH ROW EXECUTE FUNCTION public.queue_transfer_messages();
+
+
+--
 -- Name: shows trg_shows_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2872,6 +3008,22 @@ ALTER TABLE ONLY public.coupons
 
 ALTER TABLE ONLY public.coupons
     ADD CONSTRAINT coupons_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: event_views event_views_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_views
+    ADD CONSTRAINT event_views_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id) ON DELETE CASCADE;
+
+
+--
+-- Name: event_views event_views_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_views
+    ADD CONSTRAINT event_views_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -3307,6 +3459,14 @@ ALTER TABLE ONLY public.ticket_transfers
 
 
 --
+-- Name: ticket_transfers ticket_transfers_parent_transfer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ticket_transfers
+    ADD CONSTRAINT ticket_transfers_parent_transfer_id_fkey FOREIGN KEY (parent_transfer_id) REFERENCES public.ticket_transfers(id) ON DELETE CASCADE;
+
+
+--
 -- Name: ticket_transfers ticket_transfers_to_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3344,6 +3504,30 @@ ALTER TABLE ONLY public.tickets
 
 ALTER TABLE ONLY public.transfer_demo_payments
     ADD CONSTRAINT transfer_demo_payments_transfer_id_fkey FOREIGN KEY (transfer_id) REFERENCES public.ticket_transfers(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: transfer_message_deliveries transfer_message_deliveries_notification_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transfer_message_deliveries
+    ADD CONSTRAINT transfer_message_deliveries_notification_id_fkey FOREIGN KEY (notification_id) REFERENCES public.notifications(id) ON DELETE CASCADE;
+
+
+--
+-- Name: transfer_message_deliveries transfer_message_deliveries_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transfer_message_deliveries
+    ADD CONSTRAINT transfer_message_deliveries_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_preferences user_preferences_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_preferences
+    ADD CONSTRAINT user_preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -3562,6 +3746,12 @@ ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.duplicate_fingerprints ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: event_views; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.event_views ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: events; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3718,10 +3908,22 @@ ALTER TABLE public.ticket_transfers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transfer_demo_payments ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: transfer_message_deliveries; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.transfer_message_deliveries ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: trust_tier_rules; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
 ALTER TABLE public.trust_tier_rules ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: user_preferences; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.user_preferences ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: user_sessions; Type: ROW SECURITY; Schema: public; Owner: -
@@ -3784,65 +3986,8 @@ ALTER TABLE public.verification_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wishlists ENABLE ROW LEVEL SECURITY;
 
 --
--- 0037: transfer forwarding + message delivery log
---
-
--- 0037: forwarding + delivery log for transfer messages.
---  * A receiver can pass accepted seats on: the new transfer points at the one they received
---    (parent_transfer_id) and, when accepted, the old transfer's seat rows get released_at set,
---    so nothing is deleted and the whole chain stays in the database.
---  * Every in-app transfer notification gets one email row and one WhatsApp row here
---    (pending -> sending -> sent / failed / skipped), so delivery is recorded and retried.
-ALTER TABLE public.ticket_transfers
-    ADD COLUMN IF NOT EXISTS parent_transfer_id uuid REFERENCES public.ticket_transfers(id) ON DELETE CASCADE;
-ALTER TABLE public.ticket_transfers DROP CONSTRAINT IF EXISTS chk_ticket_transfers_parent_not_self;
-ALTER TABLE public.ticket_transfers
-    ADD CONSTRAINT chk_ticket_transfers_parent_not_self CHECK (parent_transfer_id IS NULL OR parent_transfer_id <> id);
-ALTER TABLE public.ticket_transfer_seats
-    ADD COLUMN IF NOT EXISTS released_at timestamptz;
-
-CREATE INDEX IF NOT EXISTS idx_ticket_transfers_parent
-    ON public.ticket_transfers (parent_transfer_id) WHERE parent_transfer_id IS NOT NULL;
-
-CREATE TABLE IF NOT EXISTS public.transfer_message_deliveries (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    notification_id uuid NOT NULL REFERENCES public.notifications(id) ON DELETE CASCADE,
-    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    event_name varchar(100) NOT NULL,
-    channel varchar(20) NOT NULL CHECK (channel IN ('email', 'whatsapp')),
-    status varchar(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'skipped')),
-    attempts integer NOT NULL DEFAULT 0,
-    claimed_at timestamptz,
-    last_error text,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    sent_at timestamptz,
-    UNIQUE (notification_id, channel)
-);
-CREATE INDEX IF NOT EXISTS idx_transfer_deliveries_pending
-    ON public.transfer_message_deliveries (created_at) WHERE status = 'pending';
-ALTER TABLE public.transfer_message_deliveries ENABLE ROW LEVEL SECURITY;
-
--- Any "transfer.*" notification (received, accepted, declined, cancelled, expired,
--- forwarded, payment_*) automatically queues its email + WhatsApp messages.
-CREATE OR REPLACE FUNCTION public.queue_transfer_messages() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-    IF NEW.event_name LIKE 'transfer.%' THEN
-        INSERT INTO public.transfer_message_deliveries (notification_id, user_id, event_name, channel)
-        VALUES (NEW.id, NEW.user_id, NEW.event_name, 'email'),
-               (NEW.id, NEW.user_id, NEW.event_name, 'whatsapp')
-        ON CONFLICT DO NOTHING;
-    END IF;
-    RETURN NEW;
-END $$;
-
-DROP TRIGGER IF EXISTS trg_queue_transfer_messages ON public.notifications;
-CREATE TRIGGER trg_queue_transfer_messages AFTER INSERT ON public.notifications
-    FOR EACH ROW EXECUTE FUNCTION public.queue_transfer_messages();
-
---
 -- PostgreSQL database dump complete
 --
 
-\unrestrict VIdLvZcIsExq862kZP7pdEgci1Ldp5HTPZAQiS9fgfuiXv4Mc5HQhPAdnDwZ3ah
+\unrestrict qLe0ciBkqFXyefKI1oKefOBWIgj62OIKAfNV9uurLTk7b9kpZc21x8JeBjIDxlL
 
