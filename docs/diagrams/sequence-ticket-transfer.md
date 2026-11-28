@@ -20,7 +20,7 @@ sequenceDiagram
     Sender ->> NextJS: Open /tickets, select seats, enter recipient email
     NextJS ->> TransferCtrl: POST /api/transfers {booking_id, seat_ids: ["S1"], to_email: "friend@example.com", requires_reimbursement: false}
     TransferCtrl ->> TransferSvc: initiate_transfer(current_user, data)
-    TransferSvc ->> DB: Validate sender owns booking & seats; tickets are 'valid'
+    TransferSvc ->> DB: Validate sender owns booking and seats, tickets are 'valid'
     TransferSvc ->> DB: Generate secure invitation_token (UUID/random)
     TransferSvc ->> DB: INSERT INTO ticket_transfers (status='pending', expires_at=NOW()+48h, invitation_token)
     TransferSvc ->> DB: INSERT INTO ticket_transfer_seats (transfer_id, ticket_id, show_seat_id)
