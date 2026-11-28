@@ -104,7 +104,7 @@ flowchart TD
     BGDaemons --> Postgres
     WSMgr --> Postgres
 ```
-*Full architectural breakdown and interfaces documented in [diagrams/architecture.md](diagrams/architecture.md).*
+*Full architectural breakdown and interfaces documented in [submission/diagrams/architecture.png](submission/diagrams/architecture.png).*
 
 ---
 
@@ -165,7 +165,7 @@ flowchart TB
 | **13. Notifications & AI** | System alerts, Gmail SMTP delivery, OpenAI conversational assistant | `notifications.py`, `email_service.py`, `chat.py` | `/api/notifications/*`, `/api/chat/*` |
 | **14. Support & Administration** | Customer ticketing, manager analytics, system audit logging | `support.py`, `support_admin.py`, `manager_analytics.py` | `/api/support/*`, `/api/manager/analytics/*` |
 
-*Detailed subsystem service descriptions and dependencies available in [diagrams/subsystem-decomposition.md](diagrams/subsystem-decomposition.md).*
+*Detailed subsystem service descriptions and dependencies available in [submission/diagrams/subsystem-decomposition.png](submission/diagrams/subsystem-decomposition.png).*
 
 ---
 
@@ -227,7 +227,7 @@ The backend repository is organized into distinct packages:
 - `backend/schemas`: API request/response validation schemas.
 - `backend/` (root): Infrastructure modules (`main.py`, `config.py`, `database.py`, `dependencies.py`, `path_ids.py`).
 
-*Full diagram and dependency breakdown in [diagrams/backend-packages.md](diagrams/backend-packages.md).*
+*Full diagram and dependency breakdown in [submission/diagrams/backend-packages.png](submission/diagrams/backend-packages.png).*
 
 ### 6.2 Frontend Package Organization
 The Next.js 14 frontend follows the standard App Router structure:
@@ -236,7 +236,7 @@ The Next.js 14 frontend follows the standard App Router structure:
 - `frontend/contexts`: Global React state providers (`AuthContext.tsx`, `LocationContext.tsx`).
 - `frontend/lib`: Strongly typed API client wrappers (`api.ts`, `transfersApi.ts`, `cancellationsApi.ts`).
 
-*Full frontend package diagram and coupling analysis in [diagrams/frontend-packages.md](diagrams/frontend-packages.md).*
+*Full frontend package diagram and coupling analysis in [submission/diagrams/frontend-packages.png](submission/diagrams/frontend-packages.png).*
 
 ---
 
@@ -247,7 +247,7 @@ The component diagram visualizes deployable units wired through provided and req
 - **`FastAPI_App`:** Provides `I_RestAPI`, requires `I_PostgreSQL` (connection pool), `I_PgNotify` (cross-instance pub/sub), `I_Payment` (Razorpay), `I_Storage` (Supabase), and `I_MailRelay` (Gmail SMTP).
 - **`WebSocket_Hub`:** Provides `I_WebSocket` and synchronizes cross-instance state via PostgreSQL's `seat_events` notification channel.
 
-*Full UML Component Diagram and detailed Booking & Payment subsystem view in [diagrams/component-diagram.md](diagrams/component-diagram.md).*
+*Full UML Component Diagram and detailed Booking & Payment subsystem view in [submission/diagrams/component-diagram.png](submission/diagrams/component-diagram.png).*
 
 ---
 
@@ -259,40 +259,40 @@ Persistent domain entities are derived directly from the PostgreSQL relational s
 Models `User`, `Role`, `UserRole`, `UserSession`, `OrganizerProfile`, and `BankAccount`.
 - **Composition:** `User *-- UserSession` (deleting user cascades to purge active sessions).
 - **Aggregation:** `User o-- OrganizerProfile` (user exists independently of organizer KYC).
-- Detailed diagram and attributes: [diagrams/class-users.md](diagrams/class-users.md).
+- Detailed diagram and attributes: [submission/diagrams/class-users.png](submission/diagrams/class-users.png).
 
 ### 8.2 Events, Shows, Venues, and Seats
 Models `Venue`, `Screen`, `Seat`, `Event`, `Show`, `ShowSeat`, and `ShowZone`.
 - **Physical vs. Scheduled Distinction:** `Seat` represents physical auditorium geometry (`screen_id`, `row_label`, `seat_number`), whereas `ShowSeat` represents an individual show's transactional seat instance with `status`, `price`, `locked_price`, `locked_until`, and `locked_by`.
 - **Composition:** `Venue *-- Screen`, `Screen *-- Seat`, `Show *-- ShowZone`.
-- Detailed diagram and attributes: [diagrams/class-events-venues.md](diagrams/class-events-venues.md).
+- Detailed diagram and attributes: [submission/diagrams/class-events-venues.png](submission/diagrams/class-events-venues.png).
 
 ### 8.3 Bookings, Payments, and Checkout
 Models `Booking`, `BookingSeat`, `BookingZone`, `Coupon`, `PaymentOrder`, `Payment`, `Receipt`, and `CancellationPolicy`.
 - **Composition:** `Booking *-- BookingSeat`, `Booking *-- PaymentOrder`, `Payment *-- Receipt`.
 - **Aggregation:** `Booking o-- Coupon` (coupons exist independently in manager catalogues).
-- Detailed diagram and attributes: [diagrams/class-booking-payment.md](diagrams/class-booking-payment.md).
+- Detailed diagram and attributes: [submission/diagrams/class-booking-payment.png](submission/diagrams/class-booking-payment.png).
 
 ### 8.4 Tickets and Peer-to-Peer Transfers
 Models `Ticket`, `TicketTransfer`, `TicketTransferSeat`, `TicketTransferZone`, `TransferDemoPayment`, and `TransferMessageDelivery`.
 - **Composition:** `TicketTransfer *-- TicketTransferSeat`, `TicketTransfer *-- TransferMessageDelivery`.
 - **Self-Association:** `TicketTransfer` supports hierarchical forwarding chains via `parent_transfer_id`.
-- Detailed diagram and attributes: [diagrams/class-tickets-transfers.md](diagrams/class-tickets-transfers.md).
+- Detailed diagram and attributes: [submission/diagrams/class-tickets-transfers.png](submission/diagrams/class-tickets-transfers.png).
 
 ### 8.5 Reviews and AI Sentiment Analysis
 Models `Review`, `ReviewComment`, `ReviewUpvote`, `ReviewVersion`, `ReviewReport`, and `AiReviewSummary`.
 - **Composition:** `Review *-- ReviewVersion` (immutable audit snapshot on edit), `Review *-- ReviewComment`.
-- Detailed diagram and attributes: [diagrams/class-reviews.md](diagrams/class-reviews.md).
+- Detailed diagram and attributes: [submission/diagrams/class-reviews.png](submission/diagrams/class-reviews.png).
 
 ### 8.6 Organizer and Venue Verification
 Models `VerificationCase`, `VerificationDocument`, `DuplicateFingerprint`, `VenueVerificationCase`, `VenueCaseDocument`, and `VenueVerificationAudit`.
 - **Composition:** `VerificationCase *-- VerificationDocument`, `VenueVerificationCase *-- VenueVerificationAudit`.
-- Detailed diagram and attributes: [diagrams/class-verification.md](diagrams/class-verification.md).
+- Detailed diagram and attributes: [submission/diagrams/class-verification.png](submission/diagrams/class-verification.png).
 
 ### 8.7 Notifications, Support, and Administration
 Models `Notification`, `SupportRequest`, `SupportMessage`, `AdminAuditLog`, `AuditLog`, and `TermsAcceptance`.
 - **Composition:** `SupportRequest *-- SupportMessage`.
-- Detailed diagram and attributes: [diagrams/class-support-admin.md](diagrams/class-support-admin.md).
+- Detailed diagram and attributes: [submission/diagrams/class-support-admin.png](submission/diagrams/class-support-admin.png).
 
 ---
 
@@ -301,21 +301,21 @@ Models `Notification`, `SupportRequest`, `SupportMessage`, `AdminAuditLog`, `Aud
 The dynamic behavior of the system is modeled through scenario-based sequence diagrams utilizing standard UML activation boxes and interaction frames (`alt`, `opt`, `loop`, `par`):
 
 1. **Customer Seat Selection & Booking:** End-to-end flow from seat map loading, non-optimistic seat locking, checkout, Razorpay order creation, HMAC verification, ticket issuance, and email delivery.  
-   $\rightarrow$ Full diagram: [diagrams/sequence-booking.md](diagrams/sequence-booking.md)
+   $\rightarrow$ Full diagram: [submission/diagrams/sequence-booking.png](submission/diagrams/sequence-booking.png)
 2. **Seat-Lock Concurrency & Arbitration:** Race condition resolution when User A and User B concurrently attempt to lock the same seat. Details atomic SQL execution, partial lock rollback, HTTP 409 conflict return, and real-time WebSocket sync via `pg_notify`.  
-   $\rightarrow$ Full diagram: [diagrams/sequence-seat-locking.md](diagrams/sequence-seat-locking.md)
+   $\rightarrow$ Full diagram: [submission/diagrams/sequence-seat-locking.png](submission/diagrams/sequence-seat-locking.png)
 3. **Booking Cancellation & Refund:** Policy evaluation against show start time, fee deduction calculation, Razorpay refund API dispatch, transactional seat inventory recovery, and failure handling.  
-   $\rightarrow$ Full diagram: [diagrams/sequence-cancellation-refund.md](diagrams/sequence-cancellation-refund.md)
+   $\rightarrow$ Full diagram: [submission/diagrams/sequence-cancellation-refund.png](submission/diagrams/sequence-cancellation-refund.png)
 4. **Peer-to-Peer Ticket Transfer:** Transfer initiation, email invitation dispatch, token claim link verification, recipient acceptance, old QR code invalidation, and new ticket reissuance.  
-   $\rightarrow$ Full diagram: [diagrams/sequence-ticket-transfer.md](diagrams/sequence-ticket-transfer.md)
+   $\rightarrow$ Full diagram: [submission/diagrams/sequence-ticket-transfer.png](submission/diagrams/sequence-ticket-transfer.png)
 5. **Organizer Verification (KYC/AML):** Document upload to Supabase vault, automated SHA-256 duplicate detection, composite risk assessment scoring, admin review queue claim, and payout activation.  
-   $\rightarrow$ Full diagram: [diagrams/sequence-organizer-verification.md](diagrams/sequence-organizer-verification.md)
+   $\rightarrow$ Full diagram: [submission/diagrams/sequence-organizer-verification.png](submission/diagrams/sequence-organizer-verification.png)
 6. **Venue Verification:** Draft configuration, fire safety certificate upload, admin claim, compliance decision, and immutable audit logging.  
-   $\rightarrow$ Full diagram: [diagrams/sequence-venue-verification.md](diagrams/sequence-venue-verification.md)
+   $\rightarrow$ Full diagram: [submission/diagrams/sequence-venue-verification.png](submission/diagrams/sequence-venue-verification.png)
 7. **Review Submission & AI Summarization:** Review submission, version snapshotting on edit, and asynchronous LLM sentiment extraction via OpenAI API.  
-   $\rightarrow$ Full diagram: [diagrams/sequence-review.md](diagrams/sequence-review.md)
+   $\rightarrow$ Full diagram: [submission/diagrams/sequence-review.png](submission/diagrams/sequence-review.png)
 8. **User Authentication & Session Inactivity:** Firebase ID token exchange, server-side session issuance, per-request `X-Session-ID` validation, and role-based inactivity timeout enforcement.  
-   $\rightarrow$ Full diagram: [diagrams/sequence-authentication.md](diagrams/sequence-authentication.md)
+   $\rightarrow$ Full diagram: [submission/diagrams/sequence-authentication.png](submission/diagrams/sequence-authentication.png)
 
 ---
 
@@ -324,21 +324,21 @@ The dynamic behavior of the system is modeled through scenario-based sequence di
 Entity lifecycles with interesting dynamic behavior are modeled using UML 2.0 state machine diagrams:
 
 1. **Booking Lifecycle:** States `pending` $\rightarrow$ `confirmed` | `cancelled` | `expired`. Governed by payment verification and cancellation cutoff rules.  
-   $\rightarrow$ Details: [diagrams/state-booking.md](diagrams/state-booking.md)
+   $\rightarrow$ Details: [submission/diagrams/state-booking.png](submission/diagrams/state-booking.png)
 2. **Show Seat Lifecycle:** States `available` $\leftrightarrow$ `locked` $\rightarrow$ `booked` (or `reserved`). Governed by 10-minute hold timers and atomic queries.  
-   $\rightarrow$ Details: [diagrams/state-seat.md](diagrams/state-seat.md)
+   $\rightarrow$ Details: [submission/diagrams/state-seat.png](submission/diagrams/state-seat.png)
 3. **Payment Lifecycle:** States `created` $\rightarrow$ `pending` $\rightarrow$ `successful` | `failed` $\rightarrow$ `refunded`.  
-   $\rightarrow$ Details: [diagrams/state-payment.md](diagrams/state-payment.md)
+   $\rightarrow$ Details: [submission/diagrams/state-payment.png](submission/diagrams/state-payment.png)
 4. **Ticket Lifecycle:** States `valid` $\rightarrow$ `used` | `cancelled`. QR code invalidation on scanning, cancellation, or transfer.  
-   $\rightarrow$ Details: [diagrams/state-ticket.md](diagrams/state-ticket.md)
+   $\rightarrow$ Details: [submission/diagrams/state-ticket.png](submission/diagrams/state-ticket.png)
 5. **Ticket Transfer Lifecycle:** States `pending` $\rightarrow$ `accepted` | `declined` | `cancelled` | `expired`.  
-   $\rightarrow$ Details: [diagrams/state-ticket-transfer.md](diagrams/state-ticket-transfer.md)
+   $\rightarrow$ Details: [submission/diagrams/state-ticket-transfer.png](submission/diagrams/state-ticket-transfer.png)
 6. **Organizer Verification Lifecycle:** States `DRAFT` $\rightarrow$ `SUBMITTED` $\rightarrow$ `IN_REVIEW` $\rightarrow$ `CHANGES_REQUESTED` | `APPROVED` | `REJECTED` | `SUSPENDED` | `EXPIRED`.  
-   $\rightarrow$ Details: [diagrams/state-organizer-verification.md](diagrams/state-organizer-verification.md)
+   $\rightarrow$ Details: [submission/diagrams/state-organizer-verification.png](submission/diagrams/state-organizer-verification.png)
 7. **Venue Verification Lifecycle:** States `draft` $\rightarrow$ `submitted` $\rightarrow$ `in_review` $\rightarrow$ `changes_requested` | `approved` | `rejected` | `expired`.  
-   $\rightarrow$ Details: [diagrams/state-venue-verification.md](diagrams/state-venue-verification.md)
+   $\rightarrow$ Details: [submission/diagrams/state-venue-verification.png](submission/diagrams/state-venue-verification.png)
 8. **Refund Lifecycle:** States `PENDING` $\rightarrow$ `PROCESSING` $\rightarrow$ `PROCESSED` | `FAILED`. Supports admin retries on gateway failures.  
-   $\rightarrow$ Details: [diagrams/state-refund.md](diagrams/state-refund.md)
+   $\rightarrow$ Details: [submission/diagrams/state-refund.png](submission/diagrams/state-refund.png)
 
 ---
 
@@ -347,9 +347,9 @@ Entity lifecycles with interesting dynamic behavior are modeled using UML 2.0 st
 Activity diagrams model end-to-end multi-swimlane business workflows:
 
 1. **End-to-End Customer Booking Workflow:** Six swimlanes (*Customer*, *Next.js Frontend*, *FastAPI Backend*, *PostgreSQL Database*, *Razorpay Gateway*, *Ticket & Notification Service*). Details seat selection, atomic lock acquisition, cart checkout, payment authorization, parallel ticket rendering/emailing, and error fallbacks.  
-   $\rightarrow$ Full diagram: [diagrams/activity-customer-booking.md](diagrams/activity-customer-booking.md)
+   $\rightarrow$ Full diagram: [submission/diagrams/activity-customer-booking.png](submission/diagrams/activity-customer-booking.png)
 2. **Booking Cancellation & Refund Workflow:** Swimlanes tracing customer eligibility checks, policy evaluation, transactional seat inventory recovery, gateway refund calls, and customer alerts.  
-   $\rightarrow$ Full diagram: [diagrams/activity-cancellation.md](diagrams/activity-cancellation.md)
+   $\rightarrow$ Full diagram: [submission/diagrams/activity-cancellation.png](submission/diagrams/activity-cancellation.png)
 
 ---
 
